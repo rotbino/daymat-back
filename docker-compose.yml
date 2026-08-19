@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "3011:3011"
+    environment:
+      - JWT_SECRET=e2f7b8c4c8c5f3a7f9b1e0d4c6f2a1b0e3b7c8d9e6f4a5e2d3c8b7f0a1e2d3c4
+      - JWT_EXPIRES_IN=7d
+      - NODE_ENV=production
+    depends_on:
+      - mongo
+    volumes:
+      - ./uploads:/app/uploads
+
+  mongo:
+    image: mongo:7-jammy
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    environment:
+      - MONGO_INITDB_DATABASE=barton_db
+
+volumes:
+  mongo_data:

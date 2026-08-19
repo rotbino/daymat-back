@@ -1,0 +1,13 @@
+// src/i18n/en.json
+{
+  "INTERNAL_SERVER_ERROR": "Internal server error occurred.",
+  "UNAUTHORIZED": "You do not have permission to access this resource.",
+  "INSUFFICIENT_CREDIT": "Insufficient credit balance.",
+  "VALIDATION_ERROR": "Invalid input data.",
+  "NOT_FOUND": "Requested resource not found.",
+  "USER_NOT_FOUND": "User not found.",
+  "WRONG_CREDENTIALS": "Phone number or password is incorrect.",
+  "DUPLICATE_PHONE": "This phone number is already registered.",
+  "LOGIN_SUCCESS": "Login successful",
+  "REGISTER_SUCCESS": "Registration successful"
+}

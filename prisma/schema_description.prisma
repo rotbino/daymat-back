@@ -1,0 +1,561 @@
+
+// ============================================================
+// schema.prisma
+// معماری دِیمَت — نسخه نهایی برای MVP با توضیحات کامل
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// مدل‌های لایه هسته (Core)
+// ============================================================
+
+// ---------------------- User (کاربر) ----------------------
+// کاربر حقیقی سیستم. هر شخص با شماره موبایل ثبت‌نام می‌کند.
+// می‌تواند چند Business داشته باشد و در چند بازار عضو شود.
+model User {
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  phone           String    @unique                         // شماره موبایل
+  passwordHash    String                                    // رمز عبور هش‌شده
+  fullName        String                                    // نام کامل
+  avatarUrl       String?                                   // آدرس عکس پروفایل
+  status          String    @default("active")              // وضعیت: active | suspended | deleted
+  locale          String    @default("fa")                  // زبان: fa | en
+  timezone        String    @default("Asia/Tehran")         // منطقه زمانی
+  role            String    @default("user")                // نقش: user (کاربر عادی) | arm_owner (مدیر بازار) | system_admin (مدیر سیستم)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  lastLoginAt     DateTime?                                 // آخرین زمان ورود
+
+  // روابط
+  businesses      Business[]      @relation("BusinessOwner")
+  teamMemberships TeamMember[]
+  ads             Ad[]            @relation("AdCreator")
+  buyLeads        BuyLead[]
+  callEvents      CallEvent[]
+  armsOwned       Arm[]           @relation("ArmOwner")
+  armMemberships  ArmMembership[]
+
+  @@index([status])
+  @@index([role])
+}
+
+// ---------------------- Business (کسب‌وکار) ----------------------
+// کسب‌وکار ثبت‌شده توسط کاربر. هر Business می‌تواند در چند بازار عضو شود
+// و آگهی ثبت کند. اعتبار (Credit) و امتیاز اعتماد به این مدل متصل است.
+model Business {
+  id                 String    @id @default(auto()) @map("_id") @db.ObjectId
+  ownerUserId        String    @db.ObjectId                       // شناسه کاربر مالک
+  owner              User      @relation("BusinessOwner", fields: [ownerUserId], references: [id])
+  name               String                                       // نام کسب‌وکار
+  type               String                                       // نوع: producer (تولیدکننده) | wholesaler (عمده‌فروش) | importer (واردکننده) | exporter (صادرکننده) | distributor (پخش‌کننده) | retailer (خرده‌فروش) | contractor (پیمانکار) | service_provider (ارائه‌دهنده خدمات) | other (سایر)
+  description        String?                                      // توضیحات
+  city               String                                       // شهر
+  province           String                                       // استان
+  address            String?                                      // آدرس کامل
+  phone              String                                       // تلفن
+  website            String?                                      // وب‌سایت
+  logoUrl            String?                                      // لوگو
+  nationalId         String?                                      // شناسه ملی
+  businessLicense    String?                                      // شماره پروانه کسب
+  verificationTier   String    @default("none")                  // سطح تأیید: none (تأیید نشده) | blue (تأیید سطح ۱ - کد ملی) | green (تأیید سطح ۲ - پروانه کسب)
+  verificationStatus String    @default("pending")               // وضعیت تأیید مدارک: pending (در انتظار بررسی) | approved (تأیید شده) | rejected (رد شده)
+  trustScore         Float     @default(0)                       // امتیاز اعتماد (۰ تا ۱۰۰) بر اساس رفتار و سابقه
+  status             String    @default("active")                // وضعیت: active | paused | closed
+  metadata           Json?                                       // داده‌های اضافی
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // روابط
+  teamMembers        TeamMember[]
+  ads                Ad[]
+  armMemberships     ArmMembership[]
+  credits            Credit[]
+  verifications      Verification[]
+  trustMetrics       TrustMetric[]
+  buyLeads           BuyLead[]
+
+  @@index([city])
+  @@index([type])
+}
+
+// ---------------------- TeamMember (عضو تیم) ----------------------
+// کاربری که به یک کسب‌وکار متصل شده و نقش مشخصی دارد.
+// مانند مدیر فروش یا آپدیت‌کننده قیمت.
+model TeamMember {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  businessId   String   @db.ObjectId
+  business     Business @relation(fields: [businessId], references: [id])
+  userId       String   @db.ObjectId
+  user         User     @relation(fields: [userId], references: [id])
+  role         String   @default("viewer")                      // نقش: owner (مالک) | system_admin (مدیر) | editor (ویرایشگر) | viewer (بیننده) | support (پشتیبان)
+  permissions  Json?                                           // دسترسی‌های دقیق: { "can_post_ads": true, "can_bump": false, ... }
+  invitedBy    String?  @db.ObjectId                           // شناسه کاربر دعوت‌کننده
+  status       String   @default("pending")                    // وضعیت: pending | active | removed
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([businessId, userId])
+  @@index([businessId])
+  @@index([userId])
+}
+
+// ============================================================
+// مدل‌های لایه درخت (Tree)
+// ============================================================
+
+// ---------------------- ProductCategory (دسته‌بندی کالا) ----------------------
+// درخت جهانی گروه‌های کالا. هر بازار شاخه‌های خاص خود را انتخاب می‌کند.
+// از Materialized Path (path) برای جستجوی سریع زیرشاخه‌ها استفاده می‌شود.
+model ProductCategory {
+  id                 String    @id @default(auto()) @map("_id") @db.ObjectId
+  title              String                                       // عنوان (فارسی)
+  slug               String    @unique                           // شناسه یکتا در URL
+  parentId           String?   @db.ObjectId                      // شناسه والد
+  parent             ProductCategory?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children           ProductCategory[] @relation("CategoryTree")
+  level              Int       @default(0)                       // سطح درخت (۰ برای ریشه)
+  path               String                                       // مسیر کامل با استفاده از روش Materialized Path: "construction.steel.rebar" (برای جستجوی سریع زیرشاخه‌ها)
+  defaultUnitId      String?   @db.ObjectId                      // واحد پیش‌فرض
+  defaultMinQuantity Float?                                      // حداقل سفارش پیش‌فرض
+  example            String?                                     // مثال برای راهنمایی کاربر
+  icon               String?                                     // آیکون
+  description        String?                                     // توضیحات
+  customFieldsSchema Json?                                      // فیلدهای سفارشی: { "fields": [ { "key": "grade", "label": "گرید", "type": "select", "options": ["A1", "A2"] } ] }
+  score              Int       @default(0)                       // امتیاز محبوبیت
+  isActive           Boolean   @default(true)                    // فعال/غیرفعال
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // روابط
+  categoryUnitMappings CategoryUnitMapping[]
+  customCategories     CustomCategory[] @relation("CustomCategoryParent")
+  ads                  Ad[]
+  armMappings          ArmCategoryMapping[]
+  buyLeads             BuyLead[]
+
+  @@index([parentId])
+  @@index([path])
+}
+
+// ---------------------- Unit (واحد اندازه‌گیری) ----------------------
+// واحدهای اندازه‌گیری مانند تن، کیلوگرم، عدد، متر، جعبه، ...
+model Unit {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  title      String   @unique                                       // عنوان: تن
+  shortCode  String   @unique                                       // کد کوتاه: t
+  isDefault  Boolean  @default(false)                               // واحد پیش‌فرض؟
+
+  // روابط
+  categoryUnitMappings CategoryUnitMapping[]
+  adUnits              Ad[]
+}
+
+// ---------------------- CategoryUnitMapping (واسطه دسته‌بندی و واحد) ----------------------
+// Many-to-Many بین ProductCategory و Unit.
+// مشخص می‌کند هر دسته‌بندی چه واحدهایی دارد و کدام واحد پیش‌فرض است.
+model CategoryUnitMapping {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  categoryId  String   @db.ObjectId
+  category    ProductCategory @relation(fields: [categoryId], references: [id])
+  unitId      String   @db.ObjectId
+  unit        Unit     @relation(fields: [unitId], references: [id])
+  isDefault   Boolean  @default(false)                              // آیا این واحد پیش‌فرض است؟
+
+  @@unique([categoryId, unitId])
+  @@index([categoryId])
+  @@index([unitId])
+}
+
+// ============================================================
+// مدل‌های لایه بازار (Arm)
+// ============================================================
+
+// ---------------------- Arm (بازار) ----------------------
+// بازار تخصصی. هر بازار یک جامعه مستقل با قوانین و تنظیمات خاص خود است.
+// مثل بارتون (مصالح) یا ضایاب (ضایعات).
+model Arm {
+  id                  String    @id @default(auto()) @map("_id") @db.ObjectId
+  slug                String    @unique                              // شناسه یکتا در URL: barton
+  name                String                                         // نام: بارتون
+  shortName           String?                                        // نام کوتاه
+  slogan              String                                         // شعار: قیمت امروز فروشندگان مصالح
+  description         String?                                        // توضیحات
+  icon                String?                                        // آیکون (Material Symbol)
+  colorPrimary        String?                                        // رنگ اصلی
+  colorSecondary      String?                                        // رنگ ثانویه
+  logoUrl             String?                                        // لوگو
+  bannerUrl           String?                                        // بنر
+
+  status              String    @default("draft")                    // وضعیت: draft (پیش‌نویس) | pending_approval (در انتظار تأیید) | active (فعال) | rejected (رد شده) | archived (بایگانی شده)
+  visibility          String    @default("public")                   // سطح دید: public (عمومی) | unlisted (با لینک) | private (خصوصی - فقط دعوت)
+
+  ownerUserId         String    @db.ObjectId                         // شناسه مدیر بازار
+  owner               User      @relation("ArmOwner", fields: [ownerUserId], references: [id])
+
+  categoryRootIds     String[]  @db.ObjectId @default([])            // شناسه ریشه‌های دسته‌بندی انتخاب‌شده (برای پوشش چند شاخه بزرگ)
+  geoScopeType        String                                         // نوع محدوده جغرافیایی: country (کشور) | region (منطقه) | city (شهر) | multi_city (چند شهر)
+  defaultUnitId       String?   @db.ObjectId                         // واحد پیش‌فرض بازار
+
+  terminologyOverrides Json?                                         // تغییر نام اصطلاحات: { "قیمت واحد": "قیمت روز", "تامین‌کننده": "فروشنده عمده" }
+  featuresEnabled     String[]  @default([])                         // قابلیت‌های فعال: ["bump", "buy_lead", "trust_blue"]
+  customFieldSchema   Json?                                          // فیلدهای سفارشی برای آگهی‌های این بازار: { "fields": [ { "key": "grade", "label": "گرید", "type": "select", "options": ["A1", "A2"] } ] }
+
+  rankingAlgorithm    String    @default("simple")                   // الگوریتم رتبه‌بندی: simple (ساده - بر اساس تازگی و نردبان) | standard (استاندارد) | advanced (پیشرفته - با اعتماد و رفتار کاربر)
+  validityDefaultDays Int       @default(7)                          // اعتبار پیش‌فرض آگهی (به روز)
+  maxAdsFree          Int       @default(5)                          // سهمیه آگهی رایگان برای هر کسب‌وکار در این بازار
+  bumpCostCredits     Int       @default(10)                         // هزینه نردبان (ارتقا) به اعتبار در این بازار
+
+  metadata            Json?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  launchedAt          DateTime?                                      // تاریخ راه‌اندازی
+
+  // روابط
+  config              ArmConfig?
+  memberships         ArmMembership[]
+  categoryMappings    ArmCategoryMapping[]
+  customCategories    CustomCategory[]
+  ads                 Ad[]
+  buyLeads            BuyLead[]
+  credits             Credit[]
+  trustMetrics        TrustMetric[]
+
+  @@index([status])
+}
+
+// ---------------------- ArmConfig (تنظیمات بازار) ----------------------
+// تنظیمات پیشرفته بازار مانند ظاهر، فیلترها، قوانین عضویت و ...
+// هر بازار یک ArmConfig دارد.
+model ArmConfig {
+  id                       String   @id @default(auto()) @map("_id") @db.ObjectId
+  armId                    String   @unique @db.ObjectId
+  arm                      Arm      @relation(fields: [armId], references: [id])
+
+  // تنظیمات UI
+  primaryColor             String?
+  secondaryColor           String?
+  fontFamily               String?
+  showVerifiedBadge        Boolean  @default(true)                    // نمایش نشان تأیید برای کسب‌وکارهای تأییدشده
+  showCompanyName          Boolean  @default(true)                    // نمایش نام کسب‌وکار در تابلوی آگهی‌ها
+
+  // تنظیمات فیلتر
+  defaultFilters           Json?
+  availableFilters         String[] @default([])                     // فیلترهای در دسترس: ["category", "city", "price_range", "unit"]
+
+  // نمایش
+  showBuyLeadButton        Boolean  @default(true)                    // نمایش دکمه «ثبت درخواست خرید» در این بازار
+  showSearchBar            Boolean  @default(true)                    // نمایش نوار جستجو در تابلوی این بازار
+  showCategoryFilter       Boolean  @default(true)                    // نمایش فیلتر دسته‌بندی در تابلوی این بازار
+  showLocationFilter       Boolean  @default(true)                    // نمایش فیلتر موقعیت جغرافیایی در تابلوی این بازار
+
+  // الزامات ثبت‌نام
+  requireBusinessName      Boolean  @default(true)                    // آیا برای عضویت در این بازار، نام کسب‌وکار الزامی است؟
+  requireCity              Boolean  @default(true)                    // آیا برای عضویت در این بازار، شهر الزامی است؟
+  requireType              Boolean  @default(true)                    // آیا برای عضویت در این بازار، نوع کسب‌وکار الزامی است؟
+  allowAnonymousPublishing Boolean  @default(true)                    // آیا فروشنده می‌تواند آگهی را به صورت ناشناس منتشر کند؟
+
+  // تنظیمات مالی
+  freeAdQuota              Int      @default(5)                       // سهمیه آگهی رایگان برای این بازار
+  bumpCreditCost           Int      @default(10)                      // هزینه نردبان به اعتبار در این بازار
+  subscriptionEnabled      Boolean  @default(false)                   // آیا اشتراک پولی در این بازار فعال است؟
+
+  updatedAt                DateTime @updatedAt
+}
+
+// ---------------------- ArmCategoryMapping (اتصال بازار به دسته‌بندی) ----------------------
+// مشخص می‌کند هر بازار کدام گره‌های درخت را انتخاب کرده است.
+// همچنین تنظیمات per-branch مانند واحدها و حداقل سفارش را ذخیره می‌کند.
+model ArmCategoryMapping {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  armId           String   @db.ObjectId
+  arm             Arm      @relation(fields: [armId], references: [id])
+  categoryId      String   @db.ObjectId
+  category        ProductCategory @relation(fields: [categoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  unitOverrides   String[] @db.ObjectId @default([])                 // واحدهای مجاز در این بازار (اگر خالی باشد، از واحدهای جهانی استفاده می‌شود)
+  minOrderOverride Float?                                            // حداقل سفارش اختصاصی (اگر null باشد، از مقدار جهانی استفاده می‌شود)
+  customLabel     String?                                            // تغییر نام نمایشی این گره در این بازار (مثلاً «سیمان» به «سیمان تیپ ۲ کیسه‌ای»)
+  displayPriority Int      @default(0)                               // ترتیب نمایش
+  isActive        Boolean  @default(true)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([armId, categoryId])
+  @@index([armId])
+}
+
+// ---------------------- CustomCategory (گره اختصاصی بازار) ----------------------
+// گره‌های دسته‌بندی که مدیر بازار خودش ایجاد می‌کند.
+// می‌تواند زیر یک گره جهانی یا زیر یک گره اختصاصی دیگر باشد.
+model CustomCategory {
+  id                String   @id @default(auto()) @map("_id") @db.ObjectId
+  armId             String   @db.ObjectId
+  arm               Arm      @relation(fields: [armId], references: [id])
+
+  parentGlobalId    String?  @db.ObjectId                            // والد جهانی (ProductCategory) - اگر این گره زیر یک گره جهانی باشد
+  parentCustomId    String?  @db.ObjectId                            // والد اختصاصی (CustomCategory) - اگر این گره زیر یک گره اختصاصی دیگر باشد
+  parentGlobal      ProductCategory? @relation("CustomCategoryParent", fields: [parentGlobalId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  parentCustom      CustomCategory?  @relation("CustomCategoryTree", fields: [parentCustomId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children          CustomCategory[] @relation("CustomCategoryTree")
+
+  localTitle        String                                            // عنوان اختصاصی
+  localSlug         String?                                           // slug اختصاصی
+  unitOverrides     String[] @db.ObjectId @default([])                // واحدهای مجاز
+  minOrderOverride  Float?                                            // حداقل سفارش
+  customFieldsSchema Json?                                            // فیلدهای سفارشی برای این گره
+  path              String                                            // مسیر کامل: "custom.cement.bag-type" یا "global.construction.cement.bag-type"
+  level             Int      @default(0)
+  isActive          Boolean  @default(true)
+  displayPriority   Int      @default(0)
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  ads               Ad[]     @relation("CustomCategoryAd")
+
+  @@unique([armId, localSlug])
+  @@index([armId, path])
+}
+
+// ---------------------- ArmMembership (عضویت در بازار) ----------------------
+// عضویت یک کاربر (یا کسب‌وکار) در یک بازار.
+// برای MVP، عضویت به User متصل است (نه Business).
+model ArmMembership {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  armId      String   @db.ObjectId
+  arm        Arm      @relation(fields: [armId], references: [id])
+
+  // عضویت با userId (برای MVP)
+  userId     String   @db.ObjectId
+  user       User     @relation(fields: [userId], references: [id])
+
+  // برای فاز ۲: اگر کاربر Business هم داشته باشد، اینجا ثبت می‌شود
+  businessId String?  @db.ObjectId
+  business   Business? @relation(fields: [businessId], references: [id])
+
+  role       String   @default("viewer")                            // نقش در این بازار: viewer (بیننده) | seller (فروشنده) | buyer (خریدار) | admin (مدیر بازار)
+  status     String   @default("active")                            // وضعیت: active | paused | banned
+  source     String?                                                // منبع عضویت: manual (دستی) | invite (دعوت) | request (درخواست) | auto (خودکار)
+  metadata   Json?
+  joinedAt   DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([armId, userId])
+  @@index([userId])
+  @@index([businessId])
+}
+
+// ============================================================
+// مدل‌های لایه محتوا (Content)
+// ============================================================
+
+// ---------------------- Ad (آگهی) ----------------------
+// قلب محصول. هر آگهی قیمت یک فروشنده است.
+// شامل قیمت، حداقل سفارش، شهر، اعتبار، نردبان و ...
+model Ad {
+  id                    String    @id @default(auto()) @map("_id") @db.ObjectId
+  armId                 String    @db.ObjectId
+  arm                   Arm       @relation(fields: [armId], references: [id])
+  businessId            String    @db.ObjectId
+  business              Business  @relation(fields: [businessId], references: [id])
+  createdByUserId       String    @db.ObjectId
+  createdBy             User      @relation("AdCreator", fields: [createdByUserId], references: [id])
+
+  // دسته‌بندی (جهانی یا اختصاصی)
+  categoryId            String?   @db.ObjectId
+  category              ProductCategory? @relation(fields: [categoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  customCategoryId      String?   @db.ObjectId
+  customCategory        CustomCategory? @relation("CustomCategoryAd", fields: [customCategoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  unitId                String    @db.ObjectId
+  unit                  Unit      @relation(fields: [unitId], references: [id])
+
+  title                 String                                         // عنوان آگهی
+  description           String?                                        // توضیحات
+  unitPrice             Float                                          // قیمت واحد
+  minQuantity           Float                                          // حداقل سفارش
+  availableQuantityBucket String?                                      // سطل موجودی: under_50 (کمتر از ۵۰ تن) | 50_to_200 (۵۰ تا ۲۰۰ تن) | over_200 (بیشتر از ۲۰۰ تن)
+
+  city                  String                                         // شهر
+  locationDetail        String?                                        // جزئیات مکان
+  geo                   Json?                                          // مختصات جغرافیایی
+
+  validityHours          Int       @default(7)                          // مدت اعتبار (روز)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  expiresAt             DateTime                                       // تاریخ انقضا
+  lastBumpedAt          DateTime?                                      // آخرین نردبان
+  status                String    @default("active")                   // وضعیت: active (فعال) | expired (منقضی) | paused (متوقف) | deleted (حذف شده) | banned (ممنوع)
+
+  isAnonymous           Boolean   @default(false)                      // آیا آگهی به صورت ناشناس منتشر شده است؟
+  anonymousLabel        String?                                        // برچسب نمایشی برای آگهی ناشناس (مثلاً «فروشنده تهران»)
+
+  bumpCount             Int       @default(0)                          // تعداد نردبان
+  lastBumpCreditsSpent  Int       @default(0)                          // اعتبار مصرف‌شده در آخرین نردبان
+  isBumped              Boolean   @default(false)                      // آیا الان نردبان دارد؟
+  bumpExpiresAt         DateTime?                                      // زمان انقضای نردبان
+
+  trustScoreAtPost      Float?                                         // امتیاز اعتماد در زمان ثبت
+
+  customFields          Json?                                          // فیلدهای سفارشی بر اساس customFieldSchema بازار: { "grade": "A2", "factory": "فولاد گستران" }
+  source                String    @default("manual")                   // منبع ثبت: manual (دستی) | bulk_upload (بارگذاری انبوه) | api | imported (وارد شده)
+  sourceMetadata        Json?
+
+  viewCount             Int       @default(0)                          // تعداد بازدید
+  callCount             Int       @default(0)                          // تعداد تماس
+
+  metadata              Json?
+
+  views                 AdView[]
+  callEvents            CallEvent[]
+
+  @@index([armId, status])
+  @@index([armId, categoryId])
+  @@index([armId, city])
+  @@index([businessId])
+}
+
+// ---------------------- BuyLead (دِیمَت خرید) ----------------------
+// درخواست خرید از سمت خریداران.
+// از تبدیل جستجو به درخواست خرید ساخته می‌شود.
+model BuyLead {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  armId           String   @db.ObjectId
+  arm             Arm      @relation(fields: [armId], references: [id])
+  businessId      String?  @db.ObjectId
+  business        Business? @relation(fields: [businessId], references: [id])
+  createdByUserId String?  @db.ObjectId
+  user            User?    @relation(fields: [createdByUserId], references: [id])
+  categoryId      String?  @db.ObjectId
+  category        ProductCategory? @relation(fields: [categoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  searchQuery     String                                            // متن جستجوی اولیه (برای تبدیل جستجو به درخواست خرید)
+  title           String                                            // عنوان
+  description     String?                                           // توضیحات
+  city            String                                            // شهر
+  quantityNeeded  Float?                                            // مقدار موردنیاز
+  deadline        String                                            // مهلت موردنیاز: asap (هرچه سریع‌تر) | 24h (۲۴ ساعت) | week (یک هفته) | month (یک ماه)
+  contactMethod   String                                            // روش تماس: phone (تماس تلفنی) | platform_message (پیام در پلتفرم) | both (هر دو)
+  contactValue    String                                            // شماره تلفن
+  status          String   @default("open")                         // وضعیت: open (باز) | in_progress (در حال انجام) | fulfilled (انجام شده) | closed (بسته شده)
+
+  createdAt       DateTime @default(now())
+  expiresAt       DateTime?
+  metadata        Json?
+
+  @@index([armId, status])
+  @@index([armId, createdAt])
+}
+
+// ---------------------- AdView (بازدید آگهی) ----------------------
+// ثبت بازدید هر آگهی برای آنالیز رفتار کاربران.
+model AdView {
+  id                String   @id @default(auto()) @map("_id") @db.ObjectId
+  adId              String   @db.ObjectId
+  ad                Ad       @relation(fields: [adId], references: [id])
+  viewerId          String?  @db.ObjectId
+  viewerAnonymousId String?                                          // شناسه ناشناس (Cookie/Device)
+  viewedAt          DateTime @default(now())
+  source            String                                           // منبع: browse | search | link | category
+
+  @@index([adId, viewedAt])
+}
+
+// ---------------------- CallEvent (رویداد تماس) ----------------------
+// ثبت تماس‌های انجام‌شده برای سنجش PMF.
+// کاربر بعداً مشخص می‌کند که آیا تماس به معامله ختم شده است.
+model CallEvent {
+  id                String   @id @default(auto()) @map("_id") @db.ObjectId
+  adId              String   @db.ObjectId
+  ad                Ad       @relation(fields: [adId], references: [id])
+  callerId          String?  @db.ObjectId
+  caller            User?    @relation(fields: [callerId], references: [id])
+  callerAnonymousId String?                                          // برای تماس‌های ناشناس
+
+  initiatedAt       DateTime @default(now())                         // زمان شروع تماس
+  returnedAt        DateTime?                                        // زمان بازگشت تماس (اگر تماس گیرنده پاسخ داده باشد)
+  ledToDeal         Boolean?                                         // آیا این تماس به معامله ختم شد؟ (کاربر بعداً مشخص می‌کند)
+  feedbackText      String?                                          // بازخورد کاربر
+  source            String?                                          // منبع تماس: direct (مستقیم از تابلو) | saved_search (جستجوی ذخیره‌شده) | notification (نوتیفیکیشن)
+
+  @@index([adId, initiatedAt])
+}
+
+// ============================================================
+// مدل‌های لایه اقتصادی (Economy)
+// ============================================================
+
+// ---------------------- Credit (کیف اعتبار) ----------------------
+// تراکنش‌های کیف اعتبار کسب‌وکار.
+// مثبت = بستانکار، منفی = بدهکار.
+model Credit {
+  id                String   @id @default(auto()) @map("_id") @db.ObjectId
+  businessId        String   @db.ObjectId
+  business          Business @relation(fields: [businessId], references: [id])
+  armId             String?  @db.ObjectId
+  arm               Arm?     @relation(fields: [armId], references: [id])
+
+  amount            Float                                             // مثبت: شارژ، منفی: مصرف
+  transactionType   String                                            // نوع تراکنش: signup_bonus (هدیه ثبت‌نام) | purchase (خرید) | bump_spent (مصرف نردبان) | free_quota_refill (تمدید سهمیه رایگان) | refund (بازپرداخت) | admin_credit (دستی توسط ادمین) | subscription (اشتراک)
+  description       String?                                           // توضیحات
+  relatedEntityId   String?  @db.ObjectId                             // شناسه موجودیت مرتبط (مثلاً شناسه آگهی که برای نردبان مصرف شده است)
+  relatedEntityType String?                                           // نوع موجودیت مرتبط: "Ad" | "Subscription"
+  expiresAt         DateTime?                                         // تاریخ انقضا (برای هدیه)
+  createdAt         DateTime @default(now())
+
+  @@index([businessId, createdAt])
+  @@index([armId, createdAt])
+}
+
+// ---------------------- Verification (تأیید هویت) ----------------------
+// مدارک و تأییدیه‌های کسب‌وکار.
+// سطح blue: کد ملی، سطح green: پروانه کسب.
+model Verification {
+  id                String   @id @default(auto()) @map("_id") @db.ObjectId
+  businessId        String   @db.ObjectId
+  business          Business @relation(fields: [businessId], references: [id])
+
+  tier              String                                            // سطح تأیید: blue (کد ملی + کارت ملی) | green (پروانه کسب + اطلاعات شرکت)
+  status            String   @default("pending")                      // وضعیت: pending (در انتظار بررسی) | approved (تأیید شده) | rejected (رد شده) | expired (منقضی)
+  documents         Json?                                             // مدارک بارگذاری‌شده: [ { "type": "national_card", "file_url": "..." } ]
+  notes             String?                                           // یادداشت ادمین
+
+  submittedAt       DateTime @default(now())
+  reviewedAt        DateTime?                                         // زمان بررسی
+  reviewedByUserId  String?  @db.ObjectId
+  expiresAt         DateTime?
+  metadata          Json?
+
+  @@index([businessId, status])
+}
+
+// ---------------------- TrustMetric (امتیاز اعتماد) ----------------------
+// امتیاز اعتماد کسب‌وکار در هر بازار.
+// اگر armId null باشد، امتیاز سراسری است.
+model TrustMetric {
+  id                  String   @id @default(auto()) @map("_id") @db.ObjectId
+  businessId          String   @db.ObjectId
+  business            Business @relation(fields: [businessId], references: [id])
+  armId               String?  @db.ObjectId                           // اگر null باشد، امتیاز سراسری است. اگر مقدار داشته باشد، امتیاز مربوط به آن بازار است.
+  arm                 Arm?     @relation(fields: [armId], references: [id])
+
+  trustScore          Float    @default(0)                             // امتیاز اعتماد (۰ تا ۱۰۰) بر اساس الگوریتم محاسبه‌شده
+  totalAds            Int      @default(0)                             // تعداد آگهی‌ها
+  totalViews          Int      @default(0)                             // تعداد بازدیدها
+  totalCalls          Int      @default(0)                             // تعداد تماس‌ها
+  totalDealsConfirmed Int      @default(0)                             // تعداد معاملات تأییدشده توسط طرفین
+  totalDisputes       Int      @default(0)                             // تعداد اختلافات ثبت‌شده برای این کسب‌وکار
+  lastCalculatedAt    DateTime @default(now())                         // آخرین زمان محاسبه
+
+  @@unique([businessId, armId])
+  @@index([armId, trustScore])
+}

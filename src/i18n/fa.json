@@ -1,0 +1,13 @@
+// src/i18n/fa.json
+{
+  "INTERNAL_SERVER_ERROR": "خطای داخلی سرور رخ داده است.",
+  "UNAUTHORIZED": "شما اجازه دسترسی به این بخش را ندارید.",
+  "INSUFFICIENT_CREDIT": "اعتبار شما کافی نیست.",
+  "VALIDATION_ERROR": "داده‌های ارسال شده معتبر نیستند.",
+  "NOT_FOUND": "منبع درخواستی یافت نشد.",
+  "USER_NOT_FOUND": "کاربری با این مشخصات یافت نشد.",
+  "WRONG_CREDENTIALS": "شماره موبایل یا رمز عبور اشتباه است.",
+  "DUPLICATE_PHONE": "این شماره موبایل قبلاً ثبت شده است.",
+  "LOGIN_SUCCESS": "ورود با موفقیت انجام شد",
+  "REGISTER_SUCCESS": "ثبت‌نام با موفقیت انجام شد"
+}

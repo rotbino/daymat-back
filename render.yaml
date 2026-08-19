@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: your-nestjs-app
+    env: docker
+    docker:
+      dockerfile: Dockerfile
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: your-db
+          property: connectionString
