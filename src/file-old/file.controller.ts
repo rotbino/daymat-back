@@ -11,9 +11,7 @@ import {
     Res,
     Req,
     BadRequestException,
-    ForbiddenException,
-    Put,
-    NotFoundException,
+    ForbiddenException, Put,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { FastifyRequest, FastifyReply } from 'fastify';
@@ -23,15 +21,11 @@ import { CurrentUser } from '../common/decorators/custom.decorators';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
-import { PrismaService } from '../prisma/prisma.service';
 
 @ApiTags('file')
 @Controller('file')
 export class FileController {
-    constructor(
-        private fileService: FileService,
-        private prisma: PrismaService,
-    ) {}
+    constructor(private fileService: FileService) {}
 
     @Post('upload')
     @UseGuards(JwtAuthGuard)
@@ -104,57 +98,33 @@ export class FileController {
         );
     }
 
-    // ============================================================
-    // دریافت فایل (ریدایرکت مستقیم به آروان)
-    // ============================================================
     @Get(':fileId')
     @ApiOperation({ summary: 'دریافت فایل' })
     async getFile(
         @Param('fileId') fileId: string,
         @Res() res: FastifyReply,
     ) {
-        const file = await this.prisma.file.findUnique({
-            where: { id: fileId },
-        });
+        const { stream, mimeType, name } = await this.fileService.getFile(fileId, false);
 
-        if (!file) {
-            throw new NotFoundException({
-                errorCode: 'FILE_NOT_FOUND',
-                message: 'فایل یافت نشد',
-            });
-        }
+        res.header('Content-Type', mimeType);
+        res.header('Content-Disposition', `inline; filename="${name}"`);
 
-        // ریدایرکت مستقیم به آدرس فایل در آروان
-        return res.status(302).redirect(file.path);
+        return res.send(stream);
     }
 
-    // ============================================================
-    // دریافت تامب‌نیل (ریدایرکت مستقیم به آروان)
-    // ============================================================
     @Get(':fileId/thumbnail')
     @ApiOperation({ summary: 'دریافت تامب‌نیل' })
     async getThumbnail(
         @Param('fileId') fileId: string,
         @Res() res: FastifyReply,
     ) {
-        const file = await this.prisma.file.findUnique({
-            where: { id: fileId },
-        });
+        const { stream, mimeType } = await this.fileService.getFile(fileId, true);
 
-        if (!file) {
-            throw new NotFoundException({
-                errorCode: 'FILE_NOT_FOUND',
-                message: 'فایل یافت نشد',
-            });
-        }
+        res.header('Content-Type', mimeType);
 
-        // ریدایرکت مستقیم به آدرس تامب‌نیل در آروان
-        return res.status(302).redirect(file.thumbnailPath || file.path);
+        return res.send(stream);
     }
 
-    // ============================================================
-    // حذف فایل
-    // ============================================================
     @Delete('delete')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
@@ -166,15 +136,14 @@ export class FileController {
         return this.fileService.deleteFile(user.id, dto.fileId);
     }
 
-    // ============================================================
-    // پاکسازی فایل‌های سرگردان (فقط ادمین - محیط توسعه)
-    // ============================================================
+    // ✅ پاکسازی فایل‌های سرگردان - فقط ادمین
     @Delete('cleanup')
     @UseGuards(JwtAuthGuard, RolesGuard)
     @Roles('system_admin')
     @ApiBearerAuth('access-token')
     @ApiOperation({ summary: 'پاکسازی فایل‌های سرگردان (فقط ادمین)' })
     async cleanupFiles() {
+        // فقط در محیط توسعه
         if (process.env.NODE_ENV === 'production') {
             throw new ForbiddenException({
                 errorCode: 'FORBIDDEN',
@@ -184,9 +153,7 @@ export class FileController {
         return this.fileService.cleanupOrphanFiles();
     }
 
-    // ============================================================
-    // به‌روزرسانی relatedId (برای فایل‌های موقت)
-    // ============================================================
+
     @Put('update-related')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')

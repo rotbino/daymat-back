@@ -145,7 +145,13 @@ export class ArmService {
     // ============================================================
     // src/arm/arm.service.ts - findBySlug
     // src/arm/arm.service.ts
-    async findBySlug(slug: string, userId?: string) {  // ← userId اضافه شد
+    // src/arm/arm.service.ts
+
+    // src/arm/arm.service.ts
+
+    // src/arm/arm.service.ts - متد findBySlug
+
+    async findBySlug(slug: string, userId?: string) {
         const arm = await this.prisma.arm.findUnique({
             where: { slug },
             include: {
@@ -165,15 +171,43 @@ export class ArmService {
             });
         }
 
+        // ✅ پیدا کردن لوگو از جدول File
+        const logoFile = await this.prisma.file.findFirst({
+            where: {
+                relatedModel: 'Arm',
+                relatedId: arm.id,
+                fieldKey: 'logo',
+            },
+            select: {
+                id: true,
+                path: true,
+                thumbnailPath: true,
+                fieldKey: true,
+            },
+        });
+
+        // ✅ پیدا کردن بنر (اختیاری)
+        const bannerFile = await this.prisma.file.findFirst({
+            where: {
+                relatedModel: 'Arm',
+                relatedId: arm.id,
+                fieldKey: 'banner',
+            },
+            select: {
+                id: true,
+                path: true,
+                thumbnailPath: true,
+                fieldKey: true,
+            },
+        });
+
         const categoryTree = await this.buildCategoryTreeFromConfig(arm.config);
         const locationTree = await this.buildLocationTreeFromConfig(arm.config);
 
-        // ✅ محاسبه دسترسی‌ها فقط اگر userId وجود داشته باشه
         let isArmOwner = false;
         let isSystemAdmin = false;
 
         if (userId) {
-            // بررسی عضویت arm_owner
             const membership = await this.prisma.armMembership.findFirst({
                 where: {
                     armId: arm.id,
@@ -184,20 +218,35 @@ export class ArmService {
             });
             isArmOwner = !!membership;
 
-            // بررسی نقش سیستمی
             const user = await this.prisma.user.findUnique({
                 where: { id: userId },
                 select: { role: true },
             });
-
+            isSystemAdmin = user?.role === SystemRole.system_admin;
         }
+
+        // ✅ تنظیم config با logoUrl (مشابه ساختار قبلی)
+        const currentConfig = arm.config as any || {};
+        const general = currentConfig.general || {};
+
+        const configWithFiles = {
+            ...currentConfig,
+            general: {
+                ...general,
+                logoFileId: logoFile?.id || general.logoFileId || null,
+                logoUrl: logoFile?.path || general.logoUrl || null,
+                bannerUrl: bannerFile?.path || general.bannerUrl || null,
+                // در صورت نیاز logoFile و bannerFile رو هم می‌تونی اضافه کنی
+            },
+        };
 
         return {
             ...arm,
+            config: configWithFiles,
             categoryTree,
             locationTree,
             isArmOwner,
-
+            isSystemAdmin,
         };
     }
 

@@ -1,47 +1,20 @@
 // src/file/file.service.ts
 import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import * as fs from 'fs/promises';
-import * as path from 'path';
-import { existsSync } from 'fs';
-
-// ✅ استفاده از require برای sharp
-const sharp = require('sharp');
+import { S3Service } from './s3.service';
 
 @Injectable()
 export class FileService {
-    private readonly uploadDir: string;
     private readonly maxFileSize = 10 * 1024 * 1024; // 10MB
 
-    constructor(private prisma: PrismaService) {
-        this.uploadDir = path.join(process.cwd(), 'uploads');
-        this.init();
-    }
-
-    private async init() {
-        try {
-            await fs.mkdir(this.uploadDir, { recursive: true });
-            console.log('✅ Upload directory created:', this.uploadDir);
-        } catch (error) {
-            console.error('❌ Failed to create upload directory:', error);
-        }
-    }
+    constructor(
+        private prisma: PrismaService,
+        private s3Service: S3Service,
+    ) {}
 
     // ============================================================
-    // آپلود فایل با تامب‌نیل
+    // آپلود فایل با S3
     // ============================================================
-    // src/file/file.service.ts
-
-    // src/file/file.service.ts
-
-    // src/file/file.service.ts
-
-    // src/file/file.service.ts
-
-// ============================================================
-// اصلاح متد uploadFile - برای پذیرش modelId="temp" یا "manual"
-// ============================================================
-
     async uploadFile(
         userId: string,
         file: {
@@ -58,7 +31,6 @@ export class FileService {
         console.log('📁 FieldKey:', fieldKey);
         console.log('📁 modelId:', modelId);
 
-        // ۱. بررسی حجم
         if (file.size > this.maxFileSize) {
             throw new BadRequestException({
                 errorCode: 'FILE_TOO_LARGE',
@@ -66,73 +38,76 @@ export class FileService {
             });
         }
 
-        // ✅ ۲. بررسی اعتبار ObjectId
         const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(modelId);
 
-        // ✅ ۳. حذف فایل قبلی (فقط اگر modelId معتبر باشد)
         if (isValidObjectId && fieldKey) {
             try {
                 await this.deleteExistingFile(userId, model, modelId, fieldKey);
             } catch (error) {
                 console.warn('⚠️ Error while deleting existing file:', error.message);
             }
-        } else {
-            console.log('ℹ️ Skipping existing file deletion (modelId is temporary or invalid)');
         }
 
-        // ۴. ایجاد فولدر کاربر
-        const userFolder = path.join(this.uploadDir, 'users', userId);
-        await fs.mkdir(userFolder, { recursive: true });
+        // آپلود به S3
+        const { url, key } = await this.s3Service.uploadFile(
+            {
+                buffer: file.buffer,
+                originalname: file.originalname,
+                mimetype: file.mimetype,
+            },
+            userId,
+            model,
+            isValidObjectId ? modelId : undefined,
+            fieldKey,
+        );
 
-        // ۵. نام فایل
-        const ext = path.extname(file.originalname);
-        const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}${ext}`;
-        const filePath = path.join(userFolder, fileName);
-        console.log('📄 New file path:', filePath);
-
-        // ۶. ذخیره فایل
-        await fs.writeFile(filePath, file.buffer);
-        console.log('✅ File saved successfully');
-
-        // ۷. ساخت تامب‌نیل
-        let thumbnailPath: string | null = null;
+        // ساخت تامب‌نیل
+        let thumbnailUrl: string | null = null;
         const isImage = file.mimetype.startsWith('image/');
 
         if (isImage) {
             try {
                 const sharp = require('sharp');
-                const thumbFileName = `thumb-${fileName}`;
-                const thumbPath = path.join(userFolder, thumbFileName);
-
-                console.log('🖼️ Creating thumbnail...');
-                await sharp(file.buffer)
-                    .resize(100, 100, {
-                        fit: 'cover',
-                        position: 'center'
-                    })
+                const thumbnailBuffer = await sharp(file.buffer)
+                    .resize(100, 100, { fit: 'cover', position: 'center' })
                     .jpeg({ quality: 60 })
-                    .toFile(thumbPath);
+                    .toBuffer();
 
-                thumbnailPath = thumbPath;
-                console.log('✅ Thumbnail created:', thumbPath);
+                const thumbResult = await this.s3Service.uploadFile(
+                    {
+                        buffer: thumbnailBuffer,
+                        originalname: `thumb-${file.originalname}`,
+                        mimetype: 'image/jpeg',
+                    },
+                    userId,
+                    model,
+                    isValidObjectId ? modelId : undefined,
+                    fieldKey ? `thumb-${fieldKey}` : 'thumbnail',
+                );
+                thumbnailUrl = thumbResult.url;
+                console.log('✅ Thumbnail uploaded to S3');
             } catch (error) {
                 console.warn('⚠️ Thumbnail creation failed:', error.message);
-                thumbnailPath = null;
+                thumbnailUrl = null;
             }
         }
 
-        // ✅ ۸. ذخیره در دیتابیس - اگر modelId نامعتبر بود، relatedId رو null بذار
+        // ذخیره در دیتابیس
         const fileRecord = await this.prisma.file.create({
             data: {
                 userId,
                 name: file.originalname,
                 mimeType: file.mimetype,
                 size: file.size,
-                path: filePath,
-                thumbnailPath: thumbnailPath,
+                path: url,
+                thumbnailPath: thumbnailUrl,
                 relatedModel: model,
-                relatedId: isValidObjectId ? modelId : null,  // ✅ تغییر اینجا
+                relatedId: isValidObjectId ? modelId : null,
                 fieldKey: fieldKey || null,
+                metadata: {
+                    s3Key: key,
+                    thumbnailS3Key: thumbnailUrl ? this.s3Service.getKeyFromUrl(thumbnailUrl) : null,
+                },
             },
         });
 
@@ -140,8 +115,9 @@ export class FileService {
         return fileRecord;
     }
 
-    // src/file/file.service.ts
-
+    // ============================================================
+    // حذف فایل قبلی
+    // ============================================================
     private async deleteExistingFile(
         userId: string,
         model: string,
@@ -159,46 +135,22 @@ export class FileService {
 
         if (existingFile) {
             console.log('🗑️ Found existing file:', existingFile.id);
-            console.log('📁 Path:', existingFile.path);
-            console.log('📁 Thumbnail:', existingFile.thumbnailPath);
 
-            // ✅ حذف فایل فیزیکی
-            let fileDeleted = false;
-            let thumbDeleted = false;
-
-            try {
-                if (existingFile.path && existsSync(existingFile.path)) {
-                    await fs.unlink(existingFile.path);
-                    console.log('✅ File deleted from disk:', existingFile.path);
-                    fileDeleted = true;
-                } else {
-                    console.log('⚠️ File not found on disk:', existingFile.path);
-                }
-            } catch (error) {
-                console.error('❌ Error deleting file:', error.message);
+            const metadata = (existingFile as any).metadata;
+            if (metadata?.s3Key) {
+                await this.s3Service.deleteFile(metadata.s3Key);
+                console.log('✅ File deleted from S3');
+            }
+            if (metadata?.thumbnailS3Key) {
+                await this.s3Service.deleteFile(metadata.thumbnailS3Key);
+                console.log('✅ Thumbnail deleted from S3');
             }
 
-            try {
-                if (existingFile.thumbnailPath && existsSync(existingFile.thumbnailPath)) {
-                    await fs.unlink(existingFile.thumbnailPath);
-                    console.log('✅ Thumbnail deleted from disk:', existingFile.thumbnailPath);
-                    thumbDeleted = true;
-                }
-            } catch (error) {
-                console.error('❌ Error deleting thumbnail:', error.message);
-            }
-
-            // ✅ حذف از دیتابیس (حتی اگر فایل فیزیکی وجود نداشت)
-            await this.prisma.file.delete({
-                where: { id: existingFile.id },
-            });
+            await this.prisma.file.delete({ where: { id: existingFile.id } });
             console.log('✅ Old file record deleted from database');
-
-            return { fileDeleted, thumbDeleted };
-        } else {
-            console.log('ℹ️ No existing file found with key:', fieldKey);
-            return null;
+            return true;
         }
+        return false;
     }
 
     // ============================================================
@@ -218,15 +170,15 @@ export class FileService {
 
         const filePath = thumbnail && file.thumbnailPath ? file.thumbnailPath : file.path;
 
-        if (!filePath || !existsSync(filePath)) {
+        if (!filePath) {
             throw new NotFoundException({
                 errorCode: 'FILE_NOT_FOUND',
-                message: 'فایل روی دیسک یافت نشد',
+                message: 'فایل در فضای ابری یافت نشد',
             });
         }
 
         return {
-            stream: require('fs').createReadStream(filePath),
+            url: filePath,
             mimeType: thumbnail ? 'image/jpeg' : file.mimeType,
             size: file.size,
             name: file.name,
@@ -255,83 +207,29 @@ export class FileService {
             });
         }
 
-        try {
-            if (existsSync(file.path)) {
-                await fs.unlink(file.path);
-            }
-            if (file.thumbnailPath && existsSync(file.thumbnailPath)) {
-                await fs.unlink(file.thumbnailPath);
-            }
-        } catch (error) {
-            console.warn('⚠️ Could not delete file:', error.message);
+        const metadata = (file as any).metadata;
+        if (metadata?.s3Key) {
+            await this.s3Service.deleteFile(metadata.s3Key);
+        }
+        if (metadata?.thumbnailS3Key) {
+            await this.s3Service.deleteFile(metadata.thumbnailS3Key);
         }
 
-        await this.prisma.file.delete({
-            where: { id: fileId },
-        });
-
+        await this.prisma.file.delete({ where: { id: fileId } });
         return { message: 'فایل با موفقیت حذف شد' };
     }
 
-    // src/file/file.service.ts
-
-// ============================================================
-// پاکسازی فایل‌های سرگردان (فایل‌هایی که در دیتابیس نیستند)
-// ============================================================
+    // ============================================================
+    // پاکسازی فایل‌های سرگردان
+    // ============================================================
     async cleanupOrphanFiles() {
         console.log('🧹 Starting cleanup of orphan files...');
-
-        const userFolder = path.join(this.uploadDir, 'users');
-        if (!existsSync(userFolder)) {
-            console.log('📁 No users folder found');
-            return { deleted: 0, errors: 0 };
-        }
-
-        // دریافت همه فایل‌های موجود در دیتابیس
-        const allFiles = await this.prisma.file.findMany({
-            select: { path: true, thumbnailPath: true }
-        });
-
-        const validPaths = new Set();
-        allFiles.forEach(file => {
-            if (file.path) validPaths.add(file.path);
-            if (file.thumbnailPath) validPaths.add(file.thumbnailPath);
-        });
-
-        console.log(`📊 Found ${validPaths.size} valid file paths in database`);
-
-        let deletedCount = 0;
-        let errorCount = 0;
-
-        // اسکن فولدر کاربران
-        const userDirs = await fs.readdir(userFolder).catch(() => []);
-
-        for (const userDir of userDirs) {
-            const userPath = path.join(userFolder, userDir);
-            const stats = await fs.stat(userPath).catch(() => null);
-            if (!stats || !stats.isDirectory()) continue;
-
-            const files = await fs.readdir(userPath).catch(() => []);
-            for (const file of files) {
-                const filePath = path.join(userPath, file);
-                // اگر فایل در دیتابیس نبود، حذفش کن
-                if (!validPaths.has(filePath)) {
-                    try {
-                        await fs.unlink(filePath);
-                        console.log(`🗑️ Deleted orphan file: ${filePath}`);
-                        deletedCount++;
-                    } catch (error) {
-                        console.error(`❌ Error deleting ${filePath}:`, error.message);
-                        errorCount++;
-                    }
-                }
-            }
-        }
-
-        console.log(`✅ Cleanup complete: ${deletedCount} files deleted, ${errorCount} errors`);
-        return { deleted: deletedCount, errors: errorCount };
+        return { deleted: 0, errors: 0, message: 'Cleanup for S3 is not implemented yet' };
     }
 
+    // ============================================================
+    // به‌روزرسانی relatedId
+    // ============================================================
     async updateFileRelatedId(fileId: string, modelId: string) {
         return this.prisma.file.update({
             where: { id: fileId },

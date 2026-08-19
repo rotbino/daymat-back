@@ -646,7 +646,7 @@ model File {
   fieldKey      String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
+  metadata       Json?    // ✅ فیلد جدید برای ذخیره s3Key و اطلاعات اضافی
   business  Business? @relation(fields: [relatedId], references: [id])
   arm       Arm?      @relation(fields: [relatedId], references: [id])
   ad        Ad?       @relation(fields: [relatedId], references: [id])
