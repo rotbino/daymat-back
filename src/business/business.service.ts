@@ -179,6 +179,8 @@ export class BusinessService {
     // ============================================================
     // src/business/business.service.ts
 
+    // src/business/business.service.ts
+
     async findAllByUser(userId: string) {
         const businesses = await this.prisma.business.findMany({
             where: {
@@ -200,9 +202,7 @@ export class BusinessService {
                         },
                     },
                 },
-                // ✅ اضافه کردن ads
                 ads: {
-                   // where: { status: 'active' },
                     select: {
                         id: true,
                         title: true,
@@ -223,17 +223,39 @@ export class BusinessService {
             orderBy: { createdAt: 'desc' },
         });
 
-        return businesses.map((b) => ({
-            ...b,
-            activeAdsCount: b._count.ads,
-            activeMembershipsCount: b._count.armMemberships,
-        }));
+        // ✅ برای هر کسب‌وکار، لوگو را پیدا کن
+        const result = [];
+        for (const business of businesses) {
+            const logoFile = await this.prisma.file.findFirst({
+                where: {
+                    relatedModel: 'Business',
+                    relatedId: business.id,
+                    fieldKey: 'logo',
+                },
+                select: {
+                    id: true,
+                    path: true,
+                    thumbnailPath: true,
+                    fieldKey: true,
+                },
+            });
+
+            result.push({
+                ...business,
+                logoFile: logoFile || null,
+                logoUrl: logoFile?.path || business.logoUrl || null,
+                activeAdsCount: business._count.ads,
+                activeMembershipsCount: business._count.armMemberships,
+            });
+        }
+
+        return result;
     }
 
     // ============================================================
     // دریافت کسب‌وکار فعال (اولین کسب‌وکار کاربر)
     // ============================================================
-    // src/business/business.service.ts
+
 
     async getActiveBusiness(userId: string) {
         const business = await this.prisma.business.findFirst({
@@ -273,7 +295,7 @@ export class BusinessService {
                         arm: {
                             select: { id: true, slug: true, name: true },
                         },
-                        files: {                  // ← این بخش را اضافه کنید
+                        files: {
                             select: {
                                 id: true,
                                 fieldKey: true,
@@ -283,7 +305,6 @@ export class BusinessService {
                         },
                     },
                 },
-                // ✅ اضافه کردن فعالیت‌ها برای محاسبه درصد تکمیل
                 activities: {
                     include: {
                         activity: {
@@ -291,13 +312,11 @@ export class BusinessService {
                         },
                     },
                 },
-                // ✅ اضافه کردن اطلاعات پوزیشن کاربر
                 teamMembers: {
                     where: { userId: userId },
                     select: { position: true },
                     take: 1,
                 },
-                // ✅ اضافه کردن آخرین درخواست تیک برای نمایش دلیل رد
                 verifications: {
                     orderBy: { submittedAt: 'desc' },
                     select: {
@@ -323,14 +342,31 @@ export class BusinessService {
             return null;
         }
 
+        // ✅ پیدا کردن لوگو از جدول File
+        const logoFile = await this.prisma.file.findFirst({
+            where: {
+                relatedModel: 'Business',
+                relatedId: business.id,
+                fieldKey: 'logo',
+            },
+            select: {
+                id: true,
+                path: true,
+                thumbnailPath: true,
+                fieldKey: true,
+            },
+        });
+
         return {
             ...business,
             activeAdsCount: business._count.ads,
             activeMembershipsCount: business._count.armMemberships,
-            // ✅ بازسازی خروجی مشابه findOne
             position: business.teamMembers[0]?.position || null,
             activities: business.activities.map(a => a.activity),
             latestVerification: business.verifications[0] || null,
+            // ✅ اضافه کردن logoFile و logoUrl کامل
+            logoFile: logoFile || null,
+            logoUrl: logoFile?.path || business.logoUrl || null,
         };
     }
 
@@ -340,6 +376,8 @@ export class BusinessService {
     // src/business/business.service.ts
 
     // src/business/business.service.ts - متد findOne
+
+    // src/business/business.service.ts
 
     async findOne(id: string, userId: string) {
         const business = await this.prisma.business.findUnique({
@@ -393,14 +431,13 @@ export class BusinessService {
                     select: { position: true, role: true },
                     take: 1,
                 },
-                // ✅ اضافه کردن verifications برای دریافت آخرین درخواست تیک
                 verifications: {
                     orderBy: { submittedAt: 'desc' },
                     select: {
                         id: true,
                         tier: true,
                         status: true,
-                        notes: true,   // علت رد یا توضیحات
+                        notes: true,
                         submittedAt: true,
                         reviewedAt: true,
                     },
@@ -429,6 +466,21 @@ export class BusinessService {
             });
         }
 
+        // ✅ پیدا کردن لوگو از جدول File
+        const logoFile = await this.prisma.file.findFirst({
+            where: {
+                relatedModel: 'Business',
+                relatedId: business.id,
+                fieldKey: 'logo',
+            },
+            select: {
+                id: true,
+                path: true,
+                thumbnailPath: true,
+                fieldKey: true,
+            },
+        });
+
         const formattedBusiness = {
             ...business,
             position: business.teamMembers?.[0]?.position || null,
@@ -441,8 +493,10 @@ export class BusinessService {
             })),
             activeAdsCount: business._count.ads,
             activeMembershipsCount: business._count.armMemberships,
-            // ✅ آخرین رکورد Verification را به‌عنوان latestVerification اضافه کن
             latestVerification: business.verifications[0] || null,
+            // ✅ اضافه کردن logoFile و logoUrl کامل
+            logoFile: logoFile || null,
+            logoUrl: logoFile?.path || business.logoUrl || null,
         };
 
         return formattedBusiness;

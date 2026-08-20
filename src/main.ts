@@ -64,9 +64,9 @@ async function bootstrap() {
     // ============================================================
     app.enableCors({
         origin: [
-            'https://daymat-web-lovat.vercel.app',
+            'https://www.daymat.ir',
             'https://daymat.vercel.app',
-            'https://sarnakh.vercel.app/',
+            'https://sarnakh.vercel.app',
             'https://uniqu.vercel.app',
             'https://uniqu.ir',
             'http://localhost:3000',

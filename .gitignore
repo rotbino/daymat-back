@@ -34,3 +34,4 @@ Thumbs.db
 # Optional: coverage reports
 coverage/
 .vercel
+.env*
