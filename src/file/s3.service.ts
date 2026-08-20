@@ -22,23 +22,12 @@ export class S3Service {
 
         // ✅ ۱. خواندن از ConfigService
         const arvanConfig = this.configService.get('arvan');
-        console.log('🔍 arvanConfig from ConfigService:', arvanConfig);
 
-        // ✅ ۲. خواندن مستقیم از process.env برای مقایسه
-        console.log('🔍 Direct from process.env:');
-        console.log('  - ARVAN_ACCESS_KEY:', process.env.ARVAN_ACCESS_KEY);
-        console.log('  - ARVAN_SECRET_KEY:', process.env.ARVAN_SECRET_KEY ? `${process.env.ARVAN_SECRET_KEY.substring(0, 4)}...` : 'NOT SET');
 
         // ✅ ۳. بررسی مقدار accessKey از ConfigService
         const accessKey = arvanConfig?.accessKey;
         const secretKey = arvanConfig?.secretKey;
 
-        console.log('🔍 Values to be sent to S3:');
-        console.log('  - accessKey:', accessKey ? `"${accessKey}" (length: ${accessKey.length})` : 'NOT SET');
-        console.log('  - secretKey:', secretKey ? `"${secretKey.substring(0, 4)}...${secretKey.substring(secretKey.length - 4)}" (length: ${secretKey.length})` : 'NOT SET');
-        console.log('  - endpoint:', arvanConfig?.endpoint);
-        console.log('  - region:', arvanConfig?.region);
-        console.log('  - bucket:', arvanConfig?.bucketName);
 
         if (!accessKey || !secretKey) {
             console.error('❌ S3 credentials are missing!');
@@ -48,13 +37,7 @@ export class S3Service {
         this.bucket = arvanConfig.bucketName;
         this.endpoint = arvanConfig.endpoint;
 
-        // ✅ ۴. لاگ قبل از ساخت S3Client
-        console.log('🔍 Creating S3Client with:');
-        console.log('  - endpoint:', this.endpoint);
-        console.log('  - region:', arvanConfig.region);
-        console.log('  - accessKeyId:', accessKey);
-        console.log('  - secretAccessKey:', secretKey ? 'SET (will be sent to S3)' : 'NOT SET');
-        console.log('  - forcePathStyle: true');
+
 
         this.s3 = new S3Client({
             endpoint: arvanConfig.endpoint,

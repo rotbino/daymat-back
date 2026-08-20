@@ -69,8 +69,8 @@ export class FileService {
             try {
                 const sharp = require('sharp');
                 const thumbnailBuffer = await sharp(file.buffer)
-                    .resize(100, 100, { fit: 'cover', position: 'center' })
-                    .jpeg({ quality: 60 })
+                    .resize(200, 200, { fit: 'cover', position: 'center' })
+                    .jpeg({ quality: 90 })
                     .toBuffer();
 
                 const thumbResult = await this.s3Service.uploadFile(
