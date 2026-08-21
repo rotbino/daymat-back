@@ -140,16 +140,7 @@ export class ArmService {
         return this.findBySlug(arm.slug);
     }
 
-    // ============================================================
-    // 2. دریافت اطلاعات کامل بازار با slug (همراه config)
-    // ============================================================
-    // src/arm/arm.service.ts - findBySlug
     // src/arm/arm.service.ts
-    // src/arm/arm.service.ts
-
-    // src/arm/arm.service.ts
-
-    // src/arm/arm.service.ts - متد findBySlug
 
     async findBySlug(slug: string, userId?: string) {
         const arm = await this.prisma.arm.findUnique({
@@ -171,22 +162,46 @@ export class ArmService {
             });
         }
 
-        // ✅ پیدا کردن لوگو از جدول File
-        const logoFile = await this.prisma.file.findFirst({
-            where: {
-                relatedModel: 'Arm',
-                relatedId: arm.id,
-                fieldKey: 'logo',
-            },
-            select: {
-                id: true,
-                path: true,
-                thumbnailPath: true,
-                fieldKey: true,
-            },
-        });
+        const config = arm.config as any || {};
+        const general = config.general || {};
 
-        // ✅ پیدا کردن بنر (اختیاری)
+        // ✅ پیدا کردن لوگو بر اساس logoFileId (اگر وجود داشته باشد)
+        let logoFile = null;
+        if (general.logoFileId) {
+            logoFile = await this.prisma.file.findFirst({
+                where: {
+                    id: general.logoFileId,
+                    relatedModel: 'Arm',
+                    relatedId: arm.id,
+                    fieldKey: 'logo',
+                },
+                select: {
+                    id: true,
+                    path: true,
+                    thumbnailPath: true,
+                    fieldKey: true,
+                },
+            });
+        }
+
+        // اگر با logoFileId پیدا نشد، با relatedId و fieldKey پیدا کن
+        if (!logoFile) {
+            logoFile = await this.prisma.file.findFirst({
+                where: {
+                    relatedModel: 'Arm',
+                    relatedId: arm.id,
+                    fieldKey: 'logo',
+                },
+                select: {
+                    id: true,
+                    path: true,
+                    thumbnailPath: true,
+                    fieldKey: true,
+                },
+            });
+        }
+
+        // ✅ پیدا کردن بنر
         const bannerFile = await this.prisma.file.findFirst({
             where: {
                 relatedModel: 'Arm',
@@ -201,42 +216,64 @@ export class ArmService {
             },
         });
 
-        const categoryTree = await this.buildCategoryTreeFromConfig(arm.config);
-        const locationTree = await this.buildLocationTreeFromConfig(arm.config);
+        // ✅ استفاده از درخت‌های کش‌شده در config
+        let categoryTree = config._cachedCategoryTree;
+        let locationTree = config._cachedLocationTree;
+
+        // ❌ اگر به هر دلیلی درخت وجود نداشت، یک بار بساز و ذخیره کن
+        if (!categoryTree || !locationTree) {
+            categoryTree = await this.buildCategoryTreeFromConfig(config);
+            locationTree = await this.buildLocationTreeFromConfig(config);
+
+            // ذخیره در دیتابیس برای دفعات بعد
+            await this.prisma.arm.update({
+                where: { id: arm.id },
+                data: {
+                    config: {
+                        ...config,
+                        _cachedCategoryTree: categoryTree,
+                        _cachedLocationTree: locationTree,
+                        _treeUpdatedAt: new Date().toISOString(),
+                    } as any,
+                },
+            });
+        }
 
         let isArmOwner = false;
         let isSystemAdmin = false;
 
         if (userId) {
-            const membership = await this.prisma.armMembership.findFirst({
-                where: {
-                    armId: arm.id,
-                    userId: userId,
-                    role: 'arm_owner',
-                    status: 'active',
-                },
-            });
-            isArmOwner = !!membership;
+            // ✅ یک کوئری واحد برای دریافت همزمان عضویت و نقش کاربر
+            const [membership, user] = await Promise.all([
+                this.prisma.armMembership.findFirst({
+                    where: {
+                        armId: arm.id,
+                        userId: userId,
+                        role: 'arm_owner',
+                        status: 'active',
+                    },
+                    select: { role: true },
+                }),
+                this.prisma.user.findUnique({
+                    where: { id: userId },
+                    select: { role: true },
+                }),
+            ]);
 
-            const user = await this.prisma.user.findUnique({
-                where: { id: userId },
-                select: { role: true },
-            });
+            isArmOwner = !!membership;
             isSystemAdmin = user?.role === SystemRole.system_admin;
         }
 
-        // ✅ تنظیم config با logoUrl (مشابه ساختار قبلی)
-        const currentConfig = arm.config as any || {};
-        const general = currentConfig.general || {};
-
+        // ✅ آدرس‌های کامل فایل‌ها را در config قرار می‌دهیم
         const configWithFiles = {
-            ...currentConfig,
+            ...config,
             general: {
                 ...general,
+                logoFile: logoFile || null,
                 logoFileId: logoFile?.id || general.logoFileId || null,
                 logoUrl: logoFile?.path || general.logoUrl || null,
+                bannerFile: bannerFile || null,
                 bannerUrl: bannerFile?.path || general.bannerUrl || null,
-                // در صورت نیاز logoFile و bannerFile رو هم می‌تونی اضافه کنی
             },
         };
 
@@ -250,9 +287,9 @@ export class ArmService {
         };
     }
 
-    // ============================================================
-    // 3. دریافت بازار با id
-    // ============================================================
+// ============================================================
+// 3. دریافت بازار با id
+// ============================================================
     async findById(id: string) {
         const arm = await this.prisma.arm.findUnique({
             where: { id },
@@ -273,58 +310,182 @@ export class ArmService {
             });
         }
 
-        const categoryTree = await this.buildCategoryTreeFromConfig(arm.config);
-        const locationTree = await this.buildLocationTreeFromConfig(arm.config);
+        const config = arm.config as any || {};
+        const general = config.general || {};
+
+        // ✅ پیدا کردن لوگو بر اساس logoFileId (اگر وجود داشته باشد)
+        let logoFile = null;
+        if (general.logoFileId) {
+            logoFile = await this.prisma.file.findFirst({
+                where: {
+                    id: general.logoFileId,
+                    relatedModel: 'Arm',
+                    relatedId: arm.id,
+                    fieldKey: 'logo',
+                },
+                select: {
+                    id: true,
+                    path: true,
+                    thumbnailPath: true,
+                    fieldKey: true,
+                },
+            });
+        }
+
+        // اگر با logoFileId پیدا نشد، با relatedId و fieldKey پیدا کن
+        if (!logoFile) {
+            logoFile = await this.prisma.file.findFirst({
+                where: {
+                    relatedModel: 'Arm',
+                    relatedId: arm.id,
+                    fieldKey: 'logo',
+                },
+                select: {
+                    id: true,
+                    path: true,
+                    thumbnailPath: true,
+                    fieldKey: true,
+                },
+            });
+        }
+
+        // ✅ پیدا کردن بنر
+        const bannerFile = await this.prisma.file.findFirst({
+            where: {
+                relatedModel: 'Arm',
+                relatedId: arm.id,
+                fieldKey: 'banner',
+            },
+            select: {
+                id: true,
+                path: true,
+                thumbnailPath: true,
+                fieldKey: true,
+            },
+        });
+
+        // ✅ استفاده از درخت‌های کش‌شده
+        let categoryTree = config._cachedCategoryTree;
+        let locationTree = config._cachedLocationTree;
+
+        if (!categoryTree || !locationTree) {
+            categoryTree = await this.buildCategoryTreeFromConfig(config);
+            locationTree = await this.buildLocationTreeFromConfig(config);
+
+            // ذخیره در دیتابیس برای دفعات بعد
+            await this.prisma.arm.update({
+                where: { id: arm.id },
+                data: {
+                    config: {
+                        ...config,
+                        _cachedCategoryTree: categoryTree,
+                        _cachedLocationTree: locationTree,
+                        _treeUpdatedAt: new Date().toISOString(),
+                    } as any,
+                },
+            });
+        }
+
+        // ✅ آدرس‌های کامل فایل‌ها را در config قرار می‌دهیم
+        const configWithFiles = {
+            ...config,
+            general: {
+                ...general,
+                logoFile: logoFile || null,
+                logoFileId: logoFile?.id || general.logoFileId || null,
+                logoUrl: logoFile?.path || general.logoUrl || null,
+                bannerFile: bannerFile || null,
+                bannerUrl: bannerFile?.path || general.bannerUrl || null,
+            },
+        };
 
         return {
             ...arm,
+            config: configWithFiles,
             categoryTree,
             locationTree,
         };
     }
 
-    // ============================================================
-    // 4. لیست بازارهای کاربر (همراه config)
-    // ============================================================
+
+// ============================================================
+// 4. لیست بازارهای کاربر (با status و rejectionReason)
+// ============================================================
+    // src/arm/arm.service.ts
+
+    // src/arm/arm.service.ts
+
     async getUserArms(userId: string) {
+        // ۱. دریافت عضویت‌های کاربر
         const memberships = await this.prisma.armMembership.findMany({
             where: { userId },
             select: {
                 role: true,
                 status: true,
+                rejectionReason: true,
                 joinedAt: true,
-                businessId: true,
-                rejectionReason: true,   // ✅ اضافه شود
-                metadata: true,          // ✅ اضافه شود (اختیاری ولی مفید)
                 arm: {
-                    include: {
-                        _count: {
-                            select: {
-                                memberships: { where: { status: 'active' } },
-                                ads: { where: { status: 'active' } },
-                            },
-                        },
+                    select: {
+                        id: true,
+                        slug: true,
+                        name: true,
+                        slogan: true,
+                        colorPrimary: true,
+                        config: true,
                     },
                 },
             },
             orderBy: { joinedAt: 'desc' },
         });
 
+        if (memberships.length === 0) {
+            return [];
+        }
+
+        // ۲. دریافت همه armId ها
+        const armIds = memberships.map(m => m.arm.id);
+
+        // ۳. ✅ یک کوئری واحد برای دریافت همه لوگوها
+        const logoFiles = await this.prisma.file.findMany({
+            where: {
+                relatedModel: 'Arm',
+                relatedId: { in: armIds },
+                fieldKey: 'logo',
+            },
+            select: {
+                relatedId: true,
+                path: true,
+                thumbnailPath: true,
+            },
+        });
+
+        // ۴. ساخت Map برای دسترسی سریع
+        const logoMap = new Map();
+        for (const logo of logoFiles) {
+            logoMap.set(logo.relatedId, logo);
+        }
+
+        // ۵. ساخت نتیجه نهایی
         const result = [];
         for (const m of memberships) {
-            const categoryTree = await this.buildCategoryTreeFromConfig(m.arm.config);
-            const locationTree = await this.buildLocationTreeFromConfig(m.arm.config);
+            const config = m.arm.config as any || {};
+            const general = config.general || {};
+
+            // ✅ از Map استفاده کن
+            const logoFile = logoMap.get(m.arm.id);
+            const logoUrl = logoFile?.path || general.logoUrl || null;
 
             result.push({
-                ...m.arm,
-                categoryTree,
-                locationTree,
+                id: m.arm.id,
+                slug: m.arm.slug,
+                name: m.arm.name,
+                slogan: m.arm.slogan,
+                colorPrimary: m.arm.colorPrimary,
+                logoUrl: logoUrl,
                 role: m.role,
                 status: m.status,
-                rejectionReason: m.rejectionReason,   // ✅
+                rejectionReason: m.rejectionReason,
                 joinedAt: m.joinedAt,
-                businessId: m.businessId,
-                metadata: m.metadata,                 // ✅
             });
         }
 
@@ -750,6 +911,8 @@ export class ArmService {
     // ============================================================
     // 11. دریافت درخت موقعیت‌های بازار از config
     // ============================================================
+// src/arm/arm.service.ts
+
     async getArmLocationTree(slug: string) {
         const arm = await this.prisma.arm.findUnique({
             where: { slug },
@@ -763,7 +926,24 @@ export class ArmService {
             });
         }
 
-        const tree = await this.buildLocationTreeFromConfig(arm.config);
+        const config = arm.config as any || {};
+        let tree = config._cachedLocationTree;
+
+        // اگر درخت کش نشده بود، بساز و ذخیره کن
+        if (!tree) {
+            tree = await this.buildLocationTreeFromConfig(config);
+            await this.prisma.arm.update({
+                where: { slug },
+                data: {
+                    config: {
+                        ...config,
+                        _cachedLocationTree: tree,
+                        _treeUpdatedAt: new Date().toISOString(),
+                    } as any,
+                },
+            });
+        }
+
         return tree;
     }
 

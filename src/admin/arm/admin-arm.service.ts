@@ -77,8 +77,6 @@ export class AdminArmService {
     // ============================================================
     // دریافت یک بازار با id (همراه locationTree و categoryTree کامل)
     // ============================================================
-
-
     async getArmById(id: string) {
         const arm = await this.prisma.arm.findUnique({
             where: { id },
@@ -132,7 +130,7 @@ export class AdminArmService {
             locationTree = this.buildTree(allLocations);
         }
 
-        // ═══════════════ categoryTree (اصلاح‌شده) ═══════════════
+        // ═══════════════ categoryTree ═══════════════
         const categorySelections = (config.categorySelections || []).filter((s: any) => s.isActive);
         const categoryIds = categorySelections.map((s: any) => s.categoryId);
 
@@ -188,7 +186,7 @@ export class AdminArmService {
                 });
             };
 
-            // ساخت گره‌ها با حلقه await به‌صورت ترتیبی (یا می‌توانید Promise.all استفاده کنید)
+            // ساخت گره‌ها
             const nodes: any[] = [];
             for (const cat of categories) {
                 const selection = categorySelections.find(s => s.categoryId === cat.id)!;
@@ -203,7 +201,7 @@ export class AdminArmService {
                     parentId: cat.parentId,
                     isSelected: true,
                     customLabel: selection.customLabel || null,
-                    defaultUnitId: unit.id,             // همیشه معتبر
+                    defaultUnitId: unit.id,
                     unitTitle: unit.title,
                     unitShortCode: unit.shortCode,
                     defaultMinQuantity: selection.overrideMinQuantity || cat.defaultMinQuantity || null,
@@ -265,6 +263,43 @@ export class AdminArmService {
         const updateData: any = {};
         for (const key of allowedFields) {
             if (data[key] !== undefined) updateData[key] = data[key];
+        }
+
+        // ✅ اگر config تغییر کرده باشد
+        if (data.config) {
+            const config = data.config;
+            const oldArm = await this.prisma.arm.findUnique({
+                where: { id },
+                select: { config: true },
+            });
+            const oldConfig = (oldArm?.config as any) || {};
+
+            // تشخیص تغییر در categorySelections یا locationSelections
+            const oldCategorySelections = oldConfig.categorySelections || [];
+            const newCategorySelections = config.categorySelections || [];
+            const oldLocationSelections = oldConfig.locationSelections || [];
+            const newLocationSelections = config.locationSelections || [];
+
+            const categoryChanged = JSON.stringify(oldCategorySelections) !== JSON.stringify(newCategorySelections);
+            const locationChanged = JSON.stringify(oldLocationSelections) !== JSON.stringify(newLocationSelections);
+
+            // فقط در صورت تغییر، درخت‌ها را بازسازی کن
+            let categoryTree = oldConfig._cachedCategoryTree || [];
+            let locationTree = oldConfig._cachedLocationTree || [];
+
+            if (categoryChanged) {
+                categoryTree = await this.buildCategoryTreeFromConfig(config);
+            }
+            if (locationChanged) {
+                locationTree = await this.buildLocationTreeFromConfig(config);
+            }
+
+            updateData.config = {
+                ...config,
+                _cachedCategoryTree: categoryTree,
+                _cachedLocationTree: locationTree,
+                _treeUpdatedAt: new Date().toISOString(),
+            };
         }
 
         if (updateData.config?.features?.adValidityDefaultDays) {
@@ -336,6 +371,9 @@ export class AdminArmService {
         return roots;
     }
 
+    // ============================================================
+    // آمار داشبورد
+    // ============================================================
     async getDashboardStats() {
         const [totalUsers, activeUsers, totalArms, activeArms, totalAds, pendingAds, totalBusinesses, pendingMemberships, pendingVerifications, totalCredits] = await Promise.all([
             this.prisma.user.count(),
@@ -362,5 +400,129 @@ export class AdminArmService {
             pendingVerifications,
             totalCredits,
         };
+    }
+
+    // ============================================================
+    // 🆕 ساخت درخت دسته‌بندی از config
+    // ============================================================
+    private async buildCategoryTreeFromConfig(config: any): Promise<any[]> {
+        const categorySelections = (config.categorySelections || []).filter((s: any) => s.isActive !== false);
+        const categoryIds = categorySelections.map((s: any) => s.categoryId);
+
+        if (categoryIds.length === 0) return [];
+
+        // ۱. دریافت همه دسته‌بندی‌های انتخاب‌شده
+        const categories = await this.prisma.productCategory.findMany({
+            where: { id: { in: categoryIds }, isActive: true },
+        });
+
+        // ۲. جمع‌آوری overrideUnitId ها
+        const overrideUnitIds = categorySelections
+            .map(s => s.overrideUnitId)
+            .filter(Boolean) as string[];
+
+        // ۳. واکشی همه واحدهای override شده
+        const units = overrideUnitIds.length > 0
+            ? await this.prisma.unit.findMany({
+                where: { id: { in: overrideUnitIds } },
+                select: { id: true, title: true, shortCode: true },
+            })
+            : [];
+
+        const unitMap = new Map(units.map(u => [u.id, u]));
+
+        // ۴. ساخت گره‌ها
+        const nodes: any[] = [];
+        for (const cat of categories) {
+            const selection = categorySelections.find(s => s.categoryId === cat.id)!;
+
+            // یافتن واحد معتبر
+            let unit = null;
+            if (selection.overrideUnitId && unitMap.has(selection.overrideUnitId)) {
+                unit = unitMap.get(selection.overrideUnitId)!;
+            } else {
+                // واحد پیش‌فرض از CategoryUnitMapping
+                const mapping = await this.prisma.categoryUnitMapping.findFirst({
+                    where: { categoryId: cat.id, isDefault: true },
+                    include: { unit: { select: { id: true, title: true, shortCode: true } } },
+                });
+                if (mapping) unit = mapping.unit;
+            }
+
+            nodes.push({
+                id: cat.id,
+                title: cat.title,
+                slug: cat.slug,
+                path: cat.path,
+                level: cat.level,
+                parentId: cat.parentId,
+                isSelected: true,
+                customLabel: selection.customLabel || null,
+                defaultUnitId: unit?.id || null,
+                unitTitle: unit?.title || selection.overrideUnitTitle || 'تن',
+                unitShortCode: unit?.shortCode || selection.overrideUnitTitle || 'تن',
+                defaultMinQuantity: selection.minQuantityOverride || cat.defaultMinQuantity || null,
+                example: selection.example || null,
+                children: [],
+            });
+        }
+
+        // ۵. والدها (اجداد) – فقط برای ساختار درختی
+        const parentIds = [...new Set(categories.map(c => c.parentId).filter(Boolean))];
+        const parents = parentIds.length > 0
+            ? await this.prisma.productCategory.findMany({
+                where: { id: { in: parentIds as string[] } },
+            })
+            : [];
+
+        const parentNodes = parents.map(p => ({
+            id: p.id,
+            title: p.title,
+            slug: p.slug,
+            path: p.path,
+            level: p.level,
+            parentId: p.parentId,
+            isSelected: false,
+            customLabel: null,
+            defaultUnitId: null,
+            unitTitle: null,
+            unitShortCode: null,
+            defaultMinQuantity: null,
+            example: null,
+            children: [],
+        }));
+
+        const allNodes = [...parentNodes, ...nodes];
+        return this.buildTree(allNodes);
+    }
+
+    // ============================================================
+    // 🆕 ساخت درخت موقعیت‌ها از config
+    // ============================================================
+    private async buildLocationTreeFromConfig(config: any): Promise<any[]> {
+        const locationSelections = (config.locationSelections || []).filter((s: any) => s.isActive !== false);
+        const locationIds = locationSelections.map((s: any) => s.locationId);
+
+        if (locationIds.length === 0) return [];
+
+        const locations = await this.prisma.location.findMany({
+            where: { id: { in: locationIds }, isActive: true },
+            select: { id: true, title: true, cityCode: true, provinceCode: true, parentId: true, level: true, path: true, type: true },
+        });
+
+        const parentIds = [...new Set(locations.map(l => l.parentId).filter(Boolean))];
+        const parents = parentIds.length > 0
+            ? await this.prisma.location.findMany({
+                where: { id: { in: parentIds as string[] } },
+                select: { id: true, title: true, provinceCode: true, level: true, path: true, type: true },
+            })
+            : [];
+
+        const allLocations = [...parents, ...locations].map(loc => {
+            const selection = locationSelections.find((s: any) => s.locationId === loc.id);
+            return { ...loc, isSelected: true, customLabel: selection?.customLabel || null };
+        });
+
+        return this.buildTree(allLocations);
     }
 }
