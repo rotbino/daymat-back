@@ -173,7 +173,7 @@ export class SettingsService {
     async seedSystemDefaults() {
         const defaults = [
             { key: 'credit.signupBonus', value: 50, group: 'credit', description: 'اعتبار هدیه ثبت‌نام' },
-            { key: 'credit.armJoinBonus', value: 10, group: 'credit', description: 'اعتبار هدیه عضویت' },
+            { key: 'credit.armJoinBonus', value: 10, group: 'credit', description: 'اعتبار هدیه پیوستن به بازار' },
             { key: 'credit.bumpCost', value: 10, group: 'credit', description: 'هزینه نردبان' },
             { key: 'credit.maxTotalFreeAdPerUser', value: 5, group: 'credit', description: 'حداکثر تعداد آگهی رایگان' },
             { key: 'credit.dailyCallLimit', value: 20, group: 'credit', description: 'محدودیت تماس روزانه' },

@@ -188,6 +188,17 @@ export class CreateAdDto {
     @IsString()
     description?: string;
 
+    @ApiProperty({ example: 24, description: 'تعداد در واحد (مثلاً 24 عدد در کارتن)', required: false })
+    @IsOptional()
+    @IsNumber()
+    @Min(1)
+    unitQty?: number;
+
+    @ApiProperty({ example: false, description: 'آیا تعداد قابل تغییر توسط کاربر است', required: false })
+    @IsOptional()
+    @IsBoolean()
+    unitIsVariableQty?: boolean;
+
     @ApiProperty({ example: 24500, description: 'قیمت واحد (نقدی)' })
     @IsNotEmpty({ message: 'قیمت واحد الزامی است' })
     @IsNumber()
@@ -312,6 +323,17 @@ export class UpdateAdDto {
     @IsOptional()
     @IsString()
     description?: string;
+
+    @ApiProperty({ example: 24, description: 'تعداد در واحد', required: false })
+    @IsOptional()
+    @IsNumber()
+    @Min(1)
+    unitQty?: number;
+
+    @ApiProperty({ example: false, description: 'آیا تعداد قابل تغییر است', required: false })
+    @IsOptional()
+    @IsBoolean()
+    unitIsVariableQty?: boolean;
 
     @ApiProperty({ example: 25000, description: 'قیمت واحد', required: false })
     @IsOptional()

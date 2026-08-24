@@ -75,15 +75,15 @@ export class ArmController {
     }
 
     // ============================================================
-    // 4. عضویت در بازار (نیاز به احراز هویت)
+    // 4. پیوستن به بازار (نیاز به احراز هویت)
     // ============================================================
 // src/arm/arm.controller.ts
 
     @Post(':slug/join')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'عضویت در بازار' })
-    @ApiResponse({ status: 200, description: 'عضویت با موفقیت انجام شد' })
+    @ApiOperation({ summary: 'پیوستن به بازار' })
+    @ApiResponse({ status: 200, description: 'پیوستن به با موفقیت انجام شد' })
     @ApiResponse({ status: 400, description: 'قبلاً عضو هستید یا خطا در اعتبارسنجی' })
     @ApiResponse({ status: 404, description: 'بازار یافت نشد' })
     async join(
@@ -105,8 +105,8 @@ export class ArmController {
     @Delete(':slug/leave')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'خروج از بازار' })
-    @ApiResponse({ status: 200, description: 'خروج با موفقیت انجام شد' })
+    @ApiOperation({ summary: 'قطع عضویت از بازار' })
+    @ApiResponse({ status: 200, description: 'قطع عضویت با موفقیت انجام شد' })
     @ApiResponse({ status: 400, description: 'عضو نیستید' })
     @ApiResponse({ status: 404, description: 'بازار یافت نشد' })
     async leave(@Param('slug') slug: string, @CurrentUser() user: any) {
@@ -119,7 +119,7 @@ export class ArmController {
     @Get('user/my-arms')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'لیست بازارهایی که کاربر در آنها عضو است' })
+    @ApiOperation({ summary: 'لیست بازارهایی که کاربر به آنها پیوسته است' })
     @ApiResponse({ status: 200, description: 'لیست بازارها' })
     async getUserArms(@CurrentUser() user: any) {
         return this.armService.getUserArms(user.id);

@@ -53,14 +53,14 @@ export class AdService {
             });
         }
 
-        // ۳. بررسی عضویت در بازار
+        // ۳. بررسی پیوستن به بازار
         const membership = await this.prisma.armMembership.findFirst({
             where: { armId: arm.id, userId: userId, status: 'active' },
         });
         if (!membership) {
             throw new ForbiddenException({
                 errorCode: 'NOT_MEMBER',
-                message: 'شما عضو این بازار نیستید',
+                message: 'شما به این بازار نپیوسته اید',
             });
         }
 
@@ -315,6 +315,9 @@ export class AdService {
         expiresAt.setHours(validityHours, 0, 0, 0);
         expiresAt.setDate(expiresAt.getDate());
 
+        const categorySelection = config.categorySelections?.find(
+            (s: any) => s.categoryId === dto.categoryId
+        );
         // ============================================================
         // ۱۰. ایجاد آگهی
         // ============================================================
@@ -352,6 +355,10 @@ export class AdService {
                 status: requiresApprovalOnCreate ? 'pending' : 'active',
                 source: 'manual',
                 categoryPath,
+                unitQty: dto.unitQty || null,
+                unitIsVariableQty: dto.unitIsVariableQty || false,
+                unitBaseTitle: categorySelection?.baseUnitTitle || null,
+
             },
             include: {
                 category: { select: { id: true, title: true, path: true } },
@@ -420,6 +427,7 @@ export class AdService {
                     message: 'این دسته‌بندی برای بازاری فعلی فعال نیست.',
                 });
             }
+
             let categoryPath: string[] = [];
             const category = await this.prisma.productCategory.findUnique({
                 where: { id: dto.categoryId },
@@ -437,7 +445,15 @@ export class AdService {
             updateData.categoryId = dto.categoryId;
             updateData.categoryPath = categoryPath;
             updateData.customCategoryId = null;
+
+            // ✅ حذف تعریف مجدد config - از همون config بالا استفاده کن
+            const categorySelection = (config.categorySelections || []).find(
+                (s: any) => s.categoryId === dto.categoryId
+            );
+            updateData.unitBaseTitle = categorySelection?.baseUnitTitle || null;
         }
+
+
 
         if (dto.customCategoryId !== undefined && dto.customCategoryId !== ad.customCategoryId) {
             const customCategory = await this.prisma.customCategory.findFirst({
@@ -486,6 +502,12 @@ export class AdService {
                 });
             }
             updateData.unitId = dto.unitId;
+        }
+        if (dto.unitQty !== undefined) {
+            updateData.unitQty = dto.unitQty;
+        }
+        if (dto.unitIsVariableQty !== undefined) {
+            updateData.unitIsVariableQty = dto.unitIsVariableQty;
         }
 
         // ============================================================
@@ -789,10 +811,13 @@ export class AdService {
     // src/ad/ad.service.ts
 
     async getVitrine(armSlug: string, query: AdListQueryDto) {
-        // ✅ ۱. فقط id بازار را بگیر (هیچ اطلاعات دیگری لازم نیست)
+        // ✅ ۱. دریافت id و config بازار
         const arm = await this.prisma.arm.findUnique({
             where: { slug: armSlug },
-            select: { id: true },
+            select: {
+                id: true,
+                config: true,
+            },
         });
 
         if (!arm) {
@@ -802,23 +827,27 @@ export class AdService {
             });
         }
 
+        // ✅ استخراج categorySelections از config
+        const config = arm.config as any || {};
+        const categorySelections = config.categorySelections || [];
+
+        // ✅ ساخت Map برای دسترسی سریع
+        const categoryMap = new Map(
+            categorySelections.map(s => [s.categoryId, s])
+        );
+
         const page = query.page || 1;
         const limit = query.limit || 20;
         const skip = (page - 1) * limit;
 
-        // ─── ساخت where ───
         const where: any = {
             armId: arm.id,
             status: 'active',
             expiresAt: { gt: new Date() },
         };
 
-        // ... فیلترهای دیگر (بدون تغییر)
-
-        // ─── مرتب‌سازی ───
         const orderBy: any[] = [{ isBumped: 'desc' }, { updatedAt: 'desc' }];
 
-        // ✅ ۲. فقط فیلدهای ضروری برای کارت
         const [ads, total] = await Promise.all([
             this.prisma.ad.findMany({
                 where,
@@ -833,13 +862,18 @@ export class AdService {
                     availableQuantity: true,
                     city: true,
                     isBumped: true,
+                    unitQty: true,
+                    unitIsVariableQty: true,
+                    unitBaseTitle: true,
+                    categoryId: true,
                     isAnonymous: true,
                     updatedAt: true,
-                    // ✅ فقط shortCode از unit
                     unit: {
-                        select: { shortCode: true },
+                        select: { shortCode: true, title: true },
                     },
-                    // ✅ فقط اطلاعات ضروری کسب‌وکار
+                    category: {
+                        select: { id: true, title: true, path: true }, // ✅ دریافت category
+                    },
                     business: {
                         select: {
                             name: true,
@@ -849,7 +883,6 @@ export class AdService {
                             phone: true,
                         },
                     },
-                    // ✅ فقط thumbnailPath از فایل‌ها
                     files: {
                         where: { relatedModel: 'Ad' },
                         select: { thumbnailPath: true },
@@ -860,11 +893,28 @@ export class AdService {
             this.prisma.ad.count({ where }),
         ]);
 
-        // ❌ ۳. حذف `arm`، `category`، `availableLocations` و `membersCount`
-        // فقط آگهی‌ها و صفحه‌بندی را برگردان
+        // ✅ ۳. جایگزینی category.title با customLabel
+        // ✅ ۳. جایگزینی category.title با customLabel
+        const adsWithCustomLabel = ads.map(ad => {
+            // ✅ type assertion
+            const selection = categoryMap.get(ad.categoryId) as any | undefined;
+
+            // ✅ اگه customLabel داره، جایگزین title کن
+            if (selection?.customLabel && ad.category) {
+                ad.category = {
+                    ...ad.category,
+                    title: selection.customLabel, // ✅ جایگزینی
+                };
+            }
+
+            return {
+                ...ad,
+                unitBaseTitle: selection?.baseUnitTitle || ad.unitBaseTitle || null,
+            };
+        });
 
         return {
-            ads,
+            ads: adsWithCustomLabel,
             pagination: {
                 page,
                 limit,
@@ -1007,9 +1057,7 @@ export class AdService {
     // ============================================================
     // 6. دریافت کامل آگهی با تمام اطلاعات مرتبط (برای صفحه جزئیات)
     // ============================================================
-    // src/ad/ad.service.ts
 
-    // src/ad/ad.service.ts
 
     async findOne(id: string) {
         // ✅ فقط فیلدهای ضروری را برگردان
@@ -1034,6 +1082,9 @@ export class AdService {
                 callCount: true,
                 category: { select: { id: true, title: true, path: true } },
                 unit: { select: { id: true, title: true, shortCode: true } },
+                unitQty: true,
+                unitIsVariableQty: true,
+                unitBaseTitle: true,
                 business: {
                     select: {
                         id: true,
@@ -1412,7 +1463,7 @@ export class AdService {
             });
         }
 
-        // ۲. بررسی عضویت کاربر در بازار
+        // . بررسی پیوستن به بازار توسط کاربر
         const membership = await this.prisma.armMembership.findFirst({
             where: {
                 armId: ad.armId,
@@ -1424,7 +1475,7 @@ export class AdService {
         if (!membership) {
             throw new ForbiddenException({
                 errorCode: 'NOT_MEMBER',
-                message: 'شما عضو این بازار نیستید. لطفاً ابتدا عضو شوید.',
+                message: 'شما به این بازار نپیوسته اید.',
             });
         }
 

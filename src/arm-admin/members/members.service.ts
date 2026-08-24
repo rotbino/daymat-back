@@ -459,7 +459,7 @@ export class MembersService {
     }
 
     // ============================================================
-// تأیید عضویت کاربر
+// تأیید پیوستن به کاربر
 // ============================================================
     async approveMember(slug: string, userId: string, adminUserId: string) {
         const arm = await this.prisma.arm.findUnique({
@@ -481,7 +481,7 @@ export class MembersService {
         if (!membership) {
             throw new BadRequestException({
                 errorCode: 'NOT_PENDING',
-                message: 'عضویت در انتظار یافت نشد',
+                message: 'پیوستن به در انتظار یافت نشد',
             });
         }
 
@@ -498,7 +498,7 @@ export class MembersService {
     }
 
 // ============================================================
-// رد عضویت کاربر
+// رد پیوستن به کاربر
 // ============================================================
     async rejectMember(slug: string, userId: string, reason: string, adminUserId: string) {
         if (!reason || !reason.trim()) {
@@ -527,7 +527,7 @@ export class MembersService {
         if (!membership) {
             throw new BadRequestException({
                 errorCode: 'NOT_PENDING',
-                message: 'عضویت در انتظار یافت نشد',
+                message: 'پیوستن به در انتظار یافت نشد',
             });
         }
 
@@ -544,7 +544,7 @@ export class MembersService {
     }
 
     // ============================================================
-// حذف کامل عضویت (خروج از بازار)
+// حذف کامل پیوستن به (خروج از بازار)
 // ============================================================
     async removeMember(slug: string, userId: string, adminUserId: string) {
         const arm = await this.prisma.arm.findUnique({

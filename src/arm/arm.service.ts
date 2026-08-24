@@ -22,7 +22,7 @@ export class ArmService {
     // ============================================================
     async create(userId: string, dto: CreateArmDto) {
         if (dto.customDomain) {
-            const existingDomain = await this.prisma.arm.findFirst({   // ← findFirst
+            const existingDomain = await this.prisma.arm.findFirst({
                 where: { customDomain: dto.customDomain },
             });
             if (existingDomain) {
@@ -32,7 +32,7 @@ export class ArmService {
                 });
             }
         }
-        // ۱. بررسی یکتایی slug
+
         const existing = await this.prisma.arm.findUnique({
             where: { slug: dto.slug },
         });
@@ -43,21 +43,7 @@ export class ArmService {
             });
         }
 
-        // ۲. بررسی وجود گره‌های انتخاب‌شده
-        const categories = await this.prisma.productCategory.findMany({
-            where: {
-                id: { in: dto.config.categorySelections.map(c => c.categoryId) },
-                isActive: true,
-            },
-        });
-        if (categories.length !== dto.config.categorySelections.length) {
-            throw new BadRequestException({
-                errorCode: 'SOME_CATEGORIES_NOT_FOUND',
-                message: 'برخی از دسته‌بندی‌های انتخاب‌شده وجود ندارند یا غیرفعال هستند.',
-            });
-        }
-
-        // ۳. بررسی وجود موقعیت‌های انتخاب‌شده
+        // بررسی موقعیت‌ها
         if (dto.config.locationSelections && dto.config.locationSelections.length > 0) {
             const locations = await this.prisma.location.findMany({
                 where: {
@@ -73,28 +59,11 @@ export class ArmService {
             }
         }
 
-        // ✅ ۴. دریافت عنوان واحدها برای هر دسته‌بندی
-        const categorySelectionsWithUnits = [];
-        for (const sel of dto.config.categorySelections) {
-            let unitTitle = 'تن';
-            if (sel.overrideUnitId) {
-                const unit = await this.prisma.unit.findUnique({
-                    where: { id: sel.overrideUnitId },
-                    select: { title: true },
-                });
-                if (unit) {
-                    unitTitle = unit.title;
-                }
-            }
-            categorySelectionsWithUnits.push({
-                ...sel,
-                overrideUnitTitle: unitTitle,
-            });
-        }
+        // ✅ ساخت locationTree
+        const locationTree = await this.buildLocationTreeFromConfig(dto.config);
 
-        // ۵. ایجاد بازار با تراکنش
+        // ایجاد بازار با تراکنش
         const arm = await this.prisma.$transaction(async (prisma) => {
-            // ۵-۱. ایجاد بازار با config
             const newArm = await prisma.arm.create({
                 data: {
                     slug: dto.slug,
@@ -115,15 +84,15 @@ export class ArmService {
                     featuresEnabled: dto.featuresEnabled || [],
                     rankingAlgorithm: dto.rankingAlgorithm || 'simple',
                     metadata: dto.metadata || null,
-                    // ✅ ذخیره config با categorySelections دارای unitTitle
+                    // ✅ categoryTree خالی
+                    categoryTree: [],
                     config: {
                         ...dto.config,
-                        categorySelections: categorySelectionsWithUnits,
+                        _cachedLocationTree: locationTree,
                     } as any,
                 },
             });
 
-            // ۵-۲. اضافه کردن سازنده به‌عنوان ادمین
             await prisma.armMembership.create({
                 data: {
                     armId: newArm.id,
@@ -140,8 +109,9 @@ export class ArmService {
         return this.findBySlug(arm.slug);
     }
 
-    // src/arm/arm.service.ts
-
+    // ============================================================
+    // 2. دریافت بازار با slug
+    // ============================================================
     async findBySlug(slug: string, userId?: string) {
         const arm = await this.prisma.arm.findUnique({
             where: { slug },
@@ -165,7 +135,7 @@ export class ArmService {
         const config = arm.config as any || {};
         const general = config.general || {};
 
-        // ✅ پیدا کردن لوگو بر اساس logoFileId (اگر وجود داشته باشد)
+        // پیدا کردن لوگو
         let logoFile = null;
         if (general.logoFileId) {
             logoFile = await this.prisma.file.findFirst({
@@ -175,16 +145,10 @@ export class ArmService {
                     relatedId: arm.id,
                     fieldKey: 'logo',
                 },
-                select: {
-                    id: true,
-                    path: true,
-                    thumbnailPath: true,
-                    fieldKey: true,
-                },
+                select: { id: true, path: true, thumbnailPath: true, fieldKey: true },
             });
         }
 
-        // اگر با logoFileId پیدا نشد، با relatedId و fieldKey پیدا کن
         if (!logoFile) {
             logoFile = await this.prisma.file.findFirst({
                 where: {
@@ -192,48 +156,50 @@ export class ArmService {
                     relatedId: arm.id,
                     fieldKey: 'logo',
                 },
-                select: {
-                    id: true,
-                    path: true,
-                    thumbnailPath: true,
-                    fieldKey: true,
-                },
+                select: { id: true, path: true, thumbnailPath: true, fieldKey: true },
             });
         }
 
-        // ✅ پیدا کردن بنر
         const bannerFile = await this.prisma.file.findFirst({
             where: {
                 relatedModel: 'Arm',
                 relatedId: arm.id,
                 fieldKey: 'banner',
             },
-            select: {
-                id: true,
-                path: true,
-                thumbnailPath: true,
-                fieldKey: true,
-            },
+            select: { id: true, path: true, thumbnailPath: true, fieldKey: true },
         });
 
-        // ✅ استفاده از درخت‌های کش‌شده در config
-        let categoryTree = config._cachedCategoryTree;
+        // ✅ categoryTree مستقیم از فیلد سطح بالا
+        const categoryTree = arm.categoryTree || [];
+
+        // ✅ allowedCategoryScopeTree - اول از فیلد سطح بالا، بعد از داخل config
+        // چون ممکنه داده‌های قدیمی داخل config ذخیره شده باشن
+        const allowedCategoryScopeTree = arm.allowedCategoryScopeTree ||
+            config.allowedCategoryScopeTree || [];
+
+        // ✅ اگر allowedCategoryScopeTree داخل config بود ولی در فیلد سطح بالا نبود،
+        // مهاجرت داده به فیلد سطح بالا (آپدیت خودکار)
+        if (!arm.allowedCategoryScopeTree && config.allowedCategoryScopeTree) {
+            await this.prisma.arm.update({
+                where: { id: arm.id },
+                data: {
+                    allowedCategoryScopeTree: config.allowedCategoryScopeTree,
+                },
+            }).catch(() => {
+                // اگر آپدیت شکست خورد، مشکلی نیست، داده رو از config می‌خونیم
+            });
+        }
+
+        // ✅ locationTree از cached یا rebuild
         let locationTree = config._cachedLocationTree;
-
-        // ❌ اگر به هر دلیلی درخت وجود نداشت، یک بار بساز و ذخیره کن
-        if (!categoryTree || !locationTree) {
-            categoryTree = await this.buildCategoryTreeFromConfig(config);
+        if (!locationTree) {
             locationTree = await this.buildLocationTreeFromConfig(config);
-
-            // ذخیره در دیتابیس برای دفعات بعد
             await this.prisma.arm.update({
                 where: { id: arm.id },
                 data: {
                     config: {
                         ...config,
-                        _cachedCategoryTree: categoryTree,
                         _cachedLocationTree: locationTree,
-                        _treeUpdatedAt: new Date().toISOString(),
                     } as any,
                 },
             });
@@ -243,7 +209,6 @@ export class ArmService {
         let isSystemAdmin = false;
 
         if (userId) {
-            // ✅ یک کوئری واحد برای دریافت همزمان عضویت و نقش کاربر
             const [membership, user] = await Promise.all([
                 this.prisma.armMembership.findFirst({
                     where: {
@@ -264,9 +229,17 @@ export class ArmService {
             isSystemAdmin = user?.role === SystemRole.system_admin;
         }
 
-        // ✅ آدرس‌های کامل فایل‌ها را در config قرار می‌دهیم
+        // ✅ پاک‌سازی config از فیلدهایی که به سطح بالا منتقل شدن
+        const {
+            allowedCategoryScopeTree: _removedFromConfig,
+            categorySelections: _removedCategorySelections,
+            _cachedCategoryTree: _removedCachedTree,
+            _treeUpdatedAt: _removedTreeUpdatedAt,
+            ...cleanConfig
+        } = config;
+
         const configWithFiles = {
-            ...config,
+            ...cleanConfig,
             general: {
                 ...general,
                 logoFile: logoFile || null,
@@ -281,15 +254,16 @@ export class ArmService {
             ...arm,
             config: configWithFiles,
             categoryTree,
+            allowedCategoryScopeTree,
             locationTree,
             isArmOwner,
             isSystemAdmin,
         };
     }
 
-// ============================================================
-// 3. دریافت بازار با id
-// ============================================================
+    // ============================================================
+    // 3. دریافت بازار با id
+    // ============================================================
     async findById(id: string) {
         const arm = await this.prisma.arm.findUnique({
             where: { id },
@@ -313,7 +287,7 @@ export class ArmService {
         const config = arm.config as any || {};
         const general = config.general || {};
 
-        // ✅ پیدا کردن لوگو بر اساس logoFileId (اگر وجود داشته باشد)
+        // پیدا کردن لوگو
         let logoFile = null;
         if (general.logoFileId) {
             logoFile = await this.prisma.file.findFirst({
@@ -323,16 +297,10 @@ export class ArmService {
                     relatedId: arm.id,
                     fieldKey: 'logo',
                 },
-                select: {
-                    id: true,
-                    path: true,
-                    thumbnailPath: true,
-                    fieldKey: true,
-                },
+                select: { id: true, path: true, thumbnailPath: true, fieldKey: true },
             });
         }
 
-        // اگر با logoFileId پیدا نشد، با relatedId و fieldKey پیدا کن
         if (!logoFile) {
             logoFile = await this.prisma.file.findFirst({
                 where: {
@@ -340,55 +308,62 @@ export class ArmService {
                     relatedId: arm.id,
                     fieldKey: 'logo',
                 },
-                select: {
-                    id: true,
-                    path: true,
-                    thumbnailPath: true,
-                    fieldKey: true,
-                },
+                select: { id: true, path: true, thumbnailPath: true, fieldKey: true },
             });
         }
 
-        // ✅ پیدا کردن بنر
         const bannerFile = await this.prisma.file.findFirst({
             where: {
                 relatedModel: 'Arm',
                 relatedId: arm.id,
                 fieldKey: 'banner',
             },
-            select: {
-                id: true,
-                path: true,
-                thumbnailPath: true,
-                fieldKey: true,
-            },
+            select: { id: true, path: true, thumbnailPath: true, fieldKey: true },
         });
 
-        // ✅ استفاده از درخت‌های کش‌شده
-        let categoryTree = config._cachedCategoryTree;
+        // ✅ categoryTree مستقیم از فیلد سطح بالا
+        const categoryTree = arm.categoryTree || [];
+
+        // ✅ allowedCategoryScopeTree - اول از فیلد سطح بالا، بعد از داخل config
+        const allowedCategoryScopeTree = arm.allowedCategoryScopeTree ||
+            config.allowedCategoryScopeTree || [];
+
+        // ✅ مهاجرت خودکار داده
+        if (!arm.allowedCategoryScopeTree && config.allowedCategoryScopeTree) {
+            await this.prisma.arm.update({
+                where: { id: arm.id },
+                data: {
+                    allowedCategoryScopeTree: config.allowedCategoryScopeTree,
+                },
+            }).catch(() => {});
+        }
+
+        // ✅ locationTree
         let locationTree = config._cachedLocationTree;
-
-        if (!categoryTree || !locationTree) {
-            categoryTree = await this.buildCategoryTreeFromConfig(config);
+        if (!locationTree) {
             locationTree = await this.buildLocationTreeFromConfig(config);
-
-            // ذخیره در دیتابیس برای دفعات بعد
             await this.prisma.arm.update({
                 where: { id: arm.id },
                 data: {
                     config: {
                         ...config,
-                        _cachedCategoryTree: categoryTree,
                         _cachedLocationTree: locationTree,
-                        _treeUpdatedAt: new Date().toISOString(),
                     } as any,
                 },
             });
         }
 
-        // ✅ آدرس‌های کامل فایل‌ها را در config قرار می‌دهیم
+        // ✅ پاک‌سازی config
+        const {
+            allowedCategoryScopeTree: _removedFromConfig,
+            categorySelections: _removedCategorySelections,
+            _cachedCategoryTree: _removedCachedTree,
+            _treeUpdatedAt: _removedTreeUpdatedAt,
+            ...cleanConfig
+        } = config;
+
         const configWithFiles = {
-            ...config,
+            ...cleanConfig,
             general: {
                 ...general,
                 logoFile: logoFile || null,
@@ -403,20 +378,15 @@ export class ArmService {
             ...arm,
             config: configWithFiles,
             categoryTree,
+            allowedCategoryScopeTree,
             locationTree,
         };
     }
 
-
-// ============================================================
-// 4. لیست بازارهای کاربر (با status و rejectionReason)
-// ============================================================
-    // src/arm/arm.service.ts
-
-    // src/arm/arm.service.ts
-
+    // ============================================================
+    // 4. لیست بازارهای کاربر
+    // ============================================================
     async getUserArms(userId: string) {
-        // ۱. دریافت عضویت‌های کاربر
         const memberships = await this.prisma.armMembership.findMany({
             where: { userId },
             select: {
@@ -424,6 +394,11 @@ export class ArmService {
                 status: true,
                 rejectionReason: true,
                 joinedAt: true,
+                roleType: true,
+                businessId: true,
+                business: {
+                    select: { id: true, name: true, type: true },
+                },
                 arm: {
                     select: {
                         id: true,
@@ -432,46 +407,35 @@ export class ArmService {
                         slogan: true,
                         colorPrimary: true,
                         config: true,
+                        categoryTree: true, // ✅ اضافه
                     },
                 },
             },
             orderBy: { joinedAt: 'desc' },
         });
 
-        if (memberships.length === 0) {
-            return [];
-        }
+        if (memberships.length === 0) return [];
 
-        // ۲. دریافت همه armId ها
         const armIds = memberships.map(m => m.arm.id);
 
-        // ۳. ✅ یک کوئری واحد برای دریافت همه لوگوها
         const logoFiles = await this.prisma.file.findMany({
             where: {
                 relatedModel: 'Arm',
                 relatedId: { in: armIds },
                 fieldKey: 'logo',
             },
-            select: {
-                relatedId: true,
-                path: true,
-                thumbnailPath: true,
-            },
+            select: { relatedId: true, path: true, thumbnailPath: true },
         });
 
-        // ۴. ساخت Map برای دسترسی سریع
         const logoMap = new Map();
         for (const logo of logoFiles) {
             logoMap.set(logo.relatedId, logo);
         }
 
-        // ۵. ساخت نتیجه نهایی
         const result = [];
         for (const m of memberships) {
             const config = m.arm.config as any || {};
             const general = config.general || {};
-
-            // ✅ از Map استفاده کن
             const logoFile = logoMap.get(m.arm.id);
             const logoUrl = logoFile?.path || general.logoUrl || null;
 
@@ -486,6 +450,10 @@ export class ArmService {
                 status: m.status,
                 rejectionReason: m.rejectionReason,
                 joinedAt: m.joinedAt,
+                roleType: m.roleType,
+                businessId: m.businessId,
+                business: m.business,
+                categoryTree: m.arm.categoryTree || [], // ✅ اضافه
             });
         }
 
@@ -493,22 +461,14 @@ export class ArmService {
     }
 
     // ============================================================
-    // 5. عضویت کاربر در بازار
+    // 5. پیوستن به بازار
     // ============================================================
-    async join(
-        userId: string,
-        slug: string,
-        roleType?: 'seller' | 'buyer',
-        businessId?: string,
-    ) {
-        // ۱. پیدا کردن بازو
-        const arm = await this.prisma.arm.findUnique({
-            where: { slug },
-        });
+    async join(userId: string, slug: string, roleType?: 'seller' | 'buyer', businessId?: string) {
+        const arm = await this.prisma.arm.findUnique({ where: { slug } });
         if (!arm) {
             throw new NotFoundException({
                 errorCode: 'ARM_NOT_FOUND',
-                message: 'بازوی مورد نظر یافت نشد',
+                message: 'بازار مورد نظر یافت نشد',
             });
         }
 
@@ -516,18 +476,17 @@ export class ArmService {
         const requireBusiness = config.accessRules?.requireBusinessForMembership ?? false;
         const requireApproval = config.accessRules?.requireAdminApprovalForMembership ?? false;
 
-        // ۲. بررسی نیاز به کسب‌وکار
         if (requireBusiness && !businessId) {
             throw new BadRequestException({
                 errorCode: 'BUSINESS_REQUIRED',
-                message: 'برای عضویت در این بازار، ابتدا باید کسب‌وکار خود را انتخاب کنید.',
+                message: 'برای پیوستن به این بازار، ابتدا باید کسب‌وکار خود را انتخاب کنید.',
             });
         }
 
-        // ۳. اعتبارسنجی businessId (اگر ارسال شده)
         if (businessId) {
             const business = await this.prisma.business.findFirst({
                 where: { id: businessId, ownerUserId: userId },
+                select: { id: true, name: true },
             });
             if (!business) {
                 throw new BadRequestException({
@@ -537,7 +496,6 @@ export class ArmService {
             }
         }
 
-        // ۴. بررسی عضویت قبلی
         const existing = await this.prisma.armMembership.findFirst({
             where: { armId: arm.id, userId: userId },
         });
@@ -545,32 +503,26 @@ export class ArmService {
         const finalStatus = requireApproval ? 'pending' : 'active';
 
         if (existing) {
-            if (existing.status === 'active') {
+            if (existing.status === 'active' && existing.businessId) {
                 throw new BadRequestException({
                     errorCode: 'ALREADY_MEMBER',
-                    message: 'شما قبلاً عضو این بازار هستید',
+                    message: 'شما قبلاً به این بازار پیوسته‌اید',
                 });
             }
 
-            // اگر قبلاً عضویت داشته ولی غیرفعال/رد شده، دوباره فعال/در انتظار می‌کنیم
             return this.prisma.armMembership.update({
                 where: { id: existing.id },
                 data: {
-                    status: finalStatus,
+                    status: existing.status === 'active' ? 'active' : finalStatus,
                     rejectionReason: null,
                     joinedAt: new Date(),
                     roleType: roleType || existing.roleType || null,
                     businessId: businessId || existing.businessId,
                     source: 'manual',
-                    metadata: {
-                        joined_at: new Date().toISOString(),
-                        role_type: roleType || existing.roleType || null,
-                    },
                 },
             });
         }
 
-        // ۵. ایجاد عضویت جدید
         return this.prisma.armMembership.create({
             data: {
                 armId: arm.id,
@@ -580,10 +532,6 @@ export class ArmService {
                 roleType: roleType || null,
                 businessId: businessId || null,
                 source: 'manual',
-                metadata: {
-                    joined_at: new Date().toISOString(),
-                    role_type: roleType || null,
-                },
             },
         });
     }
@@ -601,24 +549,20 @@ export class ArmService {
         }
 
         const membership = await this.prisma.armMembership.findFirst({
-            where: {
-                armId: arm.id,
-                userId: userId,
-                status: 'active',
-            },
+            where: { armId: arm.id, userId: userId, status: 'active' },
         });
 
         if (!membership) {
             throw new BadRequestException({
                 errorCode: 'NOT_MEMBER',
-                message: 'شما عضو این بازار نیستید',
+                message: 'شما به این بازار نپیوسته‌اید',
             });
         }
 
         if (membership.role === 'arm_owner') {
             throw new BadRequestException({
                 errorCode: 'ADMIN_CANNOT_LEAVE',
-                message: 'مدیر بازار نمی‌تواند از بازار خارج شود. ابتدا نقش خود را به فرد دیگری منتقل کنید.',
+                message: 'مدیر بازار نمی‌تواند از بازار خارج شود.',
             });
         }
 
@@ -627,72 +571,6 @@ export class ArmService {
             data: { status: 'paused' },
         });
     }
-
-    // ============================================================
-// متد validateRoleType (جدید)
-// ============================================================
-
-
-    private async validateRoleType(
-        userId: string,
-        slug: string,
-        requestedRole?: 'seller' | 'buyer',
-        businessId?: string,
-    ): Promise<'seller' | 'buyer'> {
-        // ۱. اگر کاربر نقش درخواست کرده، آن را برگردان
-        if (requestedRole) {
-            return requestedRole;
-        }
-
-        // ۲. خواندن تنظیمات بازار
-        const arm = await this.prisma.arm.findUnique({
-            where: { slug },
-            select: { config: true },
-        });
-        const config = arm?.config as any || {};
-
-        // ✅ استفاده از supplierIndustryIds و buyerIndustryIds (از مدل Industry)
-        const supplierIndustryIds: string[] = config.supplierIndustryIds || [];
-        const buyerIndustryIds: string[] = config.buyerIndustryIds || [];
-        const allowManual = config.allowManualRoleSelection ?? true;
-
-        // ۳. اگر کسب‌وکار مشخص شده، صنف آن را بگیر
-        if (businessId) {
-            const business = await this.prisma.business.findUnique({
-                where: { id: businessId },
-                select: { industryId: true },
-            });
-
-            if (business?.industryId) {
-                if (supplierIndustryIds.includes(business.industryId)) {
-                    return 'seller';
-                }
-                if (buyerIndustryIds.includes(business.industryId)) {
-                    return 'buyer';
-                }
-            }
-        }
-
-        // ۴. اگر هیچ‌کدام تطابق نداشت و تنظیمات اجازه نمی‌دهد
-        if (!allowManual) {
-            throw new BadRequestException({
-                errorCode: 'ROLE_NOT_ALLOWED',
-                message: 'نقش شما با صنف کسب‌وکارتان در این بازار تطابق ندارد. لطفاً ابتدا صنف خود را تکمیل کنید.',
-            });
-        }
-
-        // ۵. اگر کاربر قبلاً نقش داشته، همان را برگردان
-        const existing = await this.prisma.armMembership.findFirst({
-            where: { userId, arm: { slug } },
-            select: { roleType: true },
-        });
-        if (existing?.roleType) {
-            return existing.roleType as 'seller' | 'buyer';
-        }
-
-        return 'seller'; // پیش‌فرض
-    }
-
 
     // ============================================================
     // 7. دریافت آمار بازار
@@ -724,11 +602,11 @@ export class ArmService {
     }
 
     // ============================================================
-    // 8. به‌روزرسانی بازار (فقط مدیر بازار یا مدیر سیستم)
+    // 8. به‌روزرسانی بازار
     // ============================================================
     async updateArm(armId: string, userId: string, dto: Partial<CreateArmDto>) {
         if (dto.customDomain) {
-            const existingDomain = await this.prisma.arm.findFirst({   // ← findFirst
+            const existingDomain = await this.prisma.arm.findFirst({
                 where: { customDomain: dto.customDomain },
             });
             if (existingDomain) {
@@ -738,6 +616,7 @@ export class ArmService {
                 });
             }
         }
+
         const arm = await this.prisma.arm.findUnique({
             where: { id: armId },
             include: {
@@ -764,10 +643,8 @@ export class ArmService {
             });
         }
 
-        // ساخت دیتای به‌روزرسانی
         const updateData: any = {};
 
-        // فیلدهای اصلی
         if (dto.name) updateData.name = dto.name;
         if (dto.slogan) updateData.slogan = dto.slogan;
         if (dto.description !== undefined) updateData.description = dto.description;
@@ -785,22 +662,12 @@ export class ArmService {
         if (dto.rankingAlgorithm) updateData.rankingAlgorithm = dto.rankingAlgorithm;
         if (dto.metadata !== undefined) updateData.metadata = dto.metadata;
 
-        // ✅ به‌روزرسانی config (اگر ارسال شده باشد)
-        if (dto.config) {
-            // اعتبارسنجی مجدد دسته‌بندی‌ها و موقعیت‌ها
-            const categoryIds = dto.config.categorySelections?.map(c => c.categoryId) || [];
-            if (categoryIds.length > 0) {
-                const categories = await this.prisma.productCategory.findMany({
-                    where: { id: { in: categoryIds }, isActive: true },
-                });
-                if (categories.length !== categoryIds.length) {
-                    throw new BadRequestException({
-                        errorCode: 'SOME_CATEGORIES_NOT_FOUND',
-                        message: 'برخی از دسته‌بندی‌های انتخاب‌شده وجود ندارند یا غیرفعال هستند.',
-                    });
-                }
-            }
+        // ✅ ذخیره categoryTree
+        if ((dto as any).categoryTree !== undefined) {
+            updateData.categoryTree = (dto as any).categoryTree;
+        }
 
+        if (dto.config) {
             const locationIds = dto.config.locationSelections?.map(l => l.locationId) || [];
             if (locationIds.length > 0) {
                 const locations = await this.prisma.location.findMany({
@@ -814,33 +681,25 @@ export class ArmService {
                 }
             }
 
-            // ✅ دریافت عنوان واحدها برای هر دسته‌بندی (اگر categorySelections تغییر کرده باشد)
             let updatedConfig = { ...dto.config };
-            if (dto.config.categorySelections) {
-                const categorySelectionsWithUnits = [];
-                for (const sel of dto.config.categorySelections) {
-                    let unitTitle = 'تن';
-                    if (sel.overrideUnitId) {
-                        const unit = await this.prisma.unit.findUnique({
-                            where: { id: sel.overrideUnitId },
-                            select: { title: true },
-                        });
-                        if (unit) {
-                            unitTitle = unit.title;
-                        }
-                    }
-                    categorySelectionsWithUnits.push({
-                        ...sel,
-                        overrideUnitTitle: unitTitle,
-                    });
-                }
-                updatedConfig = {
-                    ...updatedConfig,
-                    categorySelections: categorySelectionsWithUnits,
-                };
+
+            // ✅ حذف categorySelections و _cachedCategoryTree از config
+            delete updatedConfig.categorySelections;
+            delete updatedConfig._cachedCategoryTree;
+            delete updatedConfig._treeUpdatedAt;
+
+            // ✅ locationTree فقط اگه تغییر کرده
+            const oldConfig = arm.config as any || {};
+            const oldLocationSelections = oldConfig.locationSelections || [];
+            const newLocationSelections = updatedConfig.locationSelections || [];
+            const locationChanged = JSON.stringify(oldLocationSelections) !== JSON.stringify(newLocationSelections);
+
+            if (locationChanged && updatedConfig.locationSelections) {
+                const locationTree = await this.buildLocationTreeFromConfig(updatedConfig);
+                updatedConfig._cachedLocationTree = locationTree;
             }
 
-            updateData.config = updatedConfig as any;
+            updateData.config = updatedConfig;
         }
 
         return this.prisma.arm.update({
@@ -850,7 +709,7 @@ export class ArmService {
     }
 
     // ============================================================
-    // 9. حذف بازار (soft delete) - فقط مدیر
+    // 9. حذف نرم بازار
     // ============================================================
     async deleteArm(armId: string, userId: string) {
         const arm = await this.prisma.arm.findUnique({
@@ -881,20 +740,17 @@ export class ArmService {
 
         return this.prisma.arm.update({
             where: { id: armId },
-            data: {
-                status: 'archived',
-                updatedAt: new Date(),
-            },
+            data: { status: 'archived', updatedAt: new Date() },
         });
     }
 
     // ============================================================
-    // 10. دریافت درخت دسته‌بندی بازار از config
+    // 10. دریافت درخت دسته‌بندی بازار
     // ============================================================
     async getArmCategoryTree(slug: string, nodeId?: string) {
         const arm = await this.prisma.arm.findUnique({
             where: { slug },
-            select: { config: true },
+            select: { categoryTree: true },
         });
 
         if (!arm) {
@@ -904,15 +760,29 @@ export class ArmService {
             });
         }
 
-        const tree = await this.buildCategoryTreeFromConfig(arm.config, nodeId);
+        let tree = (arm.categoryTree as any[]) || [];
+
+        if (nodeId) {
+            const findNode = (nodes: any[]): any => {
+                for (const node of nodes) {
+                    if (node.id === nodeId) return node;
+                    if (node.children) {
+                        const found = findNode(node.children);
+                        if (found) return found;
+                    }
+                }
+                return null;
+            };
+            const foundNode = findNode(tree);
+            tree = foundNode ? [foundNode] : [];
+        }
+
         return tree;
     }
 
     // ============================================================
-    // 11. دریافت درخت موقعیت‌های بازار از config
+    // 11. دریافت درخت موقعیت‌های بازار
     // ============================================================
-// src/arm/arm.service.ts
-
     async getArmLocationTree(slug: string) {
         const arm = await this.prisma.arm.findUnique({
             where: { slug },
@@ -929,7 +799,6 @@ export class ArmService {
         const config = arm.config as any || {};
         let tree = config._cachedLocationTree;
 
-        // اگر درخت کش نشده بود، بساز و ذخیره کن
         if (!tree) {
             tree = await this.buildLocationTreeFromConfig(config);
             await this.prisma.arm.update({
@@ -938,7 +807,6 @@ export class ArmService {
                     config: {
                         ...config,
                         _cachedLocationTree: tree,
-                        _treeUpdatedAt: new Date().toISOString(),
                     } as any,
                 },
             });
@@ -948,15 +816,11 @@ export class ArmService {
     }
 
     // ============================================================
-    // 12. بررسی عضویت کاربر
+    // 12. بررسی عضویت
     // ============================================================
     async isMember(userId: string, armId: string) {
         const membership = await this.prisma.armMembership.findFirst({
-            where: {
-                armId,
-                userId,
-                status: 'active',
-            },
+            where: { armId, userId, status: 'active' },
         });
         return !!membership;
     }
@@ -969,194 +833,12 @@ export class ArmService {
             where: { id: userId },
             select: { role: true },
         });
-        return user?.role ===  SystemRole.system_admin;
+        return user?.role === SystemRole.system_admin;
     }
 
     // ============================================================
-    // 14. ساخت درخت دسته‌بندی از config (با Smart Trimming)
+    // 14. ساخت درخت موقعیت‌ها از config
     // ============================================================
-    // src/arm/arm.service.ts
-
-    // src/arm/arm.service.ts - buildCategoryTreeFromConfig بهینه‌شده
-    // فایل: src/arm/arm.service.ts
-// متد: private async buildCategoryTreeFromConfig
-
-    // src/arm/arm.service.ts
-
-    private async buildCategoryTreeFromConfig(config: any, nodeId?: string): Promise<any[]> {
-        if (!config?.categorySelections || config.categorySelections.length === 0) {
-            return [];
-        }
-
-        const selections = config.categorySelections;
-        const leafIds = selections.map((s: any) => s.categoryId);
-
-        // ۱. دریافت برگ‌های انتخاب‌شده
-        const leaves = await this.prisma.productCategory.findMany({
-            where: { id: { in: leafIds }, isActive: true },
-            select: { id: true, title: true, slug: true, path: true, level: true, parentId: true, defaultUnitId: true },
-        });
-
-        // ۲. استخراج مسیرهای اجداد
-        const ancestorPaths = new Set<string>();
-        for (const leaf of leaves) {
-            const parts = leaf.path.split('.');
-            for (let i = 0; i < parts.length; i++) {
-                ancestorPaths.add(parts.slice(0, i + 1).join('.'));
-            }
-        }
-
-        // ۳. دریافت همه گره‌های درگیر (برگ + اجداد)
-        const allCategories = await this.prisma.productCategory.findMany({
-            where: { path: { in: Array.from(ancestorPaths) }, isActive: true },
-            select: { id: true, title: true, slug: true, path: true, level: true, parentId: true, defaultUnitId: true },
-        });
-
-        // ۴. نگاشت انتخاب‌ها
-        const selectionMap = new Map<string, any>();
-        selections.forEach((s: any) => selectionMap.set(s.categoryId, s));
-
-        // ۵. واکشی واحدهای override شده و واحدهای موجود در CategoryUnitMapping
-        type UnitInfo = { id: string; title: string; shortCode: string };
-
-        const overrideUnitIds = [...new Set(selections.map((s: any) => s.overrideUnitId).filter(Boolean))] as string[];
-        const overrideUnits: UnitInfo[] = overrideUnitIds.length > 0
-            ? await this.prisma.unit.findMany({
-                where: { id: { in: overrideUnitIds } },
-                select: { id: true, title: true, shortCode: true },
-            })
-            : [];
-
-        const allMappings = await this.prisma.categoryUnitMapping.findMany({
-            where: { categoryId: { in: leafIds } },
-            include: { unit: { select: { id: true, title: true, shortCode: true } } },
-        });
-
-        const unitMap = new Map<string, UnitInfo>(overrideUnits.map(u => [u.id, u] as [string, UnitInfo]));
-
-        // نگاشت هر categoryId به آرایه‌ای از واحدهای معتبر (با اولویت default)
-        const categoryUnitsMap = new Map<string, UnitInfo[]>();
-        for (const m of allMappings) {
-            if (!categoryUnitsMap.has(m.categoryId)) categoryUnitsMap.set(m.categoryId, []);
-            categoryUnitsMap.get(m.categoryId)!.push({ id: m.unit.id, title: m.unit.title, shortCode: m.unit.shortCode });
-        }
-
-        // تابع کمکی برای یافتن بهترین واحد معتبر
-        const resolveUnit = (catId: string, overrideId: string | null): UnitInfo | null => {
-            if (overrideId && unitMap.has(overrideId)) {
-                return unitMap.get(overrideId)!;
-            }
-            const defaultMapping = allMappings.find(m => m.categoryId === catId && m.isDefault);
-            if (defaultMapping) {
-                return { id: defaultMapping.unit.id, title: defaultMapping.unit.title, shortCode: defaultMapping.unit.shortCode };
-            }
-            const available = categoryUnitsMap.get(catId);
-            if (available && available.length > 0) {
-                return available[0];
-            }
-            return null;
-        };
-
-        // ۶. ساخت nodeMap
-        const nodeMap = new Map<string, any>();
-        for (const cat of allCategories) {
-            const isSelected = selectionMap.has(cat.id);
-            const selection = selectionMap.get(cat.id);
-            const unit = isSelected ? resolveUnit(cat.id, selection?.overrideUnitId) : null;
-            const unitId = unit?.id || null;
-            const unitTitle = unit?.title || (selection?.overrideUnitTitle ?? 'تن');
-            const unitShortCode = unit?.shortCode || unitTitle;
-
-            nodeMap.set(cat.path, {
-                id: cat.id,
-                title: cat.title,
-                slug: cat.slug,
-                path: cat.path,
-                level: cat.level,
-                parentId: cat.parentId,
-                isSelected,
-                customLabel: isSelected ? selection?.customLabel : null,
-                defaultUnitId: unitId,
-                unitTitle,
-                unitShortCode,
-                defaultMinQuantity: selection?.overrideMinQuantity || null,
-                example: selection?.example || null,
-                children: [],
-            });
-        }
-
-        // ۷. اتصال فرزندان به والدین
-        const roots: any[] = [];
-        for (const [path, node] of nodeMap) {
-            if (node.parentId) {
-                const parentPath = path.split('.').slice(0, -1).join('.');
-                const parent = nodeMap.get(parentPath);
-                if (parent) parent.children.push(node);
-                else roots.push(node);
-            } else {
-                roots.push(node);
-            }
-        }
-
-        // ۸. مرتب‌سازی فرزندان
-        const sortChildren = (nodes: any[]) => {
-            nodes.forEach(node => {
-                if (node.children?.length) {
-                    node.children.sort((a: any, b: any) => (selectionMap.get(a.id)?.displayPriority ?? 999) - (selectionMap.get(b.id)?.displayPriority ?? 999));
-                    sortChildren(node.children);
-                }
-            });
-        };
-        sortChildren(roots);
-
-        // ۹. هرس گره‌های تک‌فرزندی غیرانتخابی (برای سطوح داخلی)
-        const trimSingleChildNodes = (nodes: any[]): any[] => {
-            return nodes.reduce((acc: any[], node: any) => {
-                const trimmedChildren = trimSingleChildNodes(node.children || []);
-                if (!node.isSelected && trimmedChildren.length === 1) {
-                    acc.push(trimmedChildren[0]);
-                } else {
-                    acc.push({ ...node, children: trimmedChildren });
-                }
-                return acc;
-            }, []);
-        };
-
-        // ✅ جدید: collapse ریشه تکی، حتی اگر چند فرزند داشته باشد
-        const collapseSingleRoot = (nodes: any[]): any[] => {
-            while (nodes.length === 1 && !nodes[0].isSelected && nodes[0].children?.length > 0) {
-                nodes = nodes[0].children;
-            }
-            return nodes;
-        };
-
-        // ۱۰. ترکیب هرس و collapse
-        let trimmedRoots = collapseSingleRoot(trimSingleChildNodes(roots));
-
-        // ۱۱. بازگشت زیردرخت در صورت درخواست nodeId
-        if (nodeId) {
-            const findNode = (nodes: any[]): any => {
-                for (const node of nodes) {
-                    if (node.id === nodeId) return node;
-                    if (node.children) {
-                        const found = findNode(node.children);
-                        if (found) return found;
-                    }
-                }
-                return null;
-            };
-            const foundNode = findNode(trimmedRoots);
-            return foundNode ? [foundNode] : [];
-        }
-
-        return trimmedRoots;
-    }
-
-    // ============================================================
-    // 15. ساخت درخت موقعیت‌ها از config
-    // ============================================================
-    // src/arm/arm.service.ts
-
     private async buildLocationTreeFromConfig(config: any): Promise<any[]> {
         if (!config?.locationSelections || config.locationSelections.length === 0) {
             return [];
@@ -1164,33 +846,19 @@ export class ArmService {
 
         const selections = config.locationSelections;
         const locationIds = selections.map((s: any) => s.locationId);
-
-        // ✅ فیلتر کردن locationIds که معتبر هستند (ObjectId 24 کاراکتری)
         const validLocationIds = locationIds.filter((id: string) => /^[0-9a-fA-F]{24}$/.test(id));
 
-        if (validLocationIds.length === 0) {
-            return [];
-        }
+        if (validLocationIds.length === 0) return [];
 
-        // دریافت اطلاعات کامل موقعیت‌ها از دیتابیس
         const locations = await this.prisma.location.findMany({
-            where: {
-                id: { in: validLocationIds },
-                isActive: true,
-            },
+            where: { id: { in: validLocationIds }, isActive: true },
             include: {
                 parent: {
-                    select: {
-                        id: true,
-                        title: true,
-                        type: true,
-                        provinceCode: true,
-                    },
+                    select: { id: true, title: true, type: true, provinceCode: true },
                 },
             },
         });
 
-        // گروه‌بندی بر اساس استان
         const provinceMap = new Map();
 
         for (const city of locations) {
@@ -1226,33 +894,9 @@ export class ArmService {
     }
 
     // ============================================================
-    // 16. Smart Trimming: حذف گره‌های تکی غیرانتخابی
+    // 15. حذف کامل بازار (فقط توسعه)
     // ============================================================
-    private smartTrim(nodes: any[]): any[] {
-        if (!nodes || nodes.length === 0) return [];
-
-        const trimmedChildren = nodes.map(node => ({
-            ...node,
-            children: this.smartTrim(node.children || []),
-        }));
-
-        if (trimmedChildren.length === 1) {
-            const onlyNode = trimmedChildren[0];
-            if (!onlyNode.isSelected && onlyNode.children && onlyNode.children.length > 0) {
-                return onlyNode.children;
-            }
-        }
-
-        return trimmedChildren;
-    }
-
-    // src/arm/arm.service.ts
-
-// ============================================================
-// 17. حذف کامل بازار و تمام وابسته‌ها (Hard Delete) - فقط توسعه
-// ============================================================
     async hardDelete(armId: string, userId: string) {
-        // فقط در محیط توسعه
         if (process.env.NODE_ENV === 'production') {
             throw new ForbiddenException({
                 errorCode: 'FORBIDDEN',
@@ -1286,43 +930,23 @@ export class ArmService {
             });
         }
 
-        // حذف همه وابسته‌ها با تراکنش
         await this.prisma.$transaction([
-            // ۱. حذف بازدیدهای آگهی‌ها
-            this.prisma.adView.deleteMany({
-                where: { ad: { armId: armId } },
-            }),
-            // ۲. حذف رویدادهای تماس
-            this.prisma.callEvent.deleteMany({
-                where: { ad: { armId: armId } },
-            }),
-            // ۳. حذف آگهی‌ها
+            this.prisma.adView.deleteMany({ where: { ad: { armId: armId } } }),
+            this.prisma.callEvent.deleteMany({ where: { ad: { armId: armId } } }),
             this.prisma.ad.deleteMany({ where: { armId: armId } }),
-            // ۴. حذف درخواست‌های خرید
             this.prisma.buyLead.deleteMany({ where: { armId: armId } }),
-            // ۵. حذف عضویت‌ها
             this.prisma.armMembership.deleteMany({ where: { armId: armId } }),
-            // ۶. حذف دسته‌بندی‌های اختصاصی
             this.prisma.customCategory.deleteMany({ where: { armId: armId } }),
-            // ۷. حذف تراکنش‌های اعتباری مرتبط
             this.prisma.credit.deleteMany({ where: { armId: armId } }),
-            // ۸. حذف درخواست‌های اعتباری مرتبط
             this.prisma.creditRequest.deleteMany({ where: { armId: armId } }),
-            // ۹. حذف امتیازات اعتماد مرتبط
             this.prisma.trustMetric.deleteMany({ where: { armId: armId } }),
-            // ۱۰. حذف فایل‌های مرتبط
             this.prisma.file.deleteMany({ where: { relatedModel: 'Arm', relatedId: armId } }),
-            // ۱۱. حذف خود بازار
             this.prisma.arm.delete({ where: { id: armId } }),
         ]);
 
         return {
             message: 'بازار و تمام وابسته‌های آن با موفقیت حذف شدند',
-            deletedArm: {
-                id: arm.id,
-                slug: arm.slug,
-                name: arm.name,
-            },
+            deletedArm: { id: arm.id, slug: arm.slug, name: arm.name },
         };
     }
 }

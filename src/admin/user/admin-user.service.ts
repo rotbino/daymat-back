@@ -65,12 +65,12 @@ export class AdminUserService {
         if (isPhoneVerified === 'true') where.isPhoneVerified = true;
         if (isPhoneVerified === 'false') where.isPhoneVerified = false;
 
-        // فیلتر عضویت
+        // فیلتر پیوستن به
         if (membershipTier && membershipTier !== 'all') {
             where.membershipTier = membershipTier;
         }
 
-        // فیلتر بازه زمانی عضویت
+        // فیلتر بازه زمانی پیوستن به
         if (startDate || endDate) {
             where.createdAt = {};
             if (startDate) where.createdAt.gte = new Date(startDate);
@@ -363,7 +363,7 @@ export class AdminUserService {
         if (!membership) {
             throw new NotFoundException({
                 errorCode: 'MEMBERSHIP_NOT_FOUND',
-                message: 'این کاربر عضو این بازار نیست',
+                message: 'این کاربر به این بازار نپیوسته است',
             });
         }
 

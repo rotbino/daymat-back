@@ -99,10 +99,10 @@ export class MembersController {
     }
 
     // ============================================================
-// تأیید عضویت
+// تأیید پیوستن به
 // ============================================================
     @Post(':userId/approve')
-    @ApiOperation({ summary: 'تأیید عضویت کاربر' })
+    @ApiOperation({ summary: 'تأیید پیوستن به کاربر' })
     async approveMember(
         @Param('slug') slug: string,
         @Param('userId') userId: string,
@@ -112,10 +112,10 @@ export class MembersController {
     }
 
 // ============================================================
-// رد عضویت
+// عدم تایید پیوستن به
 // ============================================================
     @Post(':userId/reject')
-    @ApiOperation({ summary: 'رد عضویت کاربر با دلیل' })
+    @ApiOperation({ summary: 'رد پیوستن به کاربر با دلیل' })
     async rejectMember(
         @Param('slug') slug: string,
         @Param('userId') userId: string,
@@ -126,10 +126,10 @@ export class MembersController {
     }
 
     // ============================================================
-// حذف کامل عضویت
+// حذف کامل پیوستن به
 // ============================================================
     @Post(':userId/remove')
-    @ApiOperation({ summary: 'حذف کامل عضویت کاربر' })
+    @ApiOperation({ summary: 'حذف کامل پیوستن به کاربر' })
     async removeMember(
         @Param('slug') slug: string,
         @Param('userId') userId: string,

@@ -1,5 +1,5 @@
 // src/admin/arm/admin-arm.service.ts
-import {BadRequestException, Injectable, NotFoundException} from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
@@ -49,13 +49,29 @@ export class AdminArmService {
 
         const result = items.map((arm) => {
             const config = arm.config as any || {};
+            const categoryTree = arm.categoryTree as any[] || [];
+
+            // ✅ شمارش برگ‌ها در categoryTree
+            const countLeaves = (nodes: any[]): number => {
+                let count = 0;
+                for (const node of nodes) {
+                    if (node.isLeaf) {
+                        count++;
+                    }
+                    if (node.children) {
+                        count += countLeaves(node.children);
+                    }
+                }
+                return count;
+            };
+
             return {
                 ...arm,
                 configSummary: {
                     currency: config.economy?.currency || 'IRR',
                     bumpCost: config.economy?.bumpCost || 10,
                     maxTotalFreeAdPerUser: config.features?.maxTotalFreeAdPerUser || 5,
-                    categoryCount: config.categorySelections?.length || 0,
+                    categoryCount: countLeaves(categoryTree),
                     locationCount: config.locationSelections?.length || 0,
                     supplierCount: config.supplierActivityIds?.length || 0,
                     buyerCount: config.buyerActivityIds?.length || 0,
@@ -75,8 +91,9 @@ export class AdminArmService {
     }
 
     // ============================================================
-    // دریافت یک بازار با id (همراه locationTree و categoryTree کامل)
+    // دریافت یک بازار با id
     // ============================================================
+    // در admin-arm.service.ts
     async getArmById(id: string) {
         const arm = await this.prisma.arm.findUnique({
             where: { id },
@@ -102,7 +119,24 @@ export class AdminArmService {
 
         const config = arm.config as any || {};
 
-        // ═══════════════ locationTree ═══════════════
+        // ✅ categoryTree مستقیم از فیلد سطح بالا
+        const categoryTree = arm.categoryTree || [];
+
+        // ✅ allowedCategoryScopeTree - اول از فیلد سطح بالا، بعد از داخل config
+        const allowedCategoryScopeTree = arm.allowedCategoryScopeTree ||
+            config.allowedCategoryScopeTree || [];
+
+        // ✅ مهاجرت خودکار داده
+        if (!arm.allowedCategoryScopeTree && config.allowedCategoryScopeTree) {
+            await this.prisma.arm.update({
+                where: { id: arm.id },
+                data: {
+                    allowedCategoryScopeTree: config.allowedCategoryScopeTree,
+                },
+            }).catch(() => {});
+        }
+
+        // ✅ locationTree از config
         const locationSelections = (config.locationSelections || []).filter((s: any) => s.isActive);
         const locationIds = locationSelections.map((s: any) => s.locationId);
 
@@ -111,139 +145,49 @@ export class AdminArmService {
         if (locationIds.length > 0) {
             const locations = await this.prisma.location.findMany({
                 where: { id: { in: locationIds }, isActive: true },
-                select: { id: true, title: true, cityCode: true, provinceCode: true, parentId: true, level: true, path: true, type: true },
+                select: {
+                    id: true, title: true, cityCode: true, provinceCode: true,
+                    parentId: true, level: true, path: true, type: true
+                },
             });
 
             const parentIds = [...new Set(locations.map(l => l.parentId).filter(Boolean))];
             const parents = parentIds.length > 0
                 ? await this.prisma.location.findMany({
                     where: { id: { in: parentIds as string[] } },
-                    select: { id: true, title: true, provinceCode: true, level: true, path: true, type: true },
+                    select: {
+                        id: true, title: true, provinceCode: true, level: true, path: true, type: true
+                    },
                 })
                 : [];
 
             const allLocations = [...parents, ...locations].map(loc => {
                 const selection = locationSelections.find((s: any) => s.locationId === loc.id);
-                return { ...loc, isSelected: true, customLabel: selection?.customLabel || null };
+                return {
+                    ...loc,
+                    isSelected: true,
+                    customLabel: selection?.customLabel || null
+                };
             });
 
             locationTree = this.buildTree(allLocations);
         }
 
-        // ═══════════════ categoryTree ═══════════════
-        const categorySelections = (config.categorySelections || []).filter((s: any) => s.isActive);
-        const categoryIds = categorySelections.map((s: any) => s.categoryId);
-
-        let categoryTree: any[] = [];
-
-        if (categoryIds.length > 0) {
-            // دریافت همه دسته‌بندی‌های انتخاب‌شده
-            const categories = await this.prisma.productCategory.findMany({
-                where: { id: { in: categoryIds }, isActive: true },
-            });
-
-            // جمع‌آوری overrideUnitId ها برای واکشی یکجای واحدها
-            const overrideUnitIds = categorySelections
-                .map(s => s.overrideUnitId)
-                .filter(Boolean) as string[];
-
-            // واکشی همه واحدهای override شده از جدول Unit
-            const units = overrideUnitIds.length > 0
-                ? await this.prisma.unit.findMany({
-                    where: { id: { in: overrideUnitIds } },
-                    select: { id: true, title: true, shortCode: true },
-                })
-                : [];
-
-            const unitMap = new Map(units.map(u => [u.id, u]));
-
-            // برای هر دسته‌بندی، شناسه واحد معتبر را تعیین کن
-            const resolveValidUnit = async (catId: string, overrideId: string | null) => {
-                // اولویت ۱: overrideUnitId معتبر
-                if (overrideId && unitMap.has(overrideId)) {
-                    return unitMap.get(overrideId)!;
-                }
-                // اولویت ۲: واحد پیش‌فرض از CategoryUnitMapping
-                const mapping = await this.prisma.categoryUnitMapping.findFirst({
-                    where: { categoryId: catId, isDefault: true },
-                    include: { unit: { select: { id: true, title: true, shortCode: true } } },
-                });
-                if (mapping) {
-                    return mapping.unit;
-                }
-                // اولویت ۳: هر واحد متصل به این دسته‌بندی (اولین مورد)
-                const anyMapping = await this.prisma.categoryUnitMapping.findFirst({
-                    where: { categoryId: catId },
-                    include: { unit: { select: { id: true, title: true, shortCode: true } } },
-                });
-                if (anyMapping) {
-                    return anyMapping.unit;
-                }
-                // اگر هیچ واحدی پیدا نشد، خطا بده
-                throw new BadRequestException({
-                    errorCode: 'NO_UNIT_FOR_CATEGORY',
-                    message: `هیچ واحدی برای دسته‌بندی "${catId}" تعریف نشده است.`,
-                });
-            };
-
-            // ساخت گره‌ها
-            const nodes: any[] = [];
-            for (const cat of categories) {
-                const selection = categorySelections.find(s => s.categoryId === cat.id)!;
-                const unit = await resolveValidUnit(cat.id, selection.overrideUnitId);
-
-                nodes.push({
-                    id: cat.id,
-                    title: cat.title,
-                    slug: cat.slug,
-                    path: cat.path,
-                    level: cat.level,
-                    parentId: cat.parentId,
-                    isSelected: true,
-                    customLabel: selection.customLabel || null,
-                    defaultUnitId: unit.id,
-                    unitTitle: unit.title,
-                    unitShortCode: unit.shortCode,
-                    defaultMinQuantity: selection.overrideMinQuantity || cat.defaultMinQuantity || null,
-                    example: selection.example || (cat as any).example || null,
-                    children: [],
-                });
-            }
-
-            // والدها (اجداد) – فقط برای ساختار درختی
-            const parentIds = [...new Set(categories.map(c => c.parentId).filter(Boolean))];
-            const parents = parentIds.length > 0
-                ? await this.prisma.productCategory.findMany({
-                    where: { id: { in: parentIds as string[] } },
-                })
-                : [];
-
-            // گره‌های والد بدون واحد (تنها برای سلسله‌مراتب)
-            const parentNodes = parents.map(p => ({
-                id: p.id,
-                title: p.title,
-                slug: p.slug,
-                path: p.path,
-                level: p.level,
-                parentId: p.parentId,
-                isSelected: false,
-                customLabel: null,
-                defaultUnitId: null,
-                unitTitle: null,
-                unitShortCode: null,
-                defaultMinQuantity: null,
-                example: null,
-                children: [],
-            }));
-
-            const allCatNodes = [...parentNodes, ...nodes];
-            categoryTree = this.buildTree(allCatNodes);
-        }
+        // ✅ پاک‌سازی config از فیلدهای منتقل شده
+        const {
+            allowedCategoryScopeTree: _removedFromConfig,
+            categorySelections: _removedCategorySelections,
+            _cachedCategoryTree: _removedCachedTree,
+            _treeUpdatedAt: _removedTreeUpdatedAt,
+            ...cleanConfig
+        } = config;
 
         return {
             ...arm,
+            config: cleanConfig,
             locationTree,
             categoryTree,
+            allowedCategoryScopeTree,
         };
     }
 
@@ -258,6 +202,8 @@ export class AdminArmService {
             'colorPrimary', 'colorSecondary', 'logoUrl', 'bannerUrl', 'mission',
             'status', 'visibility', 'geoScopeType', 'defaultUnitId',
             'featuresEnabled', 'rankingAlgorithm', 'metadata', 'config',
+            'categoryTree',
+            'allowedCategoryScopeTree',
         ];
 
         const updateData: any = {};
@@ -265,41 +211,37 @@ export class AdminArmService {
             if (data[key] !== undefined) updateData[key] = data[key];
         }
 
-        // ✅ اگر config تغییر کرده باشد
+        // ✅ اگه categoryTree ارسال شده، مستقیم ذخیره کن
+        if (data.categoryTree !== undefined) {
+            updateData.categoryTree = data.categoryTree;
+        }
+
+        // ✅ پردازش config (بدون categorySelections و _cachedCategoryTree)
         if (data.config) {
-            const config = data.config;
+            const config = { ...data.config };
+
+            // ✅ حذف categorySelections و _cachedCategoryTree از config
+            delete config.categorySelections;
+            delete config._cachedCategoryTree;
+            delete config._treeUpdatedAt;
+
+            // ✅ locationTree فقط اگه locationSelections تغییر کرده
             const oldArm = await this.prisma.arm.findUnique({
                 where: { id },
                 select: { config: true },
             });
             const oldConfig = (oldArm?.config as any) || {};
 
-            // تشخیص تغییر در categorySelections یا locationSelections
-            const oldCategorySelections = oldConfig.categorySelections || [];
-            const newCategorySelections = config.categorySelections || [];
             const oldLocationSelections = oldConfig.locationSelections || [];
             const newLocationSelections = config.locationSelections || [];
+            const locationSelectionsChanged = JSON.stringify(oldLocationSelections) !== JSON.stringify(newLocationSelections);
 
-            const categoryChanged = JSON.stringify(oldCategorySelections) !== JSON.stringify(newCategorySelections);
-            const locationChanged = JSON.stringify(oldLocationSelections) !== JSON.stringify(newLocationSelections);
-
-            // فقط در صورت تغییر، درخت‌ها را بازسازی کن
-            let categoryTree = oldConfig._cachedCategoryTree || [];
-            let locationTree = oldConfig._cachedLocationTree || [];
-
-            if (categoryChanged) {
-                categoryTree = await this.buildCategoryTreeFromConfig(config);
-            }
-            if (locationChanged) {
-                locationTree = await this.buildLocationTreeFromConfig(config);
+            if (locationSelectionsChanged && config.locationSelections) {
+                const locationTree = await this.buildLocationTreeFromConfig(config);
+                config._cachedLocationTree = locationTree;
             }
 
-            updateData.config = {
-                ...config,
-                _cachedCategoryTree: categoryTree,
-                _cachedLocationTree: locationTree,
-                _treeUpdatedAt: new Date().toISOString(),
-            };
+            updateData.config = config;
         }
 
         if (updateData.config?.features?.adValidityDefaultDays) {
@@ -403,101 +345,7 @@ export class AdminArmService {
     }
 
     // ============================================================
-    // 🆕 ساخت درخت دسته‌بندی از config
-    // ============================================================
-    private async buildCategoryTreeFromConfig(config: any): Promise<any[]> {
-        const categorySelections = (config.categorySelections || []).filter((s: any) => s.isActive !== false);
-        const categoryIds = categorySelections.map((s: any) => s.categoryId);
-
-        if (categoryIds.length === 0) return [];
-
-        // ۱. دریافت همه دسته‌بندی‌های انتخاب‌شده
-        const categories = await this.prisma.productCategory.findMany({
-            where: { id: { in: categoryIds }, isActive: true },
-        });
-
-        // ۲. جمع‌آوری overrideUnitId ها
-        const overrideUnitIds = categorySelections
-            .map(s => s.overrideUnitId)
-            .filter(Boolean) as string[];
-
-        // ۳. واکشی همه واحدهای override شده
-        const units = overrideUnitIds.length > 0
-            ? await this.prisma.unit.findMany({
-                where: { id: { in: overrideUnitIds } },
-                select: { id: true, title: true, shortCode: true },
-            })
-            : [];
-
-        const unitMap = new Map(units.map(u => [u.id, u]));
-
-        // ۴. ساخت گره‌ها
-        const nodes: any[] = [];
-        for (const cat of categories) {
-            const selection = categorySelections.find(s => s.categoryId === cat.id)!;
-
-            // یافتن واحد معتبر
-            let unit = null;
-            if (selection.overrideUnitId && unitMap.has(selection.overrideUnitId)) {
-                unit = unitMap.get(selection.overrideUnitId)!;
-            } else {
-                // واحد پیش‌فرض از CategoryUnitMapping
-                const mapping = await this.prisma.categoryUnitMapping.findFirst({
-                    where: { categoryId: cat.id, isDefault: true },
-                    include: { unit: { select: { id: true, title: true, shortCode: true } } },
-                });
-                if (mapping) unit = mapping.unit;
-            }
-
-            nodes.push({
-                id: cat.id,
-                title: cat.title,
-                slug: cat.slug,
-                path: cat.path,
-                level: cat.level,
-                parentId: cat.parentId,
-                isSelected: true,
-                customLabel: selection.customLabel || null,
-                defaultUnitId: unit?.id || null,
-                unitTitle: unit?.title || selection.overrideUnitTitle || 'تن',
-                unitShortCode: unit?.shortCode || selection.overrideUnitTitle || 'تن',
-                defaultMinQuantity: selection.minQuantityOverride || cat.defaultMinQuantity || null,
-                example: selection.example || null,
-                children: [],
-            });
-        }
-
-        // ۵. والدها (اجداد) – فقط برای ساختار درختی
-        const parentIds = [...new Set(categories.map(c => c.parentId).filter(Boolean))];
-        const parents = parentIds.length > 0
-            ? await this.prisma.productCategory.findMany({
-                where: { id: { in: parentIds as string[] } },
-            })
-            : [];
-
-        const parentNodes = parents.map(p => ({
-            id: p.id,
-            title: p.title,
-            slug: p.slug,
-            path: p.path,
-            level: p.level,
-            parentId: p.parentId,
-            isSelected: false,
-            customLabel: null,
-            defaultUnitId: null,
-            unitTitle: null,
-            unitShortCode: null,
-            defaultMinQuantity: null,
-            example: null,
-            children: [],
-        }));
-
-        const allNodes = [...parentNodes, ...nodes];
-        return this.buildTree(allNodes);
-    }
-
-    // ============================================================
-    // 🆕 ساخت درخت موقعیت‌ها از config
+    // ساخت درخت موقعیت‌ها از config
     // ============================================================
     private async buildLocationTreeFromConfig(config: any): Promise<any[]> {
         const locationSelections = (config.locationSelections || []).filter((s: any) => s.isActive !== false);

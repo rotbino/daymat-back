@@ -10,6 +10,8 @@ export class AdminCategoryService {
     // ============================================================
     // ایجاد دسته‌بندی جدید
     // ============================================================
+    // src/admin/category/admin-category.service.ts - متد create
+
     async create(dto: CreateCategoryDto) {
         const existing = await this.prisma.productCategory.findUnique({
             where: { slug: dto.slug },
@@ -41,21 +43,28 @@ export class AdminCategoryService {
             path = `${parent.path}.${dto.slug}`;
         }
 
+        // ✅ ساخت data به صورت جداگانه با type any
+        const data: any = {
+            title: dto.title,
+            slug: dto.slug,
+            level,
+            path,
+            example: dto.example || '',
+            icon: dto.icon || '',
+            description: dto.description || '',
+            customFieldsSchema: dto.customFieldsSchema || {},
+            defaultMinQuantity: dto.defaultMinQuantity || null,
+            isActive: dto.isActive !== undefined ? dto.isActive : true,
+            score: 0,
+        };
+
+        // ✅ parentId فقط اگه مقدار داره اضافه کن
+        if (dto.parentId) {
+            data.parentId = dto.parentId;
+        }
+
         return this.prisma.productCategory.create({
-            data: {
-                title: dto.title,
-                slug: dto.slug,
-                parentId: dto.parentId || null,
-                level,
-                path,
-                example: dto.example || '',
-                icon: dto.icon || '',
-                description: dto.description || '',
-                customFieldsSchema: dto.customFieldsSchema || {},
-                defaultMinQuantity: dto.defaultMinQuantity || null,
-                isActive: dto.isActive !== undefined ? dto.isActive : true,
-                score: 0,
-            },
+            data,
         });
     }
 

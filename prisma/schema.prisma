@@ -230,14 +230,35 @@ model Location {
 // ============================================================
 
 model ProductCategory {
+  // ============================================
+  // فیلدهای اصلی و پرکاربرد
+  // ============================================
   id                 String    @id @default(auto()) @map("_id") @db.ObjectId
-  title              String
+  code               String    @unique    // ✅ کد UNSPSC
+  parentCode    String?  // ✅ کد والد
+  title              String    // عنوان فارسی
+  titleEn            String?   // عنوان انگلیسی
   slug               String    @unique
+
+  // ============================================
+  // ساختار درختی
+  // ============================================
   parentId           String?   @db.ObjectId
   parent             ProductCategory?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   children           ProductCategory[] @relation("CategoryTree")
   level              Int       @default(0)
   path               String
+
+  // ============================================
+  // وضعیت
+  // ============================================
+  isActive           Boolean   @default(true)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // ============================================
+  // فیلدهای ثانویه (فعلاً استفاده نمی‌شوند)
+  // ============================================
   defaultUnitId      String?   @db.ObjectId
   defaultUnit        Unit?     @relation("defaultUnit", fields: [defaultUnitId], references: [id])
   defaultMinQuantity Float?
@@ -246,17 +267,22 @@ model ProductCategory {
   description        String?
   customFieldsSchema Json?
   score              Int       @default(0)
-  isActive           Boolean   @default(true)
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
 
+  // ============================================
+  // روابط
+  // ============================================
   categoryUnitMappings CategoryUnitMapping[]
   customCategories     CustomCategory[] @relation("CustomCategoryParent")
   ads                  Ad[]
   buyLeads             BuyLead[]
 
+  // ============================================
+  // ایندکس‌ها
+  // ============================================
+
   @@index([parentId])
   @@index([path])
+  @@index([level])
 }
 
 model Unit {
@@ -315,8 +341,9 @@ model Arm {
   updatedAt           DateTime  @updatedAt
   launchedAt          DateTime?
  customDomain         String?   // برای راه اندازی روی دومین اختصاصی "barton.com"
+  categoryTree       Json?
+  allowedCategoryScopeTree Json?
   config              Json?
-
   memberships         ArmMembership[]
   customCategories    CustomCategory[]
   ads                 Ad[]
@@ -332,7 +359,7 @@ model Arm {
 }
 
 // ============================================================
-// لایه عضویت در بازار
+// پیوستن به بازار
 // ============================================================
 
 model ArmMembership {
@@ -351,7 +378,7 @@ model ArmMembership {
   joinedAt         DateTime @default(now())
   updatedAt        DateTime @updatedAt
   roleType         String?  // seller | buyer
-  rejectionReason  String?  // ✅ دلیل رد عضویت (در صورت نیاز)
+  rejectionReason  String?  // ✅ دلیل رد پیوستن (در صورت نیاز)
   reviewedByUserId String?  @db.ObjectId
   reviewedAt       DateTime?
 
@@ -412,11 +439,14 @@ model Ad {
   customCategory        CustomCategory? @relation("CustomCategoryAd", fields: [customCategoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   unitId                String    @db.ObjectId
   unit                  Unit      @relation(fields: [unitId], references: [id])
+  unitQty               Int?      // تعداد در واحد، مثلا 12 عدد در کارتن
+  unitIsVariableQty     Boolean   @default(false)
   title                 String
   productType           String?   // نوع کالا - مثال: سیمان پرتلند تیپ ۲
   description           String?
   unitPrice             Float     // قیمت نقدی (واحد)
   minQuantity           Float
+  unitBaseTitle         String?
   priceHistory          Json?
   availableQuantity     Float?
   availableQuantityBucket String?
@@ -454,6 +484,7 @@ model Ad {
   callEvents            CallEvent[]
   interactions  AdInteraction[]
   rejectionReason String?   // ✅ اضافه شود - دلیل رد آگهی
+
 
   @@index([productType])
   @@index([countryCode])

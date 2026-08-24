@@ -47,7 +47,7 @@ export class AdController {
     @ApiOperation({ summary: 'ثبت آگهی قیمت جدید' })
     @ApiResponse({ status: 201, description: 'آگهی با موفقیت ثبت شد' })
     @ApiResponse({ status: 400, description: 'خطا در داده‌ها' })
-    @ApiResponse({ status: 403, description: 'عضویت در بازار ندارید' })
+    @ApiResponse({ status: 403, description: 'بازار را دنبال نکرده اید' })
     async create(@CurrentUser() user: any, @Body() dto: CreateAdDto) {
         return this.adService.create(user.id, dto);
     }

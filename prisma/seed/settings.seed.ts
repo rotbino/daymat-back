@@ -24,7 +24,7 @@ export async function seedSettings() {
             scope: 'system',
             scopeId: 'system',
             group: 'credit',
-            description: 'اعتبار هدیه عضویت در بازار',
+            description: 'اعتبار هدیه پیوستن به بازار',
         },
         {
             key: 'credit.bumpCost',

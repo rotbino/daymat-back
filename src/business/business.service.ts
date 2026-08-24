@@ -87,7 +87,7 @@ export class BusinessService {
             },
         });
 
-        // ✅ ۵. به‌روزرسانی عضویت کاربر در بازار
+        // ✅ ۵. به‌روزرسانی پیوندهای کاربر به بازار
         if (dto.armSlug) {
             const arm = await this.prisma.arm.findUnique({
                 where: { slug: dto.armSlug },

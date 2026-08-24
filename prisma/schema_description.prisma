@@ -232,7 +232,7 @@ model Arm {
 }
 
 // ---------------------- ArmConfig (تنظیمات بازار) ----------------------
-// تنظیمات پیشرفته بازار مانند ظاهر، فیلترها، قوانین عضویت و ...
+// تنظیمات پیشرفته بازار مانند ظاهر، فیلترها، قوانین پیوستن به بازار و ...
 // هر بازار یک ArmConfig دارد.
 model ArmConfig {
   id                       String   @id @default(auto()) @map("_id") @db.ObjectId
@@ -257,9 +257,9 @@ model ArmConfig {
   showLocationFilter       Boolean  @default(true)                    // نمایش فیلتر موقعیت جغرافیایی در تابلوی این بازار
 
   // الزامات ثبت‌نام
-  requireBusinessName      Boolean  @default(true)                    // آیا برای عضویت در این بازار، نام کسب‌وکار الزامی است؟
-  requireCity              Boolean  @default(true)                    // آیا برای عضویت در این بازار، شهر الزامی است؟
-  requireType              Boolean  @default(true)                    // آیا برای عضویت در این بازار، نوع کسب‌وکار الزامی است؟
+  requireBusinessName      Boolean  @default(true)                    // آیا برای پیوستن به این بازار، نام کسب‌وکار الزامی است؟
+  requireCity              Boolean  @default(true)                    // آیا برای پیوستن به این بازار، شهر الزامی است؟
+  requireType              Boolean  @default(true)                    // آیا برای پیوستن به این بازار، نوع کسب‌وکار الزامی است؟
   allowAnonymousPublishing Boolean  @default(true)                    // آیا فروشنده می‌تواند آگهی را به صورت ناشناس منتشر کند؟
 
   // تنظیمات مالی
@@ -326,8 +326,8 @@ model CustomCategory {
   @@index([armId, path])
 }
 
-// ---------------------- ArmMembership (عضویت در بازار) ----------------------
-// عضویت یک کاربر (یا کسب‌وکار) در یک بازار.
+// ---------------------- ArmMembership (پیوستن به بازار) ----------------------
+// پیوستن به بازار توسط کاربر (یا کسب‌وکار) .
 // برای MVP، عضویت به User متصل است (نه Business).
 model ArmMembership {
   id         String   @id @default(auto()) @map("_id") @db.ObjectId
