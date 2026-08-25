@@ -9,6 +9,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ArmService } from '../arm/arm.service';
 import { CreateAdDto, UpdateAdDto, AdListQueryDto, ExtendAdDto } from './ad.dto';
 import { CreditService } from '../credit/credit.service';
+import {  collectCategoryIdsFromTree,  flattenCategoryTree, findNodeInTree, } from '../common/utils/arm.utils';
+
+
 
 @Injectable()
 export class AdService {
@@ -37,10 +40,10 @@ export class AdService {
 
 
     async create(userId: string, dto: CreateAdDto) {
-
         // ۱. پیدا کردن بازار
         const arm = await this.armService.findBySlug(dto.armSlug);
         const config = arm.config as any || {};
+        const categoryTree = (arm.categoryTree as any[]) || [];
 
         // ۲. پیدا کردن کسب‌وکار فعال کاربر
         const business = await this.prisma.business.findFirst({
@@ -180,11 +183,9 @@ export class AdService {
         let creditDeducted = false;
         let totalCost = 0;
         if (needsCredit) {
-            // هزینه‌ای که باید برای ثبت آگهی پرداخت شود (مثلاً یک آگهی جدید = bumpCost)
             const adCost = this.getConfigValue(config, 'modules.priceTable.bumpCost', 10);
             totalCost += adCost;
         }
-        // کسر اعتبار برای نردبان (فقط اگر آگهی بلافاصله فعال شود)
         if (dto.isBumped && !requiresApprovalOnCreate) {
             totalCost += bumpCostTotal;
         }
@@ -230,8 +231,10 @@ export class AdService {
         let categoryPath: string[] = [];
 
         if (dto.categoryId) {
-            const categoryIds = (config.categorySelections || []).map((s: any) => s.categoryId);
-            if (!categoryIds.includes(dto.categoryId)) {
+            // ✅ اعتبارسنجی فقط از categoryTree
+            const categoryIds = collectCategoryIdsFromTree(categoryTree);
+
+            if (!categoryIds.has(dto.categoryId)) {
                 throw new BadRequestException({
                     errorCode: 'CATEGORY_NOT_AVAILABLE_IN_ARM',
                     message: 'این دسته‌بندی برای بازاری فعلی فعال نیست.',
@@ -252,6 +255,7 @@ export class AdService {
                 categoryPath = pathNodes.map(n => n.id);
             }
         }
+
         if (dto.customCategoryId) {
             const customCategory = await this.prisma.customCategory.findFirst({
                 where: { id: dto.customCategoryId, armId: arm.id, isActive: true },
@@ -315,9 +319,9 @@ export class AdService {
         expiresAt.setHours(validityHours, 0, 0, 0);
         expiresAt.setDate(expiresAt.getDate());
 
-        const categorySelection = config.categorySelections?.find(
-            (s: any) => s.categoryId === dto.categoryId
-        );
+        // ✅ پیدا کردن categorySelection فقط از categoryTree
+        const categorySelection = findNodeInTree(categoryTree, dto.categoryId);
+
         // ============================================================
         // ۱۰. ایجاد آگهی
         // ============================================================
@@ -358,7 +362,6 @@ export class AdService {
                 unitQty: dto.unitQty || null,
                 unitIsVariableQty: dto.unitIsVariableQty || false,
                 unitBaseTitle: categorySelection?.baseUnitTitle || null,
-
             },
             include: {
                 category: { select: { id: true, title: true, path: true } },
@@ -370,9 +373,9 @@ export class AdService {
 
         return {
             ...ad,
-            isOverQuota: needsCredit, // برای اطلاع فرانت‌اند
+            isOverQuota: needsCredit,
             creditDeducted,
-            freeQuotaRemaining: Math.min(freeActiveSlotsRemaining, freeTotalSlotsRemaining), // باقی‌مانده کلی
+            freeQuotaRemaining: Math.min(freeActiveSlotsRemaining, freeTotalSlotsRemaining),
             requiresApproval: requiresApprovalOnCreate,
             isBumped: ad.isBumped,
             bumpStatus: ad.isBumped ? (ad.bumpExpiresAt ? 'active' : 'pending') : 'none',
@@ -389,7 +392,7 @@ export class AdService {
             where: { id },
             include: {
                 business: { select: { ownerUserId: true } },
-                arm: { select: { config: true, id: true } },
+                arm: { select: { config: true, id: true, categoryTree: true } },
             },
         });
 
@@ -397,6 +400,7 @@ export class AdService {
         if (ad.business.ownerUserId !== userId) throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'شما اجازه ویرایش این آگهی را ندارید' });
 
         const config = ad.arm.config as any || {};
+        const categoryTree = (ad.arm.categoryTree as any[]) || [];
         const updateData: any = {};
 
         // ============================================================
@@ -420,8 +424,10 @@ export class AdService {
         }
 
         if (dto.categoryId !== undefined && dto.categoryId !== ad.categoryId) {
-            const categoryIds = (config.categorySelections || []).map((s: any) => s.categoryId);
-            if (!categoryIds.includes(dto.categoryId)) {
+            // ✅ اعتبارسنجی فقط از categoryTree
+            const categoryIds = collectCategoryIdsFromTree(categoryTree);
+
+            if (!categoryIds.has(dto.categoryId)) {
                 throw new BadRequestException({
                     errorCode: 'CATEGORY_NOT_AVAILABLE_IN_ARM',
                     message: 'این دسته‌بندی برای بازاری فعلی فعال نیست.',
@@ -446,14 +452,10 @@ export class AdService {
             updateData.categoryPath = categoryPath;
             updateData.customCategoryId = null;
 
-            // ✅ حذف تعریف مجدد config - از همون config بالا استفاده کن
-            const categorySelection = (config.categorySelections || []).find(
-                (s: any) => s.categoryId === dto.categoryId
-            );
+            // ✅ پیدا کردن categorySelection فقط از categoryTree
+            const categorySelection = findNodeInTree(categoryTree, dto.categoryId);
             updateData.unitBaseTitle = categorySelection?.baseUnitTitle || null;
         }
-
-
 
         if (dto.customCategoryId !== undefined && dto.customCategoryId !== ad.customCategoryId) {
             const customCategory = await this.prisma.customCategory.findFirst({
@@ -470,19 +472,18 @@ export class AdService {
             updateData.categoryId = null;
             updateData.categoryPath = [];
         }
-        // src/ad/ad.service.ts – متد update (بخش بعد از اعتبارسنجی تغییرات)
 
-// اگر minQuantity تغییر کرده است
+        // اگر minQuantity تغییر کرده است
         if (dto.minQuantity !== undefined && dto.minQuantity !== ad.minQuantity) {
             const existing = await this.prisma.ad.findFirst({
                 where: {
-                    armId: ad.armId, // ✅ فقط بازاری فعلی
+                    armId: ad.armId,
                     businessId: ad.businessId,
                     categoryId: ad.categoryId || dto.categoryId,
                     minQuantity: dto.minQuantity,
                     productType: dto.productType,
                     status: { not: 'deleted' },
-                    id: { not: id }, // آگهی فعلی را استثنا کن
+                    id: { not: id },
                 },
             });
 
@@ -493,6 +494,7 @@ export class AdService {
                 });
             }
         }
+
         if (dto.unitId !== undefined && dto.unitId !== ad.unitId) {
             const unitExists = await this.prisma.unit.findUnique({ where: { id: dto.unitId } });
             if (!unitExists) {
@@ -548,38 +550,28 @@ export class AdService {
         }
 
         // ============================================================
-        // ✅ ۵. مدیریت نردبان (Bump) – نسخه اصلاح‌شده
+        // ✅ ۵. مدیریت نردبان (Bump)
         // ============================================================
-        // ابتدا بررسی می‌کنیم که آیا آگهی در حال حاضر نردبان فعال دارد؟
         const isBumpActive = ad.isBumped && ad.bumpExpiresAt && ad.bumpExpiresAt > new Date();
 
-        // اگر نردبان فعال است، هرگونه تغییر در تنظیمات نردبان (به جز غیرفعال کردن) ممنوع است
         if (isBumpActive) {
-            // اگر کاربر سعی کند نردبان را دوباره فعال کند (که قبلاً فعال است) خطا بده
             if (dto.isBumped === true) {
                 throw new BadRequestException({
                     errorCode: 'BUMP_ALREADY_ACTIVE',
                     message: `این آگهی تا تاریخ ${ad.bumpExpiresAt.toLocaleDateString('fa-IR')} در حال نردبان است. تا پایان آن صبر کنید.`,
                 });
             }
-            // اگر کاربر سعی کند مدت نردبان را تغییر دهد خطا بده
             if (dto.bumpDurationHours !== undefined) {
                 throw new BadRequestException({
                     errorCode: 'BUMP_DURATION_CHANGE_NOT_ALLOWED',
                     message: 'در حالی که نردبان فعال است، نمی‌توانید مدت آن را تغییر دهید.',
                 });
             }
-            // اگر کاربر بخواهد نردبان را غیرفعال کند (dto.isBumped === false) اجازه داده می‌شود
-            // ادامه منطق در پایین
         }
 
-        // اکنون اگر کاربر بخواهد نردبان را فعال کند (و آگهی در حال حاضر نردبان فعال ندارد)
         if (dto.isBumped !== undefined && dto.isBumped !== ad.isBumped) {
             if (dto.isBumped === true) {
-                // فعال‌سازی نردبان
-                // ۱. خواندن و اعتبارسنجی bumpDurationHours
                 let bumpDurationHours = dto.bumpDurationHours ?? ad.bumpDurationHours ?? 24;
-                // بررسی: نردبان نباید از اعتبار قیمت بیشتر باشد
                 const validityHours = dto.validityHours ?? ad.validityHours;
                 if (bumpDurationHours > validityHours) {
                     throw new BadRequestException({
@@ -590,7 +582,6 @@ export class AdService {
                 const baseCost = config.economy?.bumpCost || 10;
                 const bumpCostTotal = (bumpDurationHours / 24) * baseCost;
 
-                // ۲. اگر آگهی فعال است، هزینه را کسر کن و تاریخ نردبان را تنظیم کن
                 if (ad.status === 'active') {
                     const balance = await this.creditService.getUserBalance(userId);
                     if (balance.balance < bumpCostTotal) {
@@ -618,20 +609,16 @@ export class AdService {
                     updateData.lastBumpedAt = new Date();
                     updateData.lastBumpCreditsSpent = bumpCostTotal;
                 } else {
-                    // آگهی فعال نیست – فقط تنظیمات را ذخیره کن (هزینه بعداً در زمان فعال‌سازی کسر می‌شود)
                     updateData.isBumped = true;
                     updateData.bumpDurationHours = bumpDurationHours;
                     updateData.bumpExpiresAt = null;
                 }
             } else {
-                // غیرفعال‌سازی نردبان
                 updateData.isBumped = false;
                 updateData.bumpDurationHours = null;
                 updateData.bumpExpiresAt = null;
             }
         } else if (dto.bumpDurationHours !== undefined && !isBumpActive && ad.isBumped) {
-            // اگر نردبان فعال نیست (یا قبلاً منقضی شده) و کاربر مدت را تغییر می‌دهد
-            // اجازه تغییر مدت را می‌دهیم (چون آگهی در حال نردبان نیست)
             const newDuration = dto.bumpDurationHours;
             const validityHours = dto.validityHours ?? ad.validityHours;
             if (newDuration > validityHours) {
@@ -640,12 +627,10 @@ export class AdService {
                     message: `مدت نردبان (${newDuration} ساعت) نمی‌تواند از اعتبار قیمت (${validityHours} ساعت) بیشتر باشد.`,
                 });
             }
-            // محاسبه هزینه جدید و تفاوت با قبلی (در صورت فعال بودن آگهی)
             const baseCost = config.economy?.bumpCost || 10;
             const oldCost = (ad.bumpDurationHours / 24) * baseCost;
             const newCost = (newDuration / 24) * baseCost;
             const diff = newCost - oldCost;
-            // فقط اگر آگهی فعال باشد هزینه اضافی کسر می‌شود
             if (diff > 0 && ad.status === 'active') {
                 const balance = await this.creditService.getUserBalance(userId);
                 if (balance.balance < diff) {
@@ -665,17 +650,13 @@ export class AdService {
                         metadata: { ad_id: id, cost: diff },
                     },
                 });
-            } else if (diff < 0 && ad.status === 'active') {
-                // بازپرداخت (اختیاری – فعلاً بازپرداخت نمی‌کنیم)
             }
-            // به‌روزرسانی تاریخ پایان (اگر آگهی فعال باشد)
             if (ad.status === 'active') {
                 const bumpExpiresAt = new Date(Date.now() + newDuration * 60 * 60 * 1000);
                 updateData.bumpExpiresAt = bumpExpiresAt;
                 updateData.lastBumpCreditsSpent = newCost;
             }
             updateData.bumpDurationHours = newDuration;
-            // isBumped را تغییر نمی‌دهیم (همانطور که هست)
         }
 
         // ============================================================
@@ -707,10 +688,7 @@ export class AdService {
                     },
                 });
             }
-            // اگر نردبان فعال است و قبلاً هزینه نشده، در اینجا هزینه نردبان را کسر کنیم؟
-            // اینجا ممکن است آگهی از pending به active برود. اگر نردبان فعال است و هنوز bumpExpiresAt null است، باید هزینه را کسر کنیم.
             if (ad.isBumped && !ad.bumpExpiresAt) {
-                // نردبان فعال و هنوز هزینه نشده – محاسبه و کسر هزینه
                 const bumpDurationHours = ad.bumpDurationHours ?? 24;
                 const baseCost = config.economy?.bumpCost || 10;
                 const bumpCostTotal = (bumpDurationHours / 24) * baseCost;
@@ -756,12 +734,8 @@ export class AdService {
         if (dto.isAnonymous !== undefined) updateData.isAnonymous = dto.isAnonymous;
         if (dto.availableQuantityBucket !== undefined) updateData.availableQuantityBucket = dto.availableQuantityBucket;
         if (dto.customFields !== undefined) updateData.customFields = dto.customFields;
-        if (dto.paymentMethods !== undefined) {
-            updateData.paymentMethods = dto.paymentMethods;
-        }
-        if (dto.specs !== undefined) {
-            updateData.specs = dto.specs;
-        }
+        if (dto.paymentMethods !== undefined) updateData.paymentMethods = dto.paymentMethods;
+        if (dto.specs !== undefined) updateData.specs = dto.specs;
 
         // ============================================================
         // ✅ ۸. تاریخچه قیمت و مدت اعتبار
@@ -808,15 +782,15 @@ export class AdService {
     // ============================================================
 
 
-    // src/ad/ad.service.ts
 
     async getVitrine(armSlug: string, query: AdListQueryDto) {
-        // ✅ ۱. دریافت id و config بازار
+        // ✅ ۱. دریافت id و config و categoryTree بازار
         const arm = await this.prisma.arm.findUnique({
             where: { slug: armSlug },
             select: {
                 id: true,
                 config: true,
+                categoryTree: true,
             },
         });
 
@@ -827,13 +801,12 @@ export class AdService {
             });
         }
 
-        // ✅ استخراج categorySelections از config
-        const config = arm.config as any || {};
-        const categorySelections = config.categorySelections || [];
+        // ✅ ساخت لیست فلت از categoryTree
+        const flatCategory = flattenCategoryTree(arm.categoryTree);
 
         // ✅ ساخت Map برای دسترسی سریع
         const categoryMap = new Map(
-            categorySelections.map(s => [s.categoryId, s])
+            flatCategory.map((s: any) => [s.categoryId, s])
         );
 
         const page = query.page || 1;
@@ -872,7 +845,7 @@ export class AdService {
                         select: { shortCode: true, title: true },
                     },
                     category: {
-                        select: { id: true, title: true, path: true }, // ✅ دریافت category
+                        select: { id: true, title: true, path: true },
                     },
                     business: {
                         select: {
@@ -893,17 +866,14 @@ export class AdService {
             this.prisma.ad.count({ where }),
         ]);
 
-        // ✅ ۳. جایگزینی category.title با customLabel
-        // ✅ ۳. جایگزینی category.title با customLabel
+        // ✅ جایگزینی category.title با customLabel
         const adsWithCustomLabel = ads.map(ad => {
-            // ✅ type assertion
             const selection = categoryMap.get(ad.categoryId) as any | undefined;
 
-            // ✅ اگه customLabel داره، جایگزین title کن
             if (selection?.customLabel && ad.category) {
                 ad.category = {
                     ...ad.category,
-                    title: selection.customLabel, // ✅ جایگزینی
+                    title: selection.customLabel,
                 };
             }
 
@@ -1757,4 +1727,6 @@ export class AdService {
 
         return { summary, details };
     }
+
+
 }

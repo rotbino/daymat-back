@@ -1,7 +1,8 @@
 // src/admin/unit/admin-unit.service.ts
 import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
 import { CreateUnitDto, UpdateUnitDto } from './admin-unit.dto';
-import {PrismaService} from "../../prisma/prisma.service";
+import { PrismaService } from "../../prisma/prisma.service";
+import { collectLeafNodes } from '../../common/utils/arm.utils';
 
 @Injectable()
 export class AdminUnitService {
@@ -11,7 +12,6 @@ export class AdminUnitService {
     // ایجاد واحد جدید
     // ============================================================
     async create(dto: CreateUnitDto) {
-        // بررسی تکراری نبودن عنوان
         const existing = await this.prisma.unit.findFirst({
             where: {
                 OR: [
@@ -70,7 +70,6 @@ export class AdminUnitService {
     async update(id: string, dto: UpdateUnitDto) {
         await this.findOne(id);
 
-        // بررسی تکراری نبودن (اگر عنوان یا کد کوتاه تغییر کرده)
         if (dto.title || dto.shortCode) {
             const existing = await this.prisma.unit.findFirst({
                 where: {
@@ -100,32 +99,39 @@ export class AdminUnitService {
         });
     }
 
-
-
-// ============================================================
-// متد remove - با اعتبارسنجی config
-// ============================================================
-
+    // ============================================================
+    // متد کمکی: پیدا کردن بازارهایی که از این واحد استفاده می‌کنند
+    // ============================================================
     private async getArmsUsingUnit(unitId: string) {
         const arms = await this.prisma.arm.findMany({
-            select: { id: true, name: true, config: true },
+            select: { id: true, name: true, categoryTree: true },
             where: { status: { not: 'archived' } },
         });
 
         return arms.filter(arm => {
-            const config = arm.config as any || {};
-            const selections = config.categorySelections || [];
-            return selections.some((s: any) => s.overrideUnitId === unitId);
+            // ✅ جمع‌آوری همه برگ‌های درخت
+            const leafNodes = collectLeafNodes(arm.categoryTree);
+
+            return leafNodes.some((node: any) => {
+                // ✅ چک واحد پیش‌فرض
+                if (node.overrideUnitId === unitId) return true;
+
+                // ✅ چک واحد اصلی
+                if (node.baseUnitId === unitId) return true;
+
+                // ✅ چک واحدهای فرعی
+                const altUnits = node.alternativeUnits || [];
+                return altUnits.some((au: any) => au.unitId === unitId);
+            });
         }).map(arm => ({ id: arm.id, name: arm.name }));
     }
 
-// ============================================================
-// متد remove - با استفاده از متد کمکی
-// ============================================================
+    // ============================================================
+    // متد remove
+    // ============================================================
     async remove(id: string) {
         await this.findOne(id);
 
-        // ۱. بررسی استفاده در آگهی‌ها
         const adsCount = await this.prisma.ad.count({
             where: { unitId: id },
         });
@@ -137,7 +143,6 @@ export class AdminUnitService {
             });
         }
 
-        // ✅ ۲. بررسی استفاده در config بازارها
         const armsUsingUnit = await this.getArmsUsingUnit(id);
         if (armsUsingUnit.length > 0) {
             const armNames = armsUsingUnit.map(a => a.name).join('، ');

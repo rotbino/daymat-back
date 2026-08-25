@@ -409,10 +409,7 @@ export class ArmConfigDto {
     @IsString({ each: true })
     allowedCategoryScope?: string[];
 
-    @ApiProperty({ type: [CategorySelectionDto], description: 'دسته‌بندی‌های انتخاب‌شده' })
-    @ValidateNested({ each: true })
-    @Type(() => CategorySelectionDto)
-    categorySelections: CategorySelectionDto[];
+
 
     @ApiProperty({ type: [LocationSelectionDto], description: 'موقعیت‌های انتخاب‌شده' })
     @ValidateNested({ each: true })
