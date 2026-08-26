@@ -156,17 +156,6 @@ export class ArmAdminController {
         return this.categoryService.findAllFlat();
     }
 
-    // ============================================================
-    // دریافت واحدهای یک دسته‌بندی برای مالک بازار
-    // ============================================================
-    @Get(':slug/categories/:categoryId/units')
-    @ApiOperation({ summary: 'دریافت واحدهای یک دسته‌بندی برای مالک بازار' })
-    async getCategoryUnits(
-        @Param('slug') slug: string,
-        @Param('categoryId') categoryId: string,
-    ) {
-        return this.categoryService.getCategoryUnits(categoryId);
-    }
 
 
 }

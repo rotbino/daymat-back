@@ -35,7 +35,6 @@ export class AdminCategoryController {
     @ApiOperation({ summary: 'لیست همه دسته‌بندی‌ها (مسطح)' })
     @ApiQuery({ name: 'slug', required: false, description: 'شناسه بازار (برای مالک بازار)' })
     findAllFlat(@Query('slug') slug?: string) {
-        console.log('🔍 findAllFlat - slug received:', slug);
         return this.categoryService.findAllFlat();
     }
 
@@ -54,11 +53,11 @@ export class AdminCategoryController {
         return this.categoryService.getChildren(id);
     }
 
-    // ✅ دریافت واحدهای یک دسته‌بندی - هم ادمین و هم مالک (فقط مشاهده)
-    @Get(':id/units')
+    // ✅ دریافت مسیر کامل یک دسته‌بندی
+    @Get(':id/path')
     @UseGuards(JwtAuthGuard, ArmAdminOrOwnerReadGuard)
-    async getCategoryUnits(@Param('id') id: string) {
-        return this.categoryService.getCategoryUnits(id);
+    getPath(@Param('id') id: string) {
+        return this.categoryService.getPath(id);
     }
 
     // ❌ ویرایش دسته‌بندی - فقط ادمین سیستم
@@ -73,35 +72,5 @@ export class AdminCategoryController {
     @UseGuards(JwtAuthGuard, ArmManagerGuard)
     remove(@Param('id') id: string) {
         return this.categoryService.remove(id);
-    }
-
-    // ❌ افزودن واحد به دسته‌بندی - فقط ادمین سیستم
-    @Post(':id/units')
-    @UseGuards(JwtAuthGuard, ArmManagerGuard)
-    async addUnitToCategory(
-        @Param('id') id: string,
-        @Body('unitId') unitId: string,
-    ) {
-        return this.categoryService.addUnitToCategory(id, unitId);
-    }
-
-    // ❌ حذف واحد از دسته‌بندی - فقط ادمین سیستم
-    @Delete(':id/units/:unitId')
-    @UseGuards(JwtAuthGuard, ArmManagerGuard)
-    async removeUnitFromCategory(
-        @Param('id') id: string,
-        @Param('unitId') unitId: string,
-    ) {
-        return this.categoryService.removeUnitFromCategory(id, unitId);
-    }
-
-    // ❌ تنظیم واحد پیش‌فرض - فقط ادمین سیستم
-    @Put(':id/units/:unitId/default')
-    @UseGuards(JwtAuthGuard, ArmManagerGuard)
-    async setDefaultUnit(
-        @Param('id') id: string,
-        @Param('unitId') unitId: string,
-    ) {
-        return this.categoryService.setDefaultUnit(id, unitId);
     }
 }

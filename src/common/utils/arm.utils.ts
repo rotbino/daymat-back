@@ -141,3 +141,34 @@ export function getCategoryConstraintsFromTree(tree: any, categoryId: string): {
         max: node.maxQuantityOverride ?? null,
     };
 }
+
+
+/**
+ * پیدا کردن مسیر کامل یک گره در درخت دسته‌بندی
+ * @param tree - درخت دسته‌بندی
+ * @param categoryId - شناسه گره هدف
+ * @returns آرایه‌ای از شناسه‌های مسیر از ریشه تا برگ
+ */
+export function findCategoryPathInTree(tree: any[], categoryId: string): string[] {
+    if (!tree || !categoryId) return [];
+
+    function search(nodes: any[], path: string[]): string[] | null {
+        for (const node of nodes) {
+            const currentPath = [...path, node.id || node.categoryId];
+
+            // اگر گره فعلی هدف باشد
+            if (node.id === categoryId || node.categoryId === categoryId) {
+                return currentPath;
+            }
+
+            // جستجو در فرزندان
+            if (node.children && node.children.length > 0) {
+                const found = search(node.children, currentPath);
+                if (found) return found;
+            }
+        }
+        return null;
+    }
+
+    return search(tree, []) || [];
+}

@@ -57,15 +57,10 @@ export class AdminBusinessService {
         if (verificationTier && verificationTier !== 'all') where.verificationTier = verificationTier;
         if (verificationStatus && verificationStatus !== 'all') {
             if (verificationStatus === 'none') {
-                // کسب‌وکارهایی که هرگز درخواست نداده‌اند (status = none)
                 where.verificationStatus = 'none';
                 where.verificationTier = 'none';
-            } else if (verificationStatus === 'pending') {
-                where.verificationStatus = 'pending';
-            } else if (verificationStatus === 'approved') {
-                where.verificationStatus = 'approved';
-            } else if (verificationStatus === 'rejected') {
-                where.verificationStatus = 'rejected';
+            } else {
+                where.verificationStatus = verificationStatus;
             }
         }
         if (provinceCode) where.provinceCode = provinceCode;
@@ -75,7 +70,6 @@ export class AdminBusinessService {
             where.activities = { some: { activityId } };
         }
 
-        // فیلتر بر اساس بازار
         if (armSlug && armSlug !== 'all') {
             const arm = await this.prisma.arm.findUnique({
                 where: { slug: armSlug },
@@ -121,7 +115,6 @@ export class AdminBusinessService {
             this.prisma.business.count({ where }),
         ]);
 
-        // آمار
         const [totalBusinesses, pendingVerification, activeBusinesses, byTier] = await Promise.all([
             this.prisma.business.count(),
             this.prisma.business.count({ where: { verificationStatus: 'pending' } }),
@@ -158,7 +151,6 @@ export class AdminBusinessService {
     // ============================================================
     // جزئیات کسب‌وکار (شامل مدارک تیک اعتماد)
     // ============================================================
-    // src/admin/business/admin-business.service.ts – getBusinessDetail به‌روز شده
     async getBusinessDetail(businessId: string) {
         const business = await this.prisma.business.findUnique({
             where: { id: businessId },
@@ -193,7 +185,7 @@ export class AdminBusinessService {
                         unitPrice: true,
                         status: true,
                         createdAt: true,
-                        category: { select: { id: true, title: true } },
+                        categoryId: true,
                         arm: { select: { id: true, slug: true, name: true } },
                     },
                 },
@@ -269,7 +261,6 @@ export class AdminBusinessService {
                 throw new BadRequestException({ errorCode: 'INVALID_TIER', message: 'سطح تیک نامعتبر است' });
             }
 
-            // به‌روزرسانی کسب‌وکار
             await this.prisma.business.update({
                 where: { id: businessId },
                 data: {
@@ -279,7 +270,6 @@ export class AdminBusinessService {
                 },
             });
 
-            // یافتن رکورد Verification مربوطه (با اولویت verificationId ارسالی)
             const verificationRecord = body.verificationId
                 ? await this.prisma.verification.findUnique({ where: { id: body.verificationId } })
                 : await this.prisma.verification.findFirst({
@@ -288,7 +278,6 @@ export class AdminBusinessService {
                 });
 
             if (verificationRecord) {
-                // به‌روزرسانی وضعیت Verification
                 await this.prisma.verification.update({
                     where: { id: verificationRecord.id },
                     data: {
@@ -299,7 +288,6 @@ export class AdminBusinessService {
                     },
                 });
 
-                // استخراج و ذخیره کد ملی در صورت وجود
                 const docs = verificationRecord.documents as any;
                 const nationalId = docs?.nationalId;
                 if (nationalId) {
@@ -316,7 +304,6 @@ export class AdminBusinessService {
                 throw new BadRequestException({ errorCode: 'REASON_REQUIRED', message: 'دلیل رد الزامی است' });
             }
 
-            // تغییر وضعیت کسب‌وکار به rejected
             await this.prisma.business.update({
                 where: { id: businessId },
                 data: {

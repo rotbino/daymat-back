@@ -7,8 +7,8 @@ import {
     BadRequestException
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import {CreateBusinessDto, RequestVerificationDto, UpdateBusinessDto} from './business.dto';
-import {BusinessRole} from "../common/enums/prisma-enums";
+import { CreateBusinessDto, RequestVerificationDto, UpdateBusinessDto } from './business.dto';
+import { BusinessRole } from "../common/enums/prisma-enums";
 
 @Injectable()
 export class BusinessService {
@@ -17,12 +17,7 @@ export class BusinessService {
     // ============================================================
     // ثبت کسب‌وکار جدید
     // ============================================================
-    // src/business/business.service.ts
-
-    // src/business/business.service.ts
-
     async create(userId: string, dto: CreateBusinessDto) {
-        // ۱. بررسی تکراری بودن نام
         const existing = await this.prisma.business.findFirst({
             where: {
                 ownerUserId: userId,
@@ -38,7 +33,6 @@ export class BusinessService {
             });
         }
 
-        // ۲. ایجاد کسب‌وکار
         const business = await this.prisma.business.create({
             data: {
                 ownerUserId: userId,
@@ -62,7 +56,6 @@ export class BusinessService {
             },
         });
 
-        // ۳. ثبت فعالیت‌ها
         if (dto.activityIds?.length) {
             await this.prisma.businessActivity.createMany({
                 data: dto.activityIds.map(activityId => ({
@@ -72,7 +65,6 @@ export class BusinessService {
             });
         }
 
-        // ۴. ثبت تیم‌ممبر
         await this.prisma.teamMember.create({
             data: {
                 businessId: business.id,
@@ -87,7 +79,6 @@ export class BusinessService {
             },
         });
 
-        // ✅ ۵. به‌روزرسانی پیوندهای کاربر به بازار
         if (dto.armSlug) {
             const arm = await this.prisma.arm.findUnique({
                 where: { slug: dto.armSlug },
@@ -111,17 +102,12 @@ export class BusinessService {
         return business;
     }
 
-/// ============================================================
+    // ============================================================
     // ویرایش کسب‌وکار
     // ============================================================
-    // src/business/business.service.ts - متد update رو اینطوری تغییر بده:
-
-    // src/business/business.service.ts - متد update
-
     async update(id: string, userId: string, dto: UpdateBusinessDto) {
         await this.findOne(id, userId);
 
-        // ⬇ لوگو - فقط fileId رو ذخیره کن
         if (dto.logoFileId) {
             await this.prisma.business.update({
                 where: { id },
@@ -129,7 +115,6 @@ export class BusinessService {
             });
         }
 
-        // به‌روزرسانی اطلاعات اصلی
         const business = await this.prisma.business.update({
             where: { id },
             data: {
@@ -149,7 +134,6 @@ export class BusinessService {
             },
         });
 
-        // ⬇ به‌روزرسانی position توی TeamMember
         if (dto.position !== undefined) {
             await this.prisma.teamMember.updateMany({
                 where: { businessId: id, userId: userId },
@@ -157,7 +141,6 @@ export class BusinessService {
             });
         }
 
-        // ⬇ به‌روزرسانی فعالیت‌ها
         if (dto.activityIds !== undefined) {
             await this.prisma.$transaction([
                 this.prisma.businessActivity.deleteMany({ where: { businessId: id } }),
@@ -174,13 +157,10 @@ export class BusinessService {
 
         return business;
     }
+
     // ============================================================
     // لیست کسب‌وکارهای کاربر
     // ============================================================
-    // src/business/business.service.ts
-
-    // src/business/business.service.ts
-
     async findAllByUser(userId: string) {
         const businesses = await this.prisma.business.findMany({
             where: {
@@ -223,7 +203,6 @@ export class BusinessService {
             orderBy: { createdAt: 'desc' },
         });
 
-        // ✅ برای هر کسب‌وکار، لوگو را پیدا کن
         const result = [];
         for (const business of businesses) {
             const logoFile = await this.prisma.file.findFirst({
@@ -255,8 +234,6 @@ export class BusinessService {
     // ============================================================
     // دریافت کسب‌وکار فعال (اولین کسب‌وکار کاربر)
     // ============================================================
-
-
     async getActiveBusiness(userId: string) {
         const business = await this.prisma.business.findFirst({
             where: {
@@ -283,12 +260,6 @@ export class BusinessService {
                     orderBy: { createdAt: 'desc' },
                     take: 20,
                     include: {
-                        category: {
-                            select: { id: true, title: true, path: true },
-                        },
-                        customCategory: {
-                            select: { id: true, localTitle: true, path: true },
-                        },
                         unit: {
                             select: { id: true, title: true, shortCode: true },
                         },
@@ -342,7 +313,6 @@ export class BusinessService {
             return null;
         }
 
-        // ✅ پیدا کردن لوگو از جدول File
         const logoFile = await this.prisma.file.findFirst({
             where: {
                 relatedModel: 'Business',
@@ -364,7 +334,6 @@ export class BusinessService {
             position: business.teamMembers[0]?.position || null,
             activities: business.activities.map(a => a.activity),
             latestVerification: business.verifications[0] || null,
-            // ✅ اضافه کردن logoFile و logoUrl کامل
             logoFile: logoFile || null,
             logoUrl: logoFile?.path || business.logoUrl || null,
         };
@@ -373,12 +342,6 @@ export class BusinessService {
     // ============================================================
     // دریافت جزئیات یک کسب‌وکار (با بررسی دسترسی)
     // ============================================================
-    // src/business/business.service.ts
-
-    // src/business/business.service.ts - متد findOne
-
-    // src/business/business.service.ts
-
     async findOne(id: string, userId: string) {
         const business = await this.prisma.business.findUnique({
             where: { id },
@@ -466,7 +429,6 @@ export class BusinessService {
             });
         }
 
-        // ✅ پیدا کردن لوگو از جدول File
         const logoFile = await this.prisma.file.findFirst({
             where: {
                 relatedModel: 'Business',
@@ -494,7 +456,6 @@ export class BusinessService {
             activeAdsCount: business._count.ads,
             activeMembershipsCount: business._count.armMemberships,
             latestVerification: business.verifications[0] || null,
-            // ✅ اضافه کردن logoFile و logoUrl کامل
             logoFile: logoFile || null,
             logoUrl: logoFile?.path || business.logoUrl || null,
         };
@@ -502,15 +463,12 @@ export class BusinessService {
         return formattedBusiness;
     }
 
-
-
     // ============================================================
     // حذف کسب‌وکار (soft delete)
     // ============================================================
     async remove(id: string, userId: string) {
         await this.findOne(id, userId);
 
-        // بررسی اینکه کسب‌وکار آگهی فعال ندارد
         const activeAds = await this.prisma.ad.count({
             where: {
                 businessId: id,
@@ -558,13 +516,12 @@ export class BusinessService {
         return business?.ownerUserId === userId;
     }
 
-
-
+    // ============================================================
+    // درخواست تیک اعتماد
+    // ============================================================
     async requestVerification(businessId: string, userId: string, dto: RequestVerificationDto) {
-        // بررسی وجود و مالکیت
         const business = await this.findOne(businessId, userId);
 
-        // اگر nationalCardFileId ارسال نشده، باید کاربر از قبل nationalId تأییدشده داشته باشد
         if (!dto.nationalCardFileId) {
             const user = await this.prisma.user.findUnique({ where: { id: userId } });
             if (!user?.nationalId) {
@@ -573,7 +530,6 @@ export class BusinessService {
                     message: 'تصویر کارت ملی الزامی است (مگر اینکه کد ملی شما قبلاً تأیید شده باشد)',
                 });
             }
-            // اطمینان از تطابق کد ملی ارسالی با کد ملی ذخیره‌شده (اختیاری)
             if (dto.nationalId !== user.nationalId) {
                 throw new BadRequestException({
                     errorCode: 'NATIONAL_ID_MISMATCH',
@@ -582,7 +538,6 @@ export class BusinessService {
             }
         }
 
-        // ایجاد رکورد Verification (بدون تغییر)
         const verification = await this.prisma.verification.create({
             data: {
                 businessId: business.id,
@@ -590,7 +545,7 @@ export class BusinessService {
                 status: 'pending',
                 documents: {
                     nationalId: dto.nationalId,
-                    nationalCardFileId: dto.nationalCardFileId || null,   // ذخیره null در صورت عدم وجود
+                    nationalCardFileId: dto.nationalCardFileId || null,
                     licenseFileIds: dto.licenseFileIds,
                     awardFileIds: dto.awardFileIds,
                 },
@@ -598,12 +553,11 @@ export class BusinessService {
             },
         });
 
-        // به‌روزرسانی وضعیت کسب‌وکار به pending
         await this.prisma.business.update({
             where: { id: businessId },
             data: { verificationStatus: 'pending' },
         });
 
-        return business; // یا verification
+        return business;
     }
 }

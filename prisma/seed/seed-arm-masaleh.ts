@@ -4,9 +4,249 @@ import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
-const TARGET_CATEGORIES = [
-    'کاشی و سرامیک', 'سیمان', 'آجر', 'عایق', 'بلوک',
-    'فوم ساختمانی', 'شن و ماسه', 'گچ', 'کناف', 'دیوار پیش ساخته', 'تیرچه بلوک',
+// ✅ واحدهای مورد استفاده در بازار مصالح
+const UNIT_IDS = {
+    number: '6a78d21072aee46310168600',     // عدد
+    kg: '6a78d21072aee463101685f9',        // کیلوگرم
+    ton: '6a78d21072aee463101685fa',       // تن
+    bag: '6a78d21072aee463101685fb',       // کیسه
+    carton: '6a78d21072aee463101685fc',    // کارتن
+    pallet: '6a78d21072aee463101685fd',    // پالت
+    pack: '6a78d21072aee463101685ff',      // بسته
+    box: '6a8a87a44a9d610bf0ab6d1f',       // باکس
+};
+
+// ✅ درخت دسته‌بندی مصالح ساختمانی — ساختار جدید
+const CATEGORY_TREE = [
+    {
+        id: 'cat_barton_01',
+        title: 'مصالح پایه',
+        isLeaf: false,
+        customCode: '01',
+        isActive: true,
+        children: [
+            {
+                id: 'cat_barton_0101',
+                title: 'سیمان',
+                isLeaf: true,
+                customCode: '0101',
+                isActive: true,
+                baseUnitId: UNIT_IDS.ton,
+                baseUnitTitle: 'تن',
+                baseUnitShortCode: 'تن',
+                overrideUnitId: UNIT_IDS.bag,
+                overrideUnitTitle: 'کیسه',
+                overrideUnitShortCode: 'کیسه',
+                overrideUnitQty: 20,
+                overrideUnitIsVariableQty: true,
+                alternativeUnits: [
+                    {
+                        unitId: UNIT_IDS.pallet,
+                        unitTitle: 'پالت',
+                        unitShortCode: 'پالت',
+                        isVariableQty: true,
+                        qty: 40,
+                        isActive: true,
+                        displayPriority: 0,
+                    },
+                ],
+            },
+            {
+                id: 'cat_barton_0102',
+                title: 'گچ',
+                isLeaf: true,
+                customCode: '0102',
+                isActive: true,
+                baseUnitId: UNIT_IDS.ton,
+                baseUnitTitle: 'تن',
+                baseUnitShortCode: 'تن',
+                overrideUnitId: UNIT_IDS.bag,
+                overrideUnitTitle: 'کیسه',
+                overrideUnitShortCode: 'کیسه',
+                overrideUnitQty: 25,
+                overrideUnitIsVariableQty: true,
+                alternativeUnits: [],
+            },
+            {
+                id: 'cat_barton_0103',
+                title: 'آجر',
+                isLeaf: true,
+                customCode: '0103',
+                isActive: true,
+                baseUnitId: UNIT_IDS.number,
+                baseUnitTitle: 'عدد',
+                baseUnitShortCode: 'عدد',
+                overrideUnitId: UNIT_IDS.pallet,
+                overrideUnitTitle: 'پالت',
+                overrideUnitShortCode: 'پالت',
+                overrideUnitQty: 500,
+                overrideUnitIsVariableQty: true,
+                alternativeUnits: [],
+            },
+            {
+                id: 'cat_barton_0104',
+                title: 'بلوک',
+                isLeaf: true,
+                customCode: '0104',
+                isActive: true,
+                baseUnitId: UNIT_IDS.number,
+                baseUnitTitle: 'عدد',
+                baseUnitShortCode: 'عدد',
+                overrideUnitId: UNIT_IDS.pallet,
+                overrideUnitTitle: 'پالت',
+                overrideUnitShortCode: 'پالت',
+                overrideUnitQty: 100,
+                overrideUnitIsVariableQty: true,
+                alternativeUnits: [],
+            },
+            {
+                id: 'cat_barton_0105',
+                title: 'شن و ماسه',
+                isLeaf: true,
+                customCode: '0105',
+                isActive: true,
+                baseUnitId: UNIT_IDS.ton,
+                baseUnitTitle: 'تن',
+                baseUnitShortCode: 'تن',
+                overrideUnitId: UNIT_IDS.ton,
+                overrideUnitTitle: 'تن',
+                overrideUnitShortCode: 'تن',
+                overrideUnitQty: 1,
+                overrideUnitIsVariableQty: true,
+                alternativeUnits: [],
+            },
+        ],
+    },
+    {
+        id: 'cat_barton_02',
+        title: 'عایق و پوشش',
+        isLeaf: false,
+        customCode: '02',
+        isActive: true,
+        children: [
+            {
+                id: 'cat_barton_0201',
+                title: 'عایق',
+                isLeaf: true,
+                customCode: '0201',
+                isActive: true,
+                baseUnitId: UNIT_IDS.kg,
+                baseUnitTitle: 'کیلوگرم',
+                baseUnitShortCode: 'کیلوگرم',
+                overrideUnitId: UNIT_IDS.carton,
+                overrideUnitTitle: 'کارتن',
+                overrideUnitShortCode: 'کارتن',
+                overrideUnitQty: 20,
+                overrideUnitIsVariableQty: true,
+                alternativeUnits: [],
+            },
+            {
+                id: 'cat_barton_0202',
+                title: 'فوم ساختمانی',
+                isLeaf: true,
+                customCode: '0202',
+                isActive: true,
+                baseUnitId: UNIT_IDS.number,
+                baseUnitTitle: 'عدد',
+                baseUnitShortCode: 'عدد',
+                overrideUnitId: UNIT_IDS.carton,
+                overrideUnitTitle: 'کارتن',
+                overrideUnitShortCode: 'کارتن',
+                overrideUnitQty: 10,
+                overrideUnitIsVariableQty: true,
+                alternativeUnits: [],
+            },
+            {
+                id: 'cat_barton_0203',
+                title: 'کاشی و سرامیک',
+                isLeaf: true,
+                customCode: '0203',
+                isActive: true,
+                baseUnitId: UNIT_IDS.box,
+                baseUnitTitle: 'باکس',
+                baseUnitShortCode: 'باکس',
+                overrideUnitId: UNIT_IDS.pallet,
+                overrideUnitTitle: 'پالت',
+                overrideUnitShortCode: 'پالت',
+                overrideUnitQty: 40,
+                overrideUnitIsVariableQty: true,
+                alternativeUnits: [],
+            },
+            {
+                id: 'cat_barton_0204',
+                title: 'کناف',
+                isLeaf: true,
+                customCode: '0204',
+                isActive: true,
+                baseUnitId: UNIT_IDS.number,
+                baseUnitTitle: 'عدد',
+                baseUnitShortCode: 'عدد',
+                overrideUnitId: UNIT_IDS.pack,
+                overrideUnitTitle: 'بسته',
+                overrideUnitShortCode: 'بسته',
+                overrideUnitQty: 10,
+                overrideUnitIsVariableQty: true,
+                alternativeUnits: [],
+            },
+        ],
+    },
+    {
+        id: 'cat_barton_03',
+        title: 'سازه و پیش‌ساخته',
+        isLeaf: false,
+        customCode: '03',
+        isActive: true,
+        children: [
+            {
+                id: 'cat_barton_0301',
+                title: 'تیرچه بلوک',
+                isLeaf: true,
+                customCode: '0301',
+                isActive: true,
+                baseUnitId: UNIT_IDS.number,
+                baseUnitTitle: 'عدد',
+                baseUnitShortCode: 'عدد',
+                overrideUnitId: UNIT_IDS.pack,
+                overrideUnitTitle: 'بسته',
+                overrideUnitShortCode: 'بسته',
+                overrideUnitQty: 10,
+                overrideUnitIsVariableQty: true,
+                alternativeUnits: [],
+            },
+            {
+                id: 'cat_barton_0302',
+                title: 'دیوار پیش ساخته',
+                isLeaf: true,
+                customCode: '0302',
+                isActive: true,
+                baseUnitId: UNIT_IDS.number,
+                baseUnitTitle: 'عدد',
+                baseUnitShortCode: 'عدد',
+                overrideUnitId: UNIT_IDS.number,
+                overrideUnitTitle: 'عدد',
+                overrideUnitShortCode: 'عدد',
+                overrideUnitQty: 1,
+                overrideUnitIsVariableQty: true,
+                alternativeUnits: [],
+            },
+        ],
+    },
+    {
+        id: 'cat_barton_99',
+        title: 'سایر مصالح',
+        isLeaf: true,
+        customCode: '99',
+        isActive: true,
+        baseUnitId: UNIT_IDS.number,
+        baseUnitTitle: 'عدد',
+        baseUnitShortCode: 'عدد',
+        overrideUnitId: UNIT_IDS.number,
+        overrideUnitTitle: 'عدد',
+        overrideUnitShortCode: 'عدد',
+        overrideUnitQty: 1,
+        overrideUnitIsVariableQty: true,
+        alternativeUnits: [],
+    },
 ];
 
 const TARGET_CITIES = [
@@ -16,7 +256,6 @@ const TARGET_CITIES = [
     { province: 'همدان', city: 'ملایر' },
 ];
 
-// صنوفی که برای بازاری بارتون انتخاب می‌کنیم (برگ‌های مرتبط با مصالح)
 const TARGET_INDUSTRY_TITLES = [
     'تولیدکننده مصالح ساختمانی',
     'عمده‌فروش مصالح ساختمانی',
@@ -93,37 +332,7 @@ async function main() {
     }
     console.log(`   ✅ مدیر بازار: 09196421264 / 123456`);
 
-    // ═══════════════ ۲. دسته‌بندی‌ها + واحدها ═══════════════
-    console.log('\n📦 پیدا کردن دسته‌بندی‌ها...');
-    const categories = await prisma.productCategory.findMany({
-        where: { title: { in: TARGET_CATEGORIES }, isActive: true },
-        select: { id: true, title: true, example: true, defaultMinQuantity: true, parentId: true },
-    });
-    if (categories.length === 0) {
-        console.log('❌ دسته‌بندی یافت نشد!');
-        return;
-    }
-
-    const categorySelections: any[] = [];
-    for (const cat of categories) {
-        const mapping = await prisma.categoryUnitMapping.findFirst({
-            where: { categoryId: cat.id, isDefault: true },
-            include: { unit: { select: { id: true, title: true, shortCode: true } } },
-        });
-        categorySelections.push({
-            categoryId: cat.id,
-            customLabel: null,
-            overrideUnitId: mapping?.unitId || null,
-            overrideUnitTitle: mapping?.unit?.title || null,
-            overrideMinQuantity: cat.defaultMinQuantity || null,
-            displayPriority: categorySelections.length,
-            isActive: true,
-            example: cat.example || null,
-        });
-        console.log(`   ✅ ${cat.title} → ${mapping?.unit?.title || 'ندارد'}`);
-    }
-
-    // ═══════════════ ۳. موقعیت‌ها ═══════════════
+    // ═══════════════ ۲. موقعیت‌ها ═══════════════
     console.log('\n📍 پیدا کردن موقعیت‌ها...');
     const locationIds: string[] = [];
     for (const t of TARGET_CITIES) {
@@ -142,7 +351,7 @@ async function main() {
         }
     }
 
-    // ═══════════════ ۴. اصناف جدید (از جدول Industry) ═══════════════
+    // ═══════════════ ۳. اصناف ═══════════════
     console.log('\n🏭 پیدا کردن اصناف مرتبط با مصالح...');
     const selectedIndustries = await prisma.industry.findMany({
         where: {
@@ -153,28 +362,28 @@ async function main() {
     });
 
     if (selectedIndustries.length === 0) {
-        console.log('❌ هیچ صنفی یافت نشد! ابتدا seed-industries را اجرا کنید.');
+        console.log('❌ هیچ صنفی یافت نشد!');
         return;
     }
 
     const selectedIndustryIds = selectedIndustries.map(ind => ind.id);
     const selectedIndustryTitles = selectedIndustries.map(ind => ({ id: ind.id, title: ind.title }));
 
-    console.log(`   ✅ ${selectedIndustries.length} صنف انتخاب شد:`);
-    selectedIndustries.forEach(ind => console.log(`      - ${ind.title}`));
+    console.log(`   ✅ ${selectedIndustries.length} صنف انتخاب شد`);
 
-    // ═══════════════ ۵. حذف بازاری قبلی ═══════════════
+    // ═══════════════ ۴. حذف بازاری قبلی ═══════════════
     console.log('\n🗑️ بررسی بازاری قبلی...');
     const old = await prisma.arm.findUnique({ where: { slug: 'barton' } });
     if (old) {
         await prisma.$transaction([
             prisma.armMembership.deleteMany({ where: { armId: old.id } }),
+            prisma.ad.deleteMany({ where: { armId: old.id } }),
             prisma.arm.delete({ where: { id: old.id } }),
         ]);
         console.log('   ✅ حذف شد');
     }
 
-    // ═══════════════ ۶. ایجاد بازاری جدید ═══════════════
+    // ═══════════════ ۵. ایجاد بازاری جدید ═══════════════
     console.log('\n🏗️ ایجاد بازاری جدید...');
 
     const arm = await prisma.arm.create({
@@ -189,30 +398,29 @@ async function main() {
             colorSecondary: '#904d00',
             logoUrl: '/images/logo.png',
             bannerUrl: '/images/banner.png',
-            mission: 'اتصال تولیدکنندگان و فروشندگان عمده مصالح ساختمانی به خریداران در تهران و همدان',
+            mission: 'اتصال تولیدکنندگان و فروشندگان عمده مصالح ساختمانی به خریداران',
             status: 'active',
             visibility: 'public',
             ownerUserId: armOwner.id,
             geoScopeType: 'multi_city',
             rankingAlgorithm: 'simple',
-            metadata: { source: 'seed', version: '5.0' },
-
+            metadata: { source: 'seed', version: '6.0' },
+            categoryTree: CATEGORY_TREE,
+            allowedCategoryScopeTree: CATEGORY_TREE,
             config: {
                 general: {
                     name: 'بارتون',
                     slogan: 'قیمت امروز فروشندگان عمده مصالح ساختمانی',
                     description: 'تابلو مقایسه قیمت‌های مصالح ساختمانی در تهران و همدان',
-                    mission: 'اتصال تولیدکنندگان و فروشندگان عمده مصالح ساختمانی به خریداران در تهران و همدان',
+                    mission: 'اتصال تولیدکنندگان و فروشندگان عمده مصالح ساختمانی',
                 },
-
                 support: {
                     phone: '021-12345678',
                     mobile: '09121234567',
                     email: 'support@barton.ir',
                     workingHours: 'شنبه تا چهارشنبه ۹ تا ۱۷',
-                    description: 'پشتیبانی واحد بازار برای راهنمایی در خرید و فروش',
+                    description: 'پشتیبانی واحد بازار',
                 },
-
                 modules: {
                     priceTable: {
                         enabled: true,
@@ -223,7 +431,7 @@ async function main() {
                         allowAnonymousPublishing: true,
                         autoApproveAds: true,
                         maxTotalFreeAdPerUser: 10,
-                        adValidityDefaultDays: 24,
+                        adValidityDefaultHours: 24,
                         maxActiveAdsPerUser: 5,
                         bumpCost: 10,
                     },
@@ -234,171 +442,71 @@ async function main() {
                         maxActiveRequestsPerUser: 5,
                     },
                 },
-
                 accessRules: {
-                    restrictMembershipByIndustry: true,  // فعال‌سازی محدودیت صنف
+                    restrictMembershipByIndustry: true,
                     allowManualRoleSelection: true,
                     requireAdminApprovalForMembership: false,
                     requirePhoneVerification: false,
                     requireBusinessVerification: false,
                     restrictMembershipByLocation: false,
+                    requireBusinessForMembership: true,
                 },
-
                 economy: {
                     daymatShare: 30,
                     currency: 'IRR',
-                    bumpCost: 10,  // هزینه نردبان
+                    bumpCost: 10,
                     creditRules: {
                         signupBonus: 50,
                         referralBonus: 20,
                         dailyLoginBonus: 2,
-                        commentBonus: 1,
-                        adViewBonus: 0,
                     },
                 },
-
                 payment: {
                     paymentMode: 'both',
                     defaultGateway: 'pec',
-                    gateways: [
-                        {
-                            name: 'pec',
-                            pin: '44970783',
-                            sandbox: false,
-                            callbackUrl: 'http://localhost:3000/credit/verify',
-                        },
-                        {
-                            name: 'zarinpal',
-                            merchantId: 'your-zarinpal-merchant-id',
-                            sandbox: true,
-                            callbackUrl: 'http://localhost:3000/credit/verify',
-                        },
-                        {
-                            name: 'rayanpay',
-                            pin: 'sandbox',
-                            sandbox: true,
-                            callbackUrl: 'http://localhost:3000/credit/verify',
-                        },
-                    ],
+                    gateways: [],
                     manual: {
                         enabled: true,
                         cardNumber: '6037-9912-3456-7890',
                         shebaNumber: 'IR12-3456-7890-1234-5678-9012',
                         accountOwner: 'علی محمدی',
                         bankName: 'بانک ملت',
-                        instructions: 'لطفاً مبلغ را به شماره کارت واریز کرده و تصویر رسید را آپلود کنید.',
+                        instructions: 'لطفاً مبلغ را واریز کرده و رسید را آپلود کنید.',
                     },
                     settlementAccount: {
                         type: 'bank_card',
                         value: '6037-9912-3456-7890',
                     },
                 },
-
-                categorySelections,
-                allowedCategoryScope: [categories[0]?.parentId].filter(Boolean),
-
                 locationSelections: locationIds.map((id, i) => ({
                     locationId: id,
                     customLabel: null,
                     displayPriority: i,
                     isActive: true,
                 })),
-
-                // ✅ ساختار جدید صنوف (جایگزین supplierIndustryIds/buyerIndustryIds)
                 selectedIndustryIds,
                 selectedIndustries: selectedIndustryTitles,
-
                 localization: {
                     timezone: 'Asia/Tehran',
                     locale: 'fa',
                 },
                 integrations: {},
                 custom: {},
-
-                formLabels: {
-                    'business.name.label': 'نام کسب‌وکار',
-                    'business.name.placeholder': 'نام کسب‌وکار را وارد کنید',
-                    'business.shortDescription.label': 'معرفی کوتاه',
-                    'business.shortDescription.placeholder': 'مثال: تولید کننده انواع آجر فشاری',
-                    'business.type.label': 'نوع کسب‌وکار',
-                    'business.type.placeholder': 'انتخاب نوع...',
-                    'business.phone.label': 'شماره تماس',
-                    'business.phone.placeholder': 'شماره تماس را وارد کنید',
-                    'business.address.label': 'آدرس',
-                    'business.address.placeholder': 'آدرس کامل را وارد کنید',
-                    'business.city.label': 'شهر',
-                    'business.city.placeholder': 'شهر را انتخاب کنید',
-                    'business.province.label': 'استان',
-                    'business.province.placeholder': 'استان را انتخاب کنید',
-                    'business.position.label': 'سمت شما',
-                    'business.position.placeholder': 'انتخاب سمت...',
-                    'business.industry.label': 'صنف',
-                    'business.industry.placeholder': 'انتخاب صنف...',
-                },
-
+                formLabels: {},
                 armAdminPermission: {
-                    general: {
-                        canEditName: true,
-                        canEditShortName: true,
-                        canEditSlogan: true,
-                        canEditDescription: true,
-                        canEditMission: true,
-                        canEditSlug: false,
-                        canEditStatus: false,
-                        canEditIcon: true,
-                        canEditColors: true,
-                        canEditLogo: true,
-                        canEditBanner: true,
-                    },
-                    support: {
-                        canEdit: true,
-                    },
-                    modules: {
-                        canEditPriceTable: false,
-                        canEditBuyLead: false,
-                    },
-                    accessRules: {
-                        canEdit: false,
-                    },
-                    economy: {
-                        canEdit: false,
-                        canViewDaymatShare: true,
-                    },
-                    payment: {
-                        canEdit: false,
-                    },
                     categories: {
-                        canEdit: false,
-                        canAdd: false,
-                        canRemove: false,
-                        canChangeUnit: false,
-                        canAddScope: false,
-                        canRemoveScope: false,
-                        canView: true,
+                        canEdit: true,
+                        canAdd: true,
+                        canRemove: true,
+                        canChangeUnit: true,
                     },
                     locations: {
                         canEdit: false,
-                        canAdd: false,
-                        canRemove: false,
-                    },
-                    industries: {
-                        canEdit: false,
-                        canAdd: false,
-                        canRemove: false,
-                    },
-                    formLabels: {
-                        canEdit: false,
-                    },
-                    members: {
-                        canView: true,
-                        canEdit: false,
-                        canChangeRole: false,
-                        canBan: false,
                     },
                     ads: {
                         canView: true,
-                        canApprove: false,
-                        canDelete: false,
+                        canApprove: true,
+                        canDelete: true,
                         canBump: true,
                     },
                 },
@@ -408,7 +516,7 @@ async function main() {
 
     console.log(`   ✅ بازار: ${arm.name} (${arm.slug})`);
 
-    // ═══════════════ ۷. عضویت‌ها ═══════════════
+    // ═══════════════ ۶. عضویت‌ها ═══════════════
     console.log('\n👥 عضویت‌ها...');
 
     await prisma.armMembership.create({
@@ -431,24 +539,26 @@ async function main() {
         },
     });
 
-    console.log('   ✅ هر دو کاربر به‌عنوان مالک بازار عضو شدند');
+    console.log('   ✅ هر دو کاربر مالک بازار شدند');
 
-    // ═══════════════ ۸. خلاصه ═══════════════
+    // ═══════════════ ۷. خلاصه ═══════════════
+    let leafCount = 0;
+    const countLeaves = (nodes: any[]) => {
+        for (const n of nodes) {
+            if (n.isLeaf || !n.children?.length) leafCount++;
+            if (n.children) countLeaves(n.children);
+        }
+    };
+    countLeaves(CATEGORY_TREE);
+
     console.log('\n' + '='.repeat(55));
     console.log('🎉 بازاری بارتون با موفقیت ایجاد شد!');
     console.log('='.repeat(55));
     console.log(`🔗 آدرس: /${arm.slug}`);
     console.log(`👤 مالک بازار: 09196421264 / 123456`);
     console.log(`👤 سوپر ادمین: 09120000000 / admin123456`);
-    console.log(`📊 دسته‌بندی: ${categories.length} | شهر: ${locationIds.length}`);
-    console.log(`🏭 اصناف انتخاب‌شده: ${selectedIndustries.length}`);
-    console.log(`🧩 ماژول‌ها: priceTable (فعال) | buyLead (فعال)`);
-    console.log(`💳 پرداخت: آنلاین (pec) + فیشی`);
-    const config = arm.config as any;
-    console.log(`📞 پشتیبانی: ${config.support?.phone || 'تنظیم نشده'} (قابل ویرایش توسط مدیر بازار)`);
-    console.log(`🔑 دسترسی مدیر بازار:`);
-    console.log(`   ✅ عمومی: نام، شعار، توضیحات، مأموریت، رنگ، لوگو، اطلاعات پشتیبانی`);
-    console.log(`   ❌ اسلاگ، وضعیت، دسته‌بندی، موقعیت، صنوف، ماژول‌ها، قوانین، اقتصاد، پرداخت، برچسب‌ها`);
+    console.log(`📊 دسته‌بندی: ${leafCount} برگ | شهر: ${locationIds.length}`);
+    console.log(`🏭 اصناف: ${selectedIndustries.length}`);
     console.log('='.repeat(55));
 }
 

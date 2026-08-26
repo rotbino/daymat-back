@@ -225,7 +225,7 @@ export class AdminUserService {
                         status: true,
                         createdAt: true,
                         arm: { select: { id: true, name: true, slug: true } },
-                        category: { select: { id: true, title: true } },
+
                     },
                     orderBy: { createdAt: 'desc' },
                     take: 50,

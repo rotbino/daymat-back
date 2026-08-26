@@ -9,7 +9,7 @@ export class AdminAdService {
     async getAds(query: {
         page?: number; limit?: number; search?: string;
         categoryId?: string; armSlug?: string;
-        status?: string; city?: string; provinceCode?: string; countryCode?: string;cityCode?: string;
+        status?: string; city?: string; provinceCode?: string; countryCode?: string; cityCode?: string;
         minPrice?: number; maxPrice?: number;
         startDate?: string; endDate?: string;
         isAnonymous?: string; isBumped?: string;
@@ -17,7 +17,7 @@ export class AdminAdService {
     }) {
         const {
             page = 1, limit = 20, search, categoryId, armSlug, status,
-            city,cityCode, provinceCode, countryCode, minPrice, maxPrice,
+            city, cityCode, provinceCode, countryCode, minPrice, maxPrice,
             startDate, endDate, isAnonymous, isBumped,
             sortBy = 'createdAt', sortOrder = 'desc',
         } = query;
@@ -34,7 +34,6 @@ export class AdminAdService {
             ];
         }
 
-        // ✅ اولویت‌بندی فیلتر موقعیت: شهر > استان > کشور
         if (cityCode) {
             where.cityCode = cityCode;
         } else if (provinceCode) {
@@ -81,8 +80,8 @@ export class AdminAdService {
                     status: true, isAnonymous: true,
                     isBumped: true, viewCount: true, callCount: true,
                     createdAt: true, expiresAt: true,
+                    categoryId: true,
                     unit: { select: { id: true, title: true, shortCode: true } },
-                    category: { select: { id: true, title: true, path: true } },
                     business: { select: { id: true, name: true, verificationTier: true } },
                     arm: { select: { id: true, slug: true, name: true } },
                     createdBy: { select: { id: true, fullName: true, phone: true } },
@@ -107,7 +106,7 @@ export class AdminAdService {
         return this.prisma.ad.findUnique({
             where: { id },
             include: {
-                unit: true, category: true,
+                unit: true,
                 business: true,
                 arm: { select: { id: true, slug: true, name: true } },
                 createdBy: { select: { id: true, fullName: true, phone: true } },
@@ -127,29 +126,21 @@ export class AdminAdService {
     }
 
     async getCategoryTreeForAds(armSlug?: string) {
+        // ✅ حالا از categoryTree در Arm استفاده می‌کنیم
         if (armSlug) {
             const arm = await this.prisma.arm.findUnique({
                 where: { slug: armSlug },
-                select: { config: true },
+                select: { categoryTree: true },
             });
             if (!arm) return [];
-
-            const config = arm.config as any || {};
-            const selections = config.categorySelections || [];
-            const categoryIds = selections.filter((s: any) => s.isActive).map((s: any) => s.categoryId);
-
-            const categories = await this.prisma.productCategory.findMany({
-                where: { id: { in: categoryIds }, isActive: true },
-                orderBy: { path: 'asc' },
-            });
-            return this.buildTree(categories);
+            return arm.categoryTree || [];
         }
 
-        const categories = await this.prisma.productCategory.findMany({
-            where: { isActive: true },
-            orderBy: { path: 'asc' },
+        const arms = await this.prisma.arm.findMany({
+            where: { status: 'active' },
+            select: { categoryTree: true },
         });
-        return this.buildTree(categories);
+        return arms.flatMap(a => (a.categoryTree as any[]) || []);
     }
 
     async getArmsForFilter() {
@@ -159,11 +150,8 @@ export class AdminAdService {
             orderBy: { name: 'asc' },
         });
     }
-    // src/admin/ad/admin-ad.service.ts - اضافه کن:
 
     async getLocationTreeForAds(armSlug?: string) {
-
-
         if (!armSlug) {
             return this.prisma.location.findMany({
                 where: { type: 'country', isActive: true },
@@ -176,17 +164,11 @@ export class AdminAdService {
             select: { config: true },
         });
 
-
         if (!arm) return [];
 
         const config = arm.config as any || {};
-
-
         const selections = (config.locationSelections || []).filter((s: any) => s.isActive);
-        console.log('📍 active selections:', selections);
-
         const locationIds = selections.map((s: any) => s.locationId);
-        console.log('📍 locationIds:', locationIds);
 
         if (locationIds.length === 0) return [];
 
@@ -194,26 +176,19 @@ export class AdminAdService {
             where: { id: { in: locationIds }, isActive: true },
             select: { id: true, title: true, cityCode: true, provinceCode: true, parentId: true, level: true, path: true },
         });
-        console.log('📍 cities found:', cities.length, cities.map(c => c.title));
 
         const parentIds = [...new Set(cities.map(c => c.parentId).filter(Boolean))];
-        console.log('📍 parentIds:', parentIds);
-
         const provinces = parentIds.length > 0
             ? await this.prisma.location.findMany({
                 where: { id: { in: parentIds as string[] } },
                 select: { id: true, title: true, provinceCode: true, level: true, path: true },
             })
             : [];
-        console.log('📍 provinces found:', provinces.length, provinces.map(p => p.title));
 
-        const result = provinces.map(p => ({
+        return provinces.map(p => ({
             ...p,
             children: cities.filter(c => c.parentId === p.id),
         }));
-        console.log('📍 result:', JSON.stringify(result, null, 2));
-
-        return result;
     }
 
     async getStats(query: { armSlug?: string; categoryId?: string; startDate?: string; endDate?: string }) {
@@ -248,16 +223,5 @@ export class AdminAdService {
             totalCalls: callsAgg._sum.callCount || 0,
             avgPrice: Math.round(priceAgg._avg.unitPrice || 0),
         };
-    }
-
-    private buildTree(items: any[]): any[] {
-        const map = new Map();
-        const roots: any[] = [];
-        for (const item of items) map.set(item.id, { ...item, children: [] });
-        for (const [id, node] of map) {
-            if (node.parentId && map.has(node.parentId)) map.get(node.parentId).children.push(node);
-            else roots.push(node);
-        }
-        return roots;
     }
 }

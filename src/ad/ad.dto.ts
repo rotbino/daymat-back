@@ -431,7 +431,7 @@ export class UpdateAdDto {
     @IsOptional()
     @IsNumber()
     @Min(24)
-    @Max(72)
+    @Max(240)
     bumpDurationHours?: number;
 
     @ApiProperty({ description: 'روش‌های پرداخت', required: false })

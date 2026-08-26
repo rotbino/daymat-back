@@ -74,7 +74,6 @@ export class ArmAdminAdService {
                 expiresAt: true,
                 rejectionReason: true,
                 unit: { select: { id: true, title: true, shortCode: true } },
-                category: { select: { id: true, title: true } },
                 business: { select: { id: true, name: true, verificationTier: true } },
                 arm: { select: { id: true, slug: true, name: true } },
                 createdBy: { select: { id: true, fullName: true, phone: true } },
@@ -138,7 +137,6 @@ export class ArmAdminAdService {
             where: { id },
             include: {
                 unit: true,
-                category: true,
                 business: { include: { owner: true } },
                 arm: { select: { id: true, slug: true, name: true } },
                 createdBy: { select: { id: true, fullName: true, phone: true } },
@@ -220,7 +218,6 @@ export class ArmAdminAdService {
             where: { id: adId },
             data: updateData,
             include: {
-                category: { select: { id: true, title: true, path: true } },
                 unit: { select: { id: true, title: true, shortCode: true } },
             },
         });
