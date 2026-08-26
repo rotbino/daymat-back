@@ -4,9 +4,7 @@ import {
     IsNotEmpty, IsString, IsNumber, IsOptional, IsBoolean,
     Min, Max, IsEnum, ValidateNested, IsObject,
 } from 'class-validator';
-import {Transform, Type} from 'class-transformer';
-
-
+import { Transform, Type } from 'class-transformer';
 
 // ═══════════════════════════════════════════════════════════════
 // DTOهای شرایط فروش
@@ -14,10 +12,6 @@ import {Transform, Type} from 'class-transformer';
 export class SpecsDto {
     [key: string]: string;
 }
-
-// ═══════════════════════════════════════════════════════════════
-// DTOهای شرایط فروش (روش‌های پرداخت) - نسخه چندگانه
-// ═══════════════════════════════════════════════════════════════
 
 export class ChequeOptionDto {
     @ApiProperty({ example: 5500000, description: 'قیمت چکی برای این مدت' })
@@ -50,8 +44,6 @@ export class InstallmentOptionDto {
     prepaymentPercent?: number;
 }
 
-// src/ad/ad.dto.ts – بخش PaymentMethodsDto
-
 export class PaymentMethodsDto {
     @ApiProperty({ description: 'فروش چکی', required: false })
     @IsOptional()
@@ -81,14 +73,9 @@ export class PaymentMethodsDto {
     description?: string;
 }
 
-
-
-
-
-
-
-
-
+// ═══════════════════════════════════════════════════════════════
+// کلاس‌های قدیمی — برای سازگاری حفظ شده‌اند
+// ═══════════════════════════════════════════════════════════════
 class ChequePaymentDto {
     @ApiProperty({ example: true, description: 'فعال بودن فروش چکی' })
     @IsBoolean()
@@ -132,8 +119,6 @@ class InstallmentPaymentDto {
     prepaymentPercent?: number;
 }
 
-
-
 class CustomFieldsDto {
     @ApiProperty({ description: 'روش‌های پرداخت', required: false })
     @IsOptional()
@@ -146,19 +131,16 @@ class CustomFieldsDto {
     specs?: Record<string, string>;
 }
 
-
-
 // ═══════════════════════════════════════════════════════════════
 // CreateAdDto
 // ═══════════════════════════════════════════════════════════════
-
 export class CreateAdDto {
     @ApiProperty({ example: 'barton', description: 'شناسه یکتای بازار (slug)' })
     @IsNotEmpty({ message: 'شناسه بازار الزامی است' })
     @IsString()
     armSlug: string;
 
-    @ApiProperty({ example: '6a53517d3a1399c4dd791940', description: 'شناسه دسته‌بندی', required: false })
+    @ApiProperty({ example: 'cat_1011', description: 'شناسه دسته‌بندی', required: false })
     @IsOptional()
     @IsString()
     categoryId?: string;
@@ -204,6 +186,19 @@ export class CreateAdDto {
     @IsNumber()
     @Min(1)
     unitPrice: number;
+
+    // ✅ فیلدهای جدید قیمت
+    @ApiProperty({ example: 1000, description: 'قیمت تکی عمده (هر واحد مصرف‌کننده)', required: false })
+    @IsOptional()
+    @IsNumber()
+    @Min(0)
+    singleUnitPrice?: number;
+
+    @ApiProperty({ example: 1500, description: 'قیمت تکی برای مصرف‌کننده نهایی', required: false })
+    @IsOptional()
+    @IsNumber()
+    @Min(0)
+    consumerPrice?: number;
 
     @ApiProperty({ example: 5, description: 'حداقل سفارش' })
     @IsNotEmpty({ message: 'حداقل سفارش الزامی است' })
@@ -252,7 +247,7 @@ export class CreateAdDto {
     @IsString()
     locationDetail?: string;
 
-    @ApiProperty({ example: 7, description: 'مدت اعتبار (روز)', minimum: 1, maximum: 30, required: false })
+    @ApiProperty({ example: 24, description: 'مدت اعتبار (ساعت)', minimum: 1, maximum: 240, required: false })
     @IsOptional()
     @IsNumber()
     @Min(1)
@@ -269,13 +264,11 @@ export class CreateAdDto {
     @IsBoolean()
     isBumped?: boolean;
 
-
-
     @ApiProperty({ example: 24, description: 'مدت زمان نردبان (ساعت)، پیش‌فرض ۲۴', required: false })
     @IsOptional()
     @IsNumber()
     @Min(24)
-    @Max(72) // یا هر مقداری که با validityHours محدود می‌شود
+    @Max(240)
     bumpDurationHours?: number;
 
     @ApiProperty({ description: 'روش‌های پرداخت', required: false })
@@ -289,20 +282,15 @@ export class CreateAdDto {
     @IsObject()
     specs?: SpecsDto;
 
-    // ⚠️ customFields قدیمی را برای سازگاری حفظ می‌کنیم
-    @ApiProperty({ description: 'فیلدهای سفارشی ', required: false })
+    @ApiProperty({ description: 'فیلدهای سفارشی', required: false })
     @IsOptional()
     @IsObject()
     customFields?: any;
-
-
 }
 
 // ═══════════════════════════════════════════════════════════════
 // UpdateAdDto
 // ═══════════════════════════════════════════════════════════════
-
-
 export class UpdateAdDto {
     @ApiProperty({ example: true, description: 'آیا آگهی برای تایید مجدد ارسال می شود؟ (برای آگهی‌های ردشده)', required: false })
     @IsOptional()
@@ -340,6 +328,19 @@ export class UpdateAdDto {
     @IsNumber()
     @Min(1)
     unitPrice?: number;
+
+    // ✅ فیلدهای جدید قیمت
+    @ApiProperty({ example: 1000, description: 'قیمت تکی عمده (هر واحد مصرف‌کننده)', required: false })
+    @IsOptional()
+    @IsNumber()
+    @Min(0)
+    singleUnitPrice?: number;
+
+    @ApiProperty({ example: 1500, description: 'قیمت تکی برای مصرف‌کننده نهایی', required: false })
+    @IsOptional()
+    @IsNumber()
+    @Min(0)
+    consumerPrice?: number;
 
     @ApiProperty({ example: 5, description: 'حداقل سفارش', required: false })
     @IsOptional()
@@ -383,7 +384,7 @@ export class UpdateAdDto {
     @IsString()
     locationDetail?: string;
 
-    @ApiProperty({ example: 7, description: 'مدت اعتبار (روز)', required: false })
+    @ApiProperty({ example: 24, description: 'مدت اعتبار (ساعت)', required: false })
     @IsOptional()
     @IsNumber()
     @Min(1)
@@ -395,8 +396,6 @@ export class UpdateAdDto {
     @IsBoolean()
     isAnonymous?: boolean;
 
-
-
     @ApiProperty({
         enum: ['active', 'inactive', 'expired'],
         description: 'وضعیت آگهی (فعال/غیرفعال)',
@@ -406,8 +405,7 @@ export class UpdateAdDto {
     @IsEnum(['active', 'inactive', 'expired'])
     status?: string;
 
-    // ✅ فیلدهای جدید (برای تغییر دسته‌بندی، واحد و نردبان)
-    @ApiProperty({ example: '6a654123902c364093573a61', description: 'شناسه دسته‌بندی سراسری', required: false })
+    @ApiProperty({ example: 'cat_1011', description: 'شناسه دسته‌بندی', required: false })
     @IsOptional()
     @IsString()
     categoryId?: string;
@@ -445,7 +443,6 @@ export class UpdateAdDto {
     @IsObject()
     specs?: SpecsDto;
 
-    // ⚠️ customFields قدیمی
     @ApiProperty({ description: 'فیلدهای سفارشی (قدیمی)', required: false })
     @IsOptional()
     @IsObject()
@@ -455,7 +452,6 @@ export class UpdateAdDto {
 // ═══════════════════════════════════════════════════════════════
 // SortItemDto
 // ═══════════════════════════════════════════════════════════════
-
 export class SortItemDto {
     @ApiProperty({ example: 'unitPrice', description: 'نام فیلد', enum: ['unitPrice', 'createdAt', 'updatedAt', 'minQuantity'] })
     @IsString()
@@ -469,7 +465,6 @@ export class SortItemDto {
 // ═══════════════════════════════════════════════════════════════
 // AdListQueryDto
 // ═══════════════════════════════════════════════════════════════
-
 export class AdListQueryDto {
     @ApiProperty({ example: '67a1b2c3...', description: 'شناسه گره', required: false })
     @IsOptional()
@@ -532,10 +527,9 @@ export class AdListQueryDto {
     @IsEnum(['all', 'bumped', 'normal'])
     bumpFilter?: 'all' | 'bumped' | 'normal';
 
-    // ✅ حذف تعریف قبلی SortItemDto[] و جایگزینی با any
-    @ApiProperty({ required: false, description: 'مرتب‌سازی (رشته‌ای مثل unitPrice:asc یا آرایه‌ای از { field, order })' })
+    @ApiProperty({ required: false, description: 'مرتب‌سازی' })
     @IsOptional()
-    sort?: any; // string | { field: string, order: 'asc' | 'desc' }[]
+    sort?: any;
 
     @ApiProperty({ example: 1, description: 'شماره صفحه', required: false })
     @IsOptional()
@@ -581,8 +575,6 @@ export class AdListQueryDto {
 // ═══════════════════════════════════════════════════════════════
 // ExtendAdDto
 // ═══════════════════════════════════════════════════════════════
-
-// src/ad/ad.dto.ts – ExtendAdDto
 export class ExtendAdDto {
     @ApiProperty({ example: 7, description: 'مدت تمدید (روز)', minimum: 1, maximum: 30 })
     @IsNotEmpty({ message: 'مدت تمدید الزامی است' })

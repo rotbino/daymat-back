@@ -365,7 +365,9 @@ model Ad {
     title                 String
     productType           String?   // نوع کالا - مثال: سیمان پرتلند تیپ ۲
     description           String?
-    unitPrice             Float     // قیمت نقدی (واحد)
+    unitPrice             Float     // قیمت نقدی (واحد فروش عمده)
+    singleUnitPrice       Float?    // ✅ قیمت تکی عمده (هر واحد مصرف‌کننده)
+    consumerPrice         Float?    // ✅ قیمت تکی برای مصرف‌کننده نهایی
     minQuantity           Float
     unitBaseTitle         String?
     priceHistory          Json?

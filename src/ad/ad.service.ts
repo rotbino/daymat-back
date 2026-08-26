@@ -37,6 +37,16 @@ export class AdService {
     // ═══════════════════════════════════════
     // 1. ثبت آگهی جدید
     // ═══════════════════════════════════════
+    // src/ad/ad.service.ts
+
+// ═══════════════════════════════════════
+// 1. ثبت آگهی جدید
+// ═══════════════════════════════════════
+    // src/ad/ad.service.ts
+
+// ═══════════════════════════════════════
+// 1. ثبت آگهی جدید
+// ═══════════════════════════════════════
     async create(userId: string, dto: CreateAdDto) {
         const arm = await this.armService.findBySlug(dto.armSlug);
         const config = arm.config as any || {};
@@ -103,27 +113,33 @@ export class AdService {
             });
         }
 
+        // ─── خواندن تنظیمات سهمیه‌ها و هزینه‌ها ───
         const maxActiveAdsPerUser = this.getConfigValue(config, 'modules.priceTable.maxActiveAdsPerUser', 5);
+        const maxTotalFreeAdPerUser = this.getConfigValue(config, 'modules.priceTable.maxTotalFreeAdPerUser', 20);
+        const bumpCostBase = this.getConfigValue(config, 'modules.priceTable.bumpCost', 10);
+        const extraActiveAdCostPerDay = this.getConfigValue(config, 'modules.priceTable.extraActiveAdCost', 2);
+        const adCreationCostMonthly = this.getConfigValue(config, 'modules.priceTable.adCreationCost', 2);
+        const defaultValidityHours = this.getConfigValue(config, 'modules.priceTable.adValidityDefaultHours', 24);
+        const requiresApprovalOnCreate = this.getConfigValue(config, 'modules.priceTable.approval.requiresApprovalOnCreate', false);
+
+        // ─── شمارش آگهی‌ها ───
         const activeAdsCount = await this.prisma.ad.count({
             where: { businessId: business.id, armId: arm.id, status: 'active', expiresAt: { gt: new Date() } },
         });
-        const hasReachedActiveLimit = activeAdsCount >= maxActiveAdsPerUser;
-        const freeActiveSlotsRemaining = Math.max(0, maxActiveAdsPerUser - activeAdsCount - 1);
-
-        const maxTotalFreeAdPerUser = this.getConfigValue(config, 'modules.priceTable.maxTotalFreeAdPerUser', 50);
         const totalAdsCount = await this.prisma.ad.count({
             where: { businessId: business.id, armId: arm.id, status: { not: 'deleted' } },
         });
-        const hasReachedTotalLimit = totalAdsCount >= maxTotalFreeAdPerUser;
-        const freeTotalSlotsRemaining = Math.max(0, maxTotalFreeAdPerUser - totalAdsCount - 1);
 
+        const hasReachedActiveLimit = activeAdsCount >= maxActiveAdsPerUser;
+        const hasReachedTotalLimit = totalAdsCount >= maxTotalFreeAdPerUser;
         const needsCredit = hasReachedActiveLimit || hasReachedTotalLimit;
 
-        const defaultValidityHours = this.getConfigValue(config, 'modules.priceTable.adValidityDefaultDays', 24);
+        const freeActiveSlotsRemaining = Math.max(0, maxActiveAdsPerUser - activeAdsCount - 1);
+        const freeTotalSlotsRemaining = Math.max(0, maxTotalFreeAdPerUser - totalAdsCount - 1);
+
         const validityHours = dto.validityHours || defaultValidityHours;
 
-        const requiresApprovalOnCreate = this.getConfigValue(config, 'modules.priceTable.approval.requiresApprovalOnCreate', false);
-
+        // ─── محاسبه هزینه نردبان ───
         let bumpDurationHours: number | null = null;
         let bumpCostTotal = 0;
         let bumpExpiresAt: Date | null = null;
@@ -136,22 +152,33 @@ export class AdService {
                     message: 'مدت نردبان نمی‌تواند از اعتبار قیمت بیشتر باشد.',
                 });
             }
-            const baseCost = this.getConfigValue(config, 'modules.priceTable.bumpCost', 10);
-            bumpCostTotal = (bumpDurationHours / 24) * baseCost;
+            bumpCostTotal = (bumpDurationHours / 24) * bumpCostBase;
             if (!requiresApprovalOnCreate) {
                 bumpExpiresAt = new Date(Date.now() + bumpDurationHours * 60 * 60 * 1000);
             }
         }
 
-        let creditDeducted = false;
+        // ─── محاسبه هزینه کل ───
         let totalCost = 0;
-        if (needsCredit) {
-            totalCost += this.getConfigValue(config, 'modules.priceTable.bumpCost', 10);
+
+        // ✅ هزینه آگهی اضافه روی تابلو (روزانه)
+        if (hasReachedActiveLimit) {
+            const days = Math.max(1, Math.ceil(validityHours / 24));
+            totalCost += extraActiveAdCostPerDay * days;
         }
+
+        // ✅ هزینه آگهی اضافه بابت پر شدن سهمیه کل (ماهانه)
+        if (hasReachedTotalLimit) {
+            totalCost += adCreationCostMonthly;
+        }
+
+        // ✅ هزینه نردبان
         if (dto.isBumped && !requiresApprovalOnCreate) {
             totalCost += bumpCostTotal;
         }
 
+        // ─── کسر اعتبار در صورت نیاز ───
+        let creditDeducted = false;
         if (totalCost > 0) {
             const balance = await this.creditService.getUserBalance(userId);
             if (balance.balance < totalCost) {
@@ -163,10 +190,16 @@ export class AdService {
             }
             await this.prisma.credit.create({
                 data: {
-                    userId, businessId: business.id, armId: arm.id,
-                    amount: 0, currency: 'IRR', creditCount: -totalCost,
-                    pricePerCredit: null, creditType: 'purchased',
-                    transactionType: 'spend', status: 'success',
+                    userId,
+                    businessId: business.id,
+                    armId: arm.id,
+                    amount: 0,
+                    currency: 'IRR',
+                    creditCount: -totalCost,
+                    pricePerCredit: null,
+                    creditType: 'purchased',
+                    transactionType: 'spend',
+                    status: 'success',
                     description: `ثبت آگهی${dto.isBumped ? ' و نردبان' : ''}`,
                     metadata: { ad_title: dto.title, cost: totalCost, arm_slug: arm.slug },
                 },
@@ -174,7 +207,7 @@ export class AdService {
             creditDeducted = true;
         }
 
-        // ✅ اعتبارسنجی دسته‌بندی
+        // ─── اعتبارسنجی دسته‌بندی ───
         if (!dto.categoryId) {
             throw new BadRequestException({
                 errorCode: 'CATEGORY_REQUIRED',
@@ -220,6 +253,8 @@ export class AdService {
                 customFields: (dto.customFields as any) || {},
                 description: dto.description || '',
                 unitPrice: dto.unitPrice,
+                singleUnitPrice: dto.singleUnitPrice || null,
+                consumerPrice: dto.consumerPrice || null,
                 minQuantity: dto.minQuantity,
                 availableQuantity: dto.availableQuantity || null,
                 availableQuantityBucket: dto.availableQuantityBucket || null,
@@ -262,11 +297,6 @@ export class AdService {
         };
     }
 
-    // ═══════════════════════════════════════
-    // 2. ویرایش آگهی
-    // ═══════════════════════════════════════
-    // src/ad/ad.service.ts
-
 // ═══════════════════════════════════════
 // 2. ویرایش آگهی
 // ═══════════════════════════════════════
@@ -304,23 +334,17 @@ export class AdService {
                 });
             }
 
-            // ✅ به‌روزرسانی categoryId
             updateData.categoryId = dto.categoryId;
-
-            // ✅ محاسبه و ذخیره categoryPath جدید
             const newCategoryPath = findCategoryPathInTree(categoryTree, dto.categoryId);
             updateData.categoryPath = newCategoryPath;
 
-            // ✅ به‌روزرسانی unitBaseTitle بر اساس دسته جدید
             const categorySelection = findNodeInTree(categoryTree, dto.categoryId);
             updateData.unitBaseTitle = categorySelection?.baseUnitTitle || null;
 
-            // ✅ اگر unitId تغییر نکرده، واحدها را بر اساس دسته جدید به‌روزرسانی کن
             if (dto.unitId === undefined && categorySelection) {
                 const newUnitId = categorySelection.overrideUnitId || null;
                 const newUnitQty = categorySelection.overrideUnitQty || null;
                 const newUnitIsVariableQty = categorySelection.overrideUnitIsVariableQty || false;
-
                 if (newUnitId) {
                     updateData.unitId = newUnitId;
                     updateData.unitQty = newUnitQty;
@@ -383,7 +407,7 @@ export class AdService {
                 if (bumpDurationHours > validityHours) {
                     throw new BadRequestException({ errorCode: 'BUMP_DURATION_EXCEEDS_VALIDITY', message: 'مدت نردبان نمی‌تواند بیشتر از اعتبار باشد.' });
                 }
-                const baseCost = config.economy?.bumpCost || 10;
+                const baseCost = this.getConfigValue(config, 'modules.priceTable.bumpCost', 10);
                 const bumpCostTotal = (bumpDurationHours / 24) * baseCost;
 
                 if (ad.status === 'active') {
@@ -419,8 +443,11 @@ export class AdService {
             }
         }
 
+        // ─── سایر فیلدها ───
         if (dto.status !== undefined) updateData.status = dto.status;
         if (dto.unitPrice !== undefined) updateData.unitPrice = dto.unitPrice;
+        if (dto.singleUnitPrice !== undefined) updateData.singleUnitPrice = dto.singleUnitPrice;
+        if (dto.consumerPrice !== undefined) updateData.consumerPrice = dto.consumerPrice;
         if (dto.minQuantity !== undefined) updateData.minQuantity = dto.minQuantity;
         if (dto.availableQuantity !== undefined) updateData.availableQuantity = dto.availableQuantity;
         if (dto.title !== undefined) updateData.title = dto.title;
@@ -483,22 +510,15 @@ export class AdService {
 
         // ✅ فیلتر بر اساس categoryId (شامل فرزندان)
         if (query.categoryId) {
-            // بررسی می‌کنیم که آیا categoryId یک والد است یا برگ
             const categoryNode = findNodeInTree(arm.categoryTree as any[], query.categoryId);
 
             if (categoryNode) {
-                // ✅ جمع‌آوری تمام شناسه‌های فرزندان (شامل خود گره)
-                const allCategoryIds = collectCategoryIdsFromTree([categoryNode]);
-
-                // اگر گره والد است (فرزند دارد)، فیلتر بر اساس categoryPath شامل هر کدام از فرزندان
-                // اگر گره برگ است، فیلتر دقیق بر اساس categoryId
                 if (categoryNode.children && categoryNode.children.length > 0) {
                     where.categoryPath = { has: query.categoryId };
                 } else {
                     where.categoryId = query.categoryId;
                 }
             } else {
-                // اگر گره پیدا نشد، فیلتر دقیق
                 where.categoryId = query.categoryId;
             }
         }
@@ -553,11 +573,16 @@ export class AdService {
                 take: limit,
                 select: {
                     id: true,
+                    title: true,             // ✅ اضافه شد
                     productType: true,
                     unitPrice: true,
+                    singleUnitPrice: true,   // ✅ اضافه شد
+                    consumerPrice: true,     // ✅ اضافه شد
                     minQuantity: true,
                     availableQuantity: true,
                     city: true,
+                    cityCode: true,          // ✅ اضافه شد
+                    provinceCode: true,      // ✅ اضافه شد
                     isBumped: true,
                     unitQty: true,
                     unitIsVariableQty: true,
@@ -565,7 +590,9 @@ export class AdService {
                     categoryId: true,
                     categoryPath: true,
                     isAnonymous: true,
+                    paymentMethods: true,    // ✅ اضافه شد
                     updatedAt: true,
+                    createdAt: true,         // ✅ اضافه شد
                     unit: { select: { shortCode: true, title: true } },
                     business: {
                         select: {
@@ -577,8 +604,8 @@ export class AdService {
                         },
                     },
                     files: {
-                        where: { relatedModel: 'Ad' },
-                        select: { thumbnailPath: true },
+                        where: { relatedModel: 'Ad', fieldKey: { startsWith: 'ad-image' } },
+                        select: { path: true, thumbnailPath: true }, // ✅ path هم اضافه شد
                         take: 1,
                     },
                 },
@@ -686,22 +713,63 @@ export class AdService {
     // ═══════════════════════════════════════
     // 6. دریافت کامل آگهی
     // ═══════════════════════════════════════
+    // src/ad/ad.service.ts
+
     async findOne(id: string) {
         const ad = await this.prisma.ad.findUnique({
             where: { id },
             select: {
-                id: true, title: true, productType: true, unitPrice: true,
-                minQuantity: true, availableQuantity: true, city: true, province: true,
-                isBumped: true, isAnonymous: true, description: true,
-                updatedAt: true, createdAt: true, expiresAt: true,
-                viewCount: true, callCount: true, categoryId: true,
+                id: true,
+                title: true,
+                productType: true,
+                unitPrice: true,
+                singleUnitPrice: true,  // ✅ اضافه شد
+                consumerPrice: true,    // ✅ اضافه شد
+                minQuantity: true,
+                availableQuantity: true,
+                city: true,
+                cityCode: true,         // ✅ اضافه شد
+                province: true,
+                provinceCode: true,     // ✅ اضافه شد
+                countryCode: true,      // ✅ اضافه شد
+                locationDetail: true,   // ✅ اضافه شد
+                isBumped: true,
+                isAnonymous: true,
+                description: true,
+                updatedAt: true,
+                createdAt: true,
+                expiresAt: true,
+                viewCount: true,
+                callCount: true,
+                categoryId: true,
+                categoryPath: true,     // ✅ اضافه شد
                 unit: { select: { id: true, title: true, shortCode: true } },
-                unitQty: true, unitIsVariableQty: true, unitBaseTitle: true,
+                unitQty: true,
+                unitIsVariableQty: true,
+                unitBaseTitle: true,
+                paymentMethods: true,   // ✅ اضافه شد
+                specs: true,            // ✅ اضافه شد
+                customFields: true,     // ✅ اضافه شد
+                bumpDurationHours: true, // ✅ اضافه شد
+                bumpExpiresAt: true,    // ✅ اضافه شد
                 business: {
                     select: {
-                        id: true, name: true, shortDescription: true, description: true,
-                        type: true, city: true, province: true, phone: true, website: true,
-                        verificationTier: true, trustScore: true, logoUrl: true, createdAt: true,
+                        id: true,
+                        name: true,
+                        shortDescription: true,
+                        description: true,
+                        type: true,
+                        city: true,
+                        cityCode: true,     // ✅ اضافه شد
+                        province: true,
+                        provinceCode: true, // ✅ اضافه شد
+                        countryCode: true,  // ✅ اضافه شد
+                        phone: true,
+                        website: true,
+                        verificationTier: true,
+                        trustScore: true,
+                        logoUrl: true,
+                        createdAt: true,
                         files: { where: { fieldKey: 'logo' }, select: { id: true, path: true, thumbnailPath: true }, take: 1 },
                         owner: {
                             select: {
@@ -739,10 +807,20 @@ export class AdService {
         return {
             ...ad,
             business: business ? {
-                id: business.id, name: business.name, shortDescription: business.shortDescription,
-                description: business.description, type: business.type, city: business.city,
-                province: business.province, phone: business.phone, website: business.website,
-                verificationTier: business.verificationTier, trustScore: business.trustScore,
+                id: business.id,
+                name: business.name,
+                shortDescription: business.shortDescription,
+                description: business.description,
+                type: business.type,
+                city: business.city,
+                cityCode: business.cityCode,        // ✅ اضافه شد
+                province: business.province,
+                provinceCode: business.provinceCode, // ✅ اضافه شد
+                countryCode: business.countryCode,   // ✅ اضافه شد
+                phone: business.phone,
+                website: business.website,
+                verificationTier: business.verificationTier,
+                trustScore: business.trustScore,
                 logoUrl: logoFile ? getFileUrl(logoFile, true) : business.logoUrl,
                 logoFile: logoFile ? { id: logoFile.id, path: logoFile.path, thumbnailPath: logoFile.thumbnailPath, fullUrl: getFileUrl(logoFile), thumbnailUrl: getFileUrl(logoFile, true) } : null,
                 createdAt: business.createdAt,
@@ -889,7 +967,17 @@ export class AdService {
             where: { id: adId },
             include: {
                 arm: true,
-                business: { select: { id: true, phone: true, name: true, ownerUserId: true } },
+                business: {
+                    select: {
+                        id: true,
+                        phone: true,
+                        name: true,
+                        ownerUserId: true,
+                        owner: {
+                            select: { phone: true },
+                        },
+                    },
+                },
             },
         });
         if (!ad) throw new NotFoundException({ errorCode: 'AD_NOT_FOUND', message: 'آگهی یافت نشد' });
@@ -922,7 +1010,8 @@ export class AdService {
 
         return {
             businessName: ad.business.name,
-            phone: ad.business.phone,
+            phone: ad.business.phone || ad.business.owner?.phone || null,
+            ownerPhone: ad.business.owner?.phone || null,
             remainingCalls: dailyCallLimit - (callsToday + 1),
             dailyLimit: dailyCallLimit,
         };
@@ -1014,7 +1103,19 @@ export class AdService {
 
         return { success: true, interaction, cost };
     }
+    async isAdSaved(adId: string, userId: string | null) {
+        if (!userId) return { isSaved: false };
 
+        const saved = await this.prisma.adInteraction.findFirst({
+            where: {
+                adId,
+                userId,
+                type: 'save',
+            },
+        });
+
+        return { isSaved: !!saved };
+    }
     async getAdStats(adId: string) {
         const interactions = await this.prisma.adInteraction.groupBy({ by: ['type'], where: { adId }, _count: true });
         const uniqueViews = await this.prisma.adInteraction.groupBy({

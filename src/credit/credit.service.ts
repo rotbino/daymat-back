@@ -1041,6 +1041,8 @@ export class CreditService {
 // ============================================================
     // src/credit/credit.service.ts
 
+    // src/credit/credit.service.ts
+
     async getArmFinancialStats(armSlug: string) {
         const arm = await this.prisma.arm.findUnique({
             where: { slug: armSlug },
@@ -1054,7 +1056,6 @@ export class CreditService {
             });
         }
 
-        // ✅ دریافت تراکنش‌های خرید (برای محاسبه درآمد و اعتبارات)
         const purchaseTransactions = await this.prisma.credit.findMany({
             where: {
                 armId: arm.id,
@@ -1067,7 +1068,6 @@ export class CreditService {
             },
         });
 
-        // محاسبه کل اعتبارات فروخته شده (مجموع creditCount)
         let totalCredits = 0;
         let totalIncome = 0;
         let monthlyIncome = 0;
@@ -1082,31 +1082,15 @@ export class CreditService {
         monthAgo.setDate(monthAgo.getDate() - 30);
 
         for (const tx of purchaseTransactions) {
-            // ✅ جمع تعداد اعتبارات
             totalCredits += tx.creditCount || 0;
-
-            // ✅ جمع مبالغ به تومان
             totalIncome += tx.amount || 0;
 
             const txDate = new Date(tx.createdAt);
-
-            // محاسبه درآمد این ماه
-            if (txDate >= monthAgo) {
-                monthlyIncome += tx.amount || 0;
-            }
-
-            // محاسبه درآمد امروز
-            if (txDate >= today) {
-                todayIncome += tx.amount || 0;
-            }
-
-            // محاسبه درآمد ۷ روز اخیر
-            if (txDate >= weekAgo) {
-                weekIncome += tx.amount || 0;
-            }
+            if (txDate >= monthAgo) monthlyIncome += tx.amount || 0;
+            if (txDate >= today) todayIncome += tx.amount || 0;
+            if (txDate >= weekAgo) weekIncome += tx.amount || 0;
         }
 
-        // دریافت تعداد فیش‌های در انتظار
         const pendingPayments = await this.prisma.creditRequest.count({
             where: {
                 armId: arm.id,
@@ -1114,39 +1098,45 @@ export class CreditService {
             },
         });
 
-        // دریافت آخرین تراکنش‌ها
-        const lastTransactions = await this.prisma.credit.findMany({
-            where: {
-                armId: arm.id,
+        // ✅ دریافت آخرین تراکنش‌ها بدون include
+        const lastTransactionsRaw = await this.prisma.credit.findMany({
+            where: { armId: arm.id },
+            select: {
+                id: true,
+                creditCount: true,
+                transactionType: true,
+                createdAt: true,
+                userId: true,
             },
-            include: {
-                user: {
-                    select: {
-                        fullName: true,
-                    },
-                },
-            },
-            orderBy: {
-                createdAt: 'desc',
-            },
+            orderBy: { createdAt: 'desc' },
             take: 10,
         });
 
+        // ✅ واکشی جداگانه کاربران
+        const userIds = [...new Set(lastTransactionsRaw.map(tx => tx.userId).filter(Boolean))];
+        const users = await this.prisma.user.findMany({
+            where: { id: { in: userIds } },
+            select: { id: true, fullName: true },
+        });
+        const userMap = new Map(users.map(u => [u.id, u.fullName]));
+
+        const lastTransactions = lastTransactionsRaw.map(tx => ({
+            id: tx.id,
+            amount: tx.creditCount || 0,
+            type: tx.transactionType === 'purchase' ? 'purchase' : 'spend',
+            user: userMap.get(tx.userId) || 'کاربر ناشناس',
+            date: tx.createdAt,
+            status: tx.transactionType === 'purchase' ? 'تکمیل شده' : 'مصرف شده',
+        }));
+
         return {
-            totalCredits,           // ✅ تعداد اعتبار (مجموع creditCount)
+            totalCredits,
             pendingPayments,
-            totalIncome,            // ✅ درآمد کل به تومان (مجموع amount)
-            monthlyIncome,          // ✅ درآمد این ماه به تومان
-            todayIncome,            // ✅ درآمد امروز به تومان
-            weekIncome,             // ✅ درآمد ۷ روز اخیر به تومان
-            lastTransactions: lastTransactions.map(tx => ({
-                id: tx.id,
-                amount: tx.creditCount || 0,  // ✅ نمایش تعداد اعتبار
-                type: tx.transactionType === 'purchase' ? 'purchase' : 'spend',
-                user: tx.user.fullName || 'کاربر ناشناس',
-                date: tx.createdAt,
-                status: tx.transactionType === 'purchase' ? 'تکمیل شده' : 'مصرف شده',
-            })),
+            totalIncome,
+            monthlyIncome,
+            todayIncome,
+            weekIncome,
+            lastTransactions,
         };
     }
 

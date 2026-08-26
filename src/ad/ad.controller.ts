@@ -236,9 +236,10 @@ export class AdController {
         if (!ObjectId.isValid(id)) {
             throw new BadRequestException({ errorCode: 'INVALID_AD_ID', message: 'شناسه آگهی نامعتبر است' });
         }
+        // ✅ اصلاح ترتیب پارامترها
         return this.adService.trackInteraction(
-            id,
-            user?.id || null,
+            id,  // adId
+            user?.id || null,  // userId
             body.type,
             { ...body.metadata, sessionId: user?.id ? null : 'anonymous-session' },
         );
@@ -257,7 +258,7 @@ export class AdController {
     }
 
     // ============================================================
-    // 16. ذخیره آگهی
+    // 16. بوکمارک آگهی
     // ============================================================
     @Post(':id/save')
     @UseGuards(JwtAuthGuard)
@@ -267,7 +268,8 @@ export class AdController {
         if (!ObjectId.isValid(id)) {
             throw new BadRequestException({ errorCode: 'INVALID_AD_ID', message: 'شناسه آگهی نامعتبر است' });
         }
-        return this.adService.trackInteraction(user.id, id, 'save');
+        // ✅ اصلاح ترتیب پارامترها: adId اول، userId دوم
+        return this.adService.trackInteraction(id, user.id, 'save');
     }
 
     // ============================================================
@@ -285,5 +287,15 @@ export class AdController {
             where: { adId: id, userId: user.id, type: 'save' },
         });
         return { success: true, message: 'آگهی از لیست ذخیره‌ها حذف شد' };
+    }
+
+    @Get(':id/saved-status')
+    @UseGuards(OptionalJwtAuthGuard)
+    @ApiOperation({ summary: 'بررسی وضعیت ذخیره آگهی' })
+    async isSaved(@Param('id') id: string, @CurrentUser() user: any) {
+        if (!ObjectId.isValid(id)) {
+            throw new BadRequestException({ errorCode: 'INVALID_AD_ID', message: 'شناسه آگهی نامعتبر است' });
+        }
+        return this.adService.isAdSaved(id, user?.id || null);
     }
 }
