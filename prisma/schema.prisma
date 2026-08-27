@@ -115,6 +115,7 @@ model Business {
   owner              User      @relation("BusinessOwner", fields: [ownerUserId], references: [id])
   name               String
   shortDescription   String?
+  slug               String?    // ✅ جدید - اسلاگ کسب و کار یا کاتالوگ
   type               String
   description        String?
   countryCode        String?   @default("98")
@@ -155,6 +156,7 @@ model Business {
   // ✅ چند فعالیت (many-to-many)
   activities   BusinessActivity[]
   @@index([type])
+  @@index([slug], map: "Business_slug_idx")
 }
 // ============================================================
 // لایه تایید (Verification)

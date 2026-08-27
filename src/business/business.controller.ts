@@ -97,4 +97,12 @@ export class BusinessController {
     ) {
         return this.businessService.requestVerification(id, user.id, dto);
     }
+
+    // src/business/business.controller.ts
+
+    @Get('slug/:slug')
+    @ApiOperation({ summary: 'دریافت کسب‌وکار با اسلاگ' })
+    async findBySlug(@Param('slug') slug: string) {
+        return this.businessService.findBySlug(slug);
+    }
 }

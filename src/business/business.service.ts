@@ -114,6 +114,21 @@ export class BusinessService {
                 data: { logoUrl: dto.logoFileId },
             });
         }
+        // ✅ اگر slug تغییر کرده، بررسی یکتا بودن
+        if (dto.slug) {
+            const existingSlug = await this.prisma.business.findFirst({
+                where: {
+                    slug: dto.slug,
+                    id: { not: id },
+                },
+            });
+            if (existingSlug) {
+                throw new ConflictException({
+                    errorCode: 'DUPLICATE_SLUG',
+                    message: 'این اسلاگ قبلاً استفاده شده است',
+                });
+            }
+        }
 
         const business = await this.prisma.business.update({
             where: { id },
@@ -122,6 +137,7 @@ export class BusinessService {
                 shortDescription: dto.shortDescription,
                 type: dto.type,
                 city: dto.city,
+                slug:dto.slug,
                 province: dto.province,
                 provinceCode: dto.provinceCode,
                 cityCode: dto.cityCode,
@@ -231,11 +247,11 @@ export class BusinessService {
         return result;
     }
 
-    // ============================================================
-    // دریافت کسب‌وکار فعال (اولین کسب‌وکار کاربر)
-    // ============================================================
-    // src/business/business.service.ts - getActiveBusiness
+    // src/business/business.service.ts
 
+// ============================================================
+// دریافت کسب‌وکار فعال (اولین کسب‌وکار کاربر)
+// ============================================================
     async getActiveBusiness(userId: string) {
         const business = await this.prisma.business.findFirst({
             where: {
@@ -257,7 +273,6 @@ export class BusinessService {
                         },
                     },
                 },
-                // ✅ ads حذف شد - فقط count
                 activities: {
                     include: {
                         activity: {
@@ -284,17 +299,38 @@ export class BusinessService {
                 },
                 _count: {
                     select: {
-                        ads: { where: { status: 'active' } }, // ✅ فقط تعداد فعال
+                        ads: { where: { status: { not: 'deleted' } } },
                         armMemberships: { where: { status: 'active' } },
                     },
                 },
             },
         });
 
-
         if (!business) {
             return null;
         }
+
+        // ✅ شمارش جداگانه
+        const [activeAdsCount, expiredAdsCount] = await Promise.all([
+            this.prisma.ad.count({
+                where: {
+                    businessId: business.id,
+                    status: 'active',
+                    expiresAt: { gt: new Date() },
+                },
+            }),
+            this.prisma.ad.count({
+                where: {
+                    businessId: business.id,
+                    status: { not: 'deleted' },
+                    OR: [
+                        { status: 'expired' },
+                        { status: 'inactive' },
+                        { status: 'active', expiresAt: { lt: new Date() } },
+                    ],
+                },
+            }),
+        ]);
 
         const logoFile = await this.prisma.file.findFirst({
             where: {
@@ -312,7 +348,9 @@ export class BusinessService {
 
         return {
             ...business,
-            activeAdsCount: business._count.ads,
+            totalAdsCount: business._count.ads,
+            activeAdsCount: activeAdsCount,
+            expiredAdsCount: expiredAdsCount,
             activeMembershipsCount: business._count.armMemberships,
             position: business.teamMembers[0]?.position || null,
             activities: business.activities.map(a => a.activity),
@@ -322,13 +360,9 @@ export class BusinessService {
         };
     }
 
-    // ============================================================
-    // دریافت جزئیات یک کسب‌وکار (با بررسی دسترسی)
-    // ============================================================
-    // src/business/business.service.ts - findOne
-
-    // src/business/business.service.ts - findOne
-
+// ============================================================
+// دریافت جزئیات یک کسب‌وکار (با بررسی دسترسی)
+// ============================================================
     async findOne(id: string, userId: string) {
         const business = await this.prisma.business.findUnique({
             where: { id },
@@ -347,7 +381,6 @@ export class BusinessService {
                         },
                     },
                 },
-                // ✅ ads حذف شد
                 credits: {
                     orderBy: { createdAt: 'desc' },
                     take: 10,
@@ -378,14 +411,12 @@ export class BusinessService {
                 },
                 _count: {
                     select: {
-                        ads: true, // ✅ فقط تعداد کل
+                        ads: { where: { status: { not: 'deleted' } } },
                         armMemberships: { where: { status: 'active' } },
                     },
                 },
             },
         });
-
-
 
         if (!business) {
             throw new NotFoundException({
@@ -400,6 +431,28 @@ export class BusinessService {
                 message: 'شما به این کسب‌وکار دسترسی ندارید',
             });
         }
+
+        // ✅ شمارش جداگانه
+        const [activeAdsCount, expiredAdsCount] = await Promise.all([
+            this.prisma.ad.count({
+                where: {
+                    businessId: id,
+                    status: 'active',
+                    expiresAt: { gt: new Date() },
+                },
+            }),
+            this.prisma.ad.count({
+                where: {
+                    businessId: id,
+                    status: { not: 'deleted' },
+                    OR: [
+                        { status: 'expired' },
+                        { status: 'inactive' },
+                        { status: 'active', expiresAt: { lt: new Date() } },
+                    ],
+                },
+            }),
+        ]);
 
         const logoFile = await this.prisma.file.findFirst({
             where: {
@@ -425,7 +478,9 @@ export class BusinessService {
                 path: item.activity.path,
                 level: item.activity.level,
             })),
-            activeAdsCount: business._count.ads,
+            totalAdsCount: business._count.ads,
+            activeAdsCount: activeAdsCount,
+            expiredAdsCount: expiredAdsCount,
             activeMembershipsCount: business._count.armMemberships,
             latestVerification: business.verifications[0] || null,
             logoFile: logoFile || null,
@@ -529,6 +584,52 @@ export class BusinessService {
             where: { id: businessId },
             data: { verificationStatus: 'pending' },
         });
+
+        return business;
+    }
+
+    // src/business/business.service.ts
+
+    // src/business/business.service.ts
+
+    async findBySlug(slug: string) {
+        const business = await this.prisma.business.findFirst({
+            where: { slug },
+            include: {
+                owner: { // ✅ این را اضافه کن
+                    select: {
+                        id: true,
+                        fullName: true,
+                        phone: true,
+                        avatarUrl: true,
+                        files: {
+                            where: { fieldKey: 'avatar' },
+                            select: { id: true, path: true, thumbnailPath: true },
+                            take: 1,
+                        },
+                    },
+                },
+                activities: {
+                    include: {
+                        activity: {
+                            select: { id: true, title: true, slug: true },
+                        },
+                    },
+                },
+                _count: {
+                    select: {
+                        ads: { where: { status: { not: 'deleted' } } },
+                    },
+                },
+            },
+        });
+
+        if (!business) {
+            throw new NotFoundException({
+                errorCode: 'BUSINESS_NOT_FOUND',
+                message: 'کسب‌وکار یافت نشد',
+            });
+        }
 
         return business;
     }

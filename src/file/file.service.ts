@@ -5,7 +5,7 @@ import { S3Service } from './s3.service';
 
 @Injectable()
 export class FileService {
-    private readonly maxFileSize = 10 * 1024 * 1024; // 10MB
+    private readonly maxFileSize = 10 * 1024 * 1024; // ✅ محدودیت آپلود: 10MB
 
     constructor(
         private prisma: PrismaService,
@@ -15,6 +15,10 @@ export class FileService {
     // ============================================================
     // آپلود فایل با S3
     // ============================================================
+    // src/file/file.service.ts
+
+
+
     async uploadFile(
         userId: string,
         file: {
@@ -27,33 +31,49 @@ export class FileService {
         modelId: string,
         fieldKey?: string,
     ) {
-        console.log('📤 Uploading file:', file.originalname);
-        console.log('📁 FieldKey:', fieldKey);
-        console.log('📁 modelId:', modelId);
-
+        // ✅ ۱. اگر حجم بیشتر از ۱۰MB است → خطا
         if (file.size > this.maxFileSize) {
             throw new BadRequestException({
                 errorCode: 'FILE_TOO_LARGE',
                 message: `حجم فایل نباید از ${this.maxFileSize / 1024 / 1024} مگابایت بیشتر باشد`,
             });
         }
-
         const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(modelId);
+        let finalBuffer = file.buffer;
+        let finalMimetype = file.mimetype;
+        let finalSize = file.size;
 
-        if (isValidObjectId && fieldKey) {
+        const isImage = file.mimetype.startsWith('image/');
+
+        if (isImage) {
             try {
-                await this.deleteExistingFile(userId, model, modelId, fieldKey);
+                const sharp = require('sharp');
+
+                // ✅ ۲. فشرده‌سازی با حداکثر ابعاد
+                const optimizedBuffer = await sharp(file.buffer)
+                    .resize(1280, 1280, {
+                        fit: 'inside',
+                        withoutEnlargement: true
+                    })
+                    .jpeg({ quality: 85 })
+                    .toBuffer();
+
+                finalBuffer = optimizedBuffer;
+                finalMimetype = 'image/jpeg';
+                finalSize = optimizedBuffer.length;
+
+                console.log(`✅ Image compressed: ${(file.size / 1024 / 1024).toFixed(2)}MB → ${(finalSize / 1024).toFixed(1)}KB`);
             } catch (error) {
-                console.warn('⚠️ Error while deleting existing file:', error.message);
+                console.warn('⚠️ Compression failed, using original:', error.message);
             }
         }
 
-        // آپلود به S3
+        // ✅ ۳. آپلود به S3 با فایل فشرده
         const { url, key } = await this.s3Service.uploadFile(
             {
-                buffer: file.buffer,
+                buffer: finalBuffer,
                 originalname: file.originalname,
-                mimetype: file.mimetype,
+                mimetype: finalMimetype,
             },
             userId,
             model,
@@ -61,16 +81,17 @@ export class FileService {
             fieldKey,
         );
 
-        // ساخت تامب‌نیل
+        // ✅ ۴. تامبنیل
         let thumbnailUrl: string | null = null;
-        const isImage = file.mimetype.startsWith('image/');
-
         if (isImage) {
             try {
                 const sharp = require('sharp');
-                const thumbnailBuffer = await sharp(file.buffer)
-                    .resize(200, 200, { fit: 'cover', position: 'center' })
-                    .jpeg({ quality: 90 })
+                const thumbnailBuffer = await sharp(finalBuffer) // ✅ از فایل فشرده
+                    .resize(400, 400, {
+                        fit: 'inside',
+                        withoutEnlargement: true
+                    })
+                    .jpeg({ quality: 80 })
                     .toBuffer();
 
                 const thumbResult = await this.s3Service.uploadFile(
@@ -85,20 +106,18 @@ export class FileService {
                     fieldKey ? `thumb-${fieldKey}` : 'thumbnail',
                 );
                 thumbnailUrl = thumbResult.url;
-                console.log('✅ Thumbnail uploaded to S3');
             } catch (error) {
-                console.warn('⚠️ Thumbnail creation failed:', error.message);
-                thumbnailUrl = null;
+                console.warn('⚠️ Thumbnail failed:', error.message);
             }
         }
 
-        // ذخیره در دیتابیس
+        // ✅ ۵. ذخیره در دیتابیس با حجم فشرده
         const fileRecord = await this.prisma.file.create({
             data: {
                 userId,
                 name: file.originalname,
-                mimeType: file.mimetype,
-                size: file.size,
+                mimeType: finalMimetype,
+                size: finalSize, // ✅ حجم فشرده‌شده
                 path: url,
                 thumbnailPath: thumbnailUrl,
                 relatedModel: model,
@@ -106,12 +125,12 @@ export class FileService {
                 fieldKey: fieldKey || null,
                 metadata: {
                     s3Key: key,
+                    originalSize: file.size, // ✅ حجم اصلی برای مقایسه
                     thumbnailS3Key: thumbnailUrl ? this.s3Service.getKeyFromUrl(thumbnailUrl) : null,
                 },
             },
         });
 
-        console.log('✅ Database record created:', fileRecord.id);
         return fileRecord;
     }
 

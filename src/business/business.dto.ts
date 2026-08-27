@@ -20,6 +20,11 @@ export class CreateBusinessDto {
     @IsString()
     shortDescription?: string;
 
+    @ApiProperty({ example: 'ali-supermarket', description: 'اسلاگ کسب و کار', required: false })
+    @IsOptional()
+    @IsString()
+    slug?: string;
+
 
     @ApiProperty({
         example: 'wholesaler',
@@ -125,6 +130,12 @@ export class UpdateBusinessDto {
     @IsOptional()
     @IsString()
     shortDescription?: string;  // ✅ اضافه شد
+
+    @ApiProperty({ example: 'ali-supermarket', description: 'اسلاگ کسب و کار', required: false })
+    @IsOptional()
+    @IsString()
+    slug?: string;
+
 
     @ApiProperty({
         example: 'wholesaler',

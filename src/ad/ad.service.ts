@@ -1159,6 +1159,8 @@ export class AdService {
 
         return { isSaved: !!saved };
     }
+
+
     async getAdStats(adId: string) {
         const interactions = await this.prisma.adInteraction.groupBy({ by: ['type'], where: { adId }, _count: true });
         const uniqueViews = await this.prisma.adInteraction.groupBy({
@@ -1208,6 +1210,8 @@ export class AdService {
             },
         };
     }
+
+
 
 
 }
