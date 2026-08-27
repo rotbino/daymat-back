@@ -701,26 +701,19 @@ export class AdService {
         businessId: string,
         page: number = 1,
         limit: number = 10,
-        statusFilter?: string, // ✅ جدید: active | pending | archived
+        search?: string,
     ) {
-        const skip = (page - 1) * 10//limit;
+        const skip = (page - 1) * limit;
 
-        // ✅ ساخت where بر اساس فیلتر
         const where: any = {
             businessId,
             status: { not: 'deleted' },
         };
 
-        if (statusFilter === 'active') {
-            where.status = 'active';
-            where.expiresAt = { gt: new Date() }; // ✅ فقط فعال و منقضی نشده
-        } else if (statusFilter === 'pending') {
-            where.status = { in: ['pending', 'rejected'] };
-        } else if (statusFilter === 'archived') {
+        if (search) {
             where.OR = [
-                { status: 'inactive' },
-                { status: 'expired' },
-                { status: 'active', expiresAt: { lt: new Date() } }, // ✅ فعال ولی منقضی شده
+                { title: { contains: search, mode: 'insensitive' } },
+                { productType: { contains: search, mode: 'insensitive' } },
             ];
         }
 
@@ -744,6 +737,7 @@ export class AdService {
 
         return {
             ads,
+            total,
             pagination: {
                 page,
                 limit,
