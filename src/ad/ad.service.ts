@@ -826,7 +826,7 @@ export class AdService {
                 },
                 files: {
                     where: { relatedModel: 'Ad' },
-                    select: { id: true, path: true, thumbnailPath: true, fieldKey: true },
+                    select: { id: true, path: true, thumbnailPath: true,  fieldKey: true },
                 },
             },
         });
@@ -853,6 +853,7 @@ export class AdService {
             business: business ? {
                 id: business.id,
                 name: business.name,
+                slug: business.slug,
                 shortDescription: business.shortDescription,
                 description: business.description,
                 type: business.type,
