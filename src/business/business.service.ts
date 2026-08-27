@@ -596,7 +596,7 @@ export class BusinessService {
         const business = await this.prisma.business.findFirst({
             where: { slug },
             include: {
-                owner: { // ✅ این را اضافه کن
+                owner: {
                     select: {
                         id: true,
                         fullName: true,
@@ -608,6 +608,11 @@ export class BusinessService {
                             take: 1,
                         },
                     },
+                },
+                files: {
+                    where: { fieldKey: 'logo' },
+                    select: { id: true, path: true, thumbnailPath: true, fieldKey: true },
+                    take: 1,
                 },
                 activities: {
                     include: {
@@ -631,6 +636,17 @@ export class BusinessService {
             });
         }
 
-        return business;
+        const logoFile = business.files?.[0];
+        const ownerAvatarFile = business.owner?.files?.[0];
+
+        return {
+            ...business,
+            logoUrl: logoFile?.path || business.logoUrl || null,
+            owner: business.owner ? {
+                ...business.owner,
+                avatarUrl: ownerAvatarFile?.thumbnailPath || ownerAvatarFile?.path || business.owner.avatarUrl || null,
+                avatarFile: ownerAvatarFile || null,
+            } : null,
+        };
     }
 }
