@@ -234,6 +234,8 @@ export class BusinessService {
     // ============================================================
     // دریافت کسب‌وکار فعال (اولین کسب‌وکار کاربر)
     // ============================================================
+    // src/business/business.service.ts - getActiveBusiness
+
     async getActiveBusiness(userId: string) {
         const business = await this.prisma.business.findFirst({
             where: {
@@ -255,27 +257,7 @@ export class BusinessService {
                         },
                     },
                 },
-                ads: {
-                    where: { status: { not: 'deleted' } },
-                    orderBy: { createdAt: 'desc' },
-                    take: 20,
-                    include: {
-                        unit: {
-                            select: { id: true, title: true, shortCode: true },
-                        },
-                        arm: {
-                            select: { id: true, slug: true, name: true },
-                        },
-                        files: {
-                            select: {
-                                id: true,
-                                fieldKey: true,
-                                thumbnailPath: true,
-                                path: true,
-                            },
-                        },
-                    },
-                },
+                // ✅ ads حذف شد - فقط count
                 activities: {
                     include: {
                         activity: {
@@ -302,12 +284,13 @@ export class BusinessService {
                 },
                 _count: {
                     select: {
-                        ads: { where: { status: 'active' } },
+                        ads: { where: { status: 'active' } }, // ✅ فقط تعداد فعال
                         armMemberships: { where: { status: 'active' } },
                     },
                 },
             },
         });
+
 
         if (!business) {
             return null;
@@ -342,6 +325,10 @@ export class BusinessService {
     // ============================================================
     // دریافت جزئیات یک کسب‌وکار (با بررسی دسترسی)
     // ============================================================
+    // src/business/business.service.ts - findOne
+
+    // src/business/business.service.ts - findOne
+
     async findOne(id: string, userId: string) {
         const business = await this.prisma.business.findUnique({
             where: { id },
@@ -360,24 +347,7 @@ export class BusinessService {
                         },
                     },
                 },
-                ads: {
-                    where: { status: { not: 'deleted' } },
-                    orderBy: { createdAt: 'desc' },
-                    take: 30,
-                    include: {
-                        arm: {
-                            select: { id: true, slug: true, name: true },
-                        },
-                        files: {
-                            select: {
-                                id: true,
-                                fieldKey: true,
-                                thumbnailPath: true,
-                                path: true,
-                            },
-                        },
-                    },
-                },
+                // ✅ ads حذف شد
                 credits: {
                     orderBy: { createdAt: 'desc' },
                     take: 10,
@@ -408,12 +378,14 @@ export class BusinessService {
                 },
                 _count: {
                     select: {
-                        ads: true,
+                        ads: true, // ✅ فقط تعداد کل
                         armMemberships: { where: { status: 'active' } },
                     },
                 },
             },
         });
+
+
 
         if (!business) {
             throw new NotFoundException({

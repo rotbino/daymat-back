@@ -695,19 +695,62 @@ export class AdService {
     // ═══════════════════════════════════════
     // 5. لیست آگهی‌های یک کسب‌وکار
     // ═══════════════════════════════════════
-    async getBusinessAds(businessId: string) {
-        return this.prisma.ad.findMany({
-            where: { businessId, status: { not: 'deleted' }, expiresAt: { gt: new Date() } },
-            include: {
-                unit: { select: { id: true, title: true, shortCode: true } },
-                arm: { select: { id: true, slug: true, name: true, categoryTree: true } },
-                files: {
-                    where: { relatedModel: 'Ad' },
-                    select: { id: true, path: true, thumbnailPath: true, fieldKey: true },
+// src/ad/ad.service.ts
+
+    async getBusinessAds(
+        businessId: string,
+        page: number = 1,
+        limit: number = 10,
+        statusFilter?: string, // ✅ جدید: active | pending | archived
+    ) {
+        const skip = (page - 1) * limit;
+
+        // ✅ ساخت where بر اساس فیلتر
+        const where: any = {
+            businessId,
+            status: { not: 'deleted' },
+        };
+
+        if (statusFilter === 'active') {
+            where.status = 'active';
+            where.expiresAt = { gt: new Date() }; // ✅ فقط فعال و منقضی نشده
+        } else if (statusFilter === 'pending') {
+            where.status = { in: ['pending', 'rejected'] };
+        } else if (statusFilter === 'archived') {
+            where.OR = [
+                { status: 'inactive' },
+                { status: 'expired' },
+                { status: 'active', expiresAt: { lt: new Date() } }, // ✅ فعال ولی منقضی شده
+            ];
+        }
+
+        const [ads, total] = await Promise.all([
+            this.prisma.ad.findMany({
+                where,
+                include: {
+                    unit: { select: { id: true, title: true, shortCode: true } },
+                    arm: { select: { id: true, slug: true, name: true, categoryTree: true } },
+                    files: {
+                        where: { relatedModel: 'Ad' },
+                        select: { id: true, path: true, thumbnailPath: true, fieldKey: true },
+                    },
                 },
+                orderBy: { createdAt: 'desc' },
+                skip,
+                take: limit,
+            }),
+            this.prisma.ad.count({ where }),
+        ]);
+
+        return {
+            ads,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit),
             },
-            orderBy: { createdAt: 'desc' },
-        });
+        };
     }
 
     // ═══════════════════════════════════════
@@ -1165,4 +1208,6 @@ export class AdService {
             },
         };
     }
+
+
 }
