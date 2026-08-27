@@ -803,6 +803,7 @@ export class AdService {
                         description: true,
                         type: true,
                         city: true,
+                        slug: true,
                         cityCode: true,     // ✅ اضافه شد
                         province: true,
                         provinceCode: true, // ✅ اضافه شد
