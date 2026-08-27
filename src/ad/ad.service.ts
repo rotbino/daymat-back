@@ -1215,7 +1215,7 @@ export class AdService {
     async getCatalogAds(
         businessId: string,
         page: number = 1,
-        limit: number = 24,
+        limit: number = 10,
         search?: string,
     ) {
         const skip = (page - 1) * limit;
