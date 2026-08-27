@@ -697,34 +697,24 @@ export class AdService {
     // ═══════════════════════════════════════
 // src/ad/ad.service.ts
 
+    // src/ad/ad.service.ts
+
     async getBusinessAds(
         businessId: string,
         page: number = 1,
-        limit: number = 10,
-        search?: string,
+        limit: number = 100,
     ) {
         const skip = (page - 1) * limit;
 
-        const where: any = {
-            businessId,
-            status: { not: 'deleted' },
-        };
-
-        if (search) {
-            where.OR = [
-                { title: { contains: search, mode: 'insensitive' } },
-                { productType: { contains: search, mode: 'insensitive' } },
-            ];
-        }
-
         const [ads, total] = await Promise.all([
             this.prisma.ad.findMany({
-                where,
+                where: {
+                    businessId,
+                },
                 include: {
                     unit: { select: { id: true, title: true, shortCode: true } },
-                    arm: { select: { id: true, slug: true, name: true, categoryTree: true } },
+                    arm: { select: { id: true, slug: true, name: true } },
                     files: {
-                        where: { relatedModel: 'Ad' },
                         select: { id: true, path: true, thumbnailPath: true, fieldKey: true },
                     },
                 },
@@ -732,7 +722,9 @@ export class AdService {
                 skip,
                 take: limit,
             }),
-            this.prisma.ad.count({ where }),
+            this.prisma.ad.count({
+                where: { businessId },
+            }),
         ]);
 
         return {
@@ -746,7 +738,6 @@ export class AdService {
             },
         };
     }
-
     // ═══════════════════════════════════════
     // 6. دریافت کامل آگهی
     // ═══════════════════════════════════════

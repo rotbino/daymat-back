@@ -62,19 +62,19 @@ export class AdController {
     // 3. لیست آگهی‌های یک کسب‌وکار
     // ============================================================
 
+    // src/ad/ad.controller.ts
+
     @Get('business/:businessId')
     @UseGuards(OptionalJwtAuthGuard)
     async getBusinessAds(
         @Param('businessId') businessId: string,
         @Query('page') page?: string,
         @Query('limit') limit?: string,
-        @Query('search') search?: string, // ✅ search به جای status
     ) {
         return this.adService.getBusinessAds(
             businessId,
             Number(page) || 1,
-            Number(limit) || 10,
-            search,
+            Number(limit) || 100,
         );
     }
 
