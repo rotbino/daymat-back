@@ -703,7 +703,7 @@ export class AdService {
         limit: number = 10,
         statusFilter?: string, // ✅ جدید: active | pending | archived
     ) {
-        const skip = (page - 1) * limit;
+        const skip = (page - 1) * 10//limit;
 
         // ✅ ساخت where بر اساس فیلتر
         const where: any = {
