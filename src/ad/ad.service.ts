@@ -1212,10 +1212,12 @@ export class AdService {
     }
 
 // ✅ متد جدید مخصوص کاتالوگ
+    // src/ad/ad.service.ts
+
     async getCatalogAds(
         businessId: string,
         page: number = 1,
-        limit: number = 10,
+        limit: number = 100,
         search?: string,
     ) {
         const skip = (page - 1) * limit;
@@ -1249,6 +1251,7 @@ export class AdService {
             this.prisma.ad.count({ where }),
         ]);
 
+        // ✅ مطمئن شو path مستقیم برگردد
         return {
             ads,
             total,

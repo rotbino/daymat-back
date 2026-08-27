@@ -592,6 +592,8 @@ export class BusinessService {
 
     // src/business/business.service.ts
 
+    // src/business/business.service.ts
+
     async findBySlug(slug: string) {
         const business = await this.prisma.business.findFirst({
             where: { slug },
@@ -641,7 +643,9 @@ export class BusinessService {
 
         return {
             ...business,
+            // ✅ مسیر مستقیم از فایل
             logoUrl: logoFile?.path || business.logoUrl || null,
+            logoFile: logoFile || null,
             owner: business.owner ? {
                 ...business.owner,
                 avatarUrl: ownerAvatarFile?.thumbnailPath || ownerAvatarFile?.path || business.owner.avatarUrl || null,
