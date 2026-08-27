@@ -697,24 +697,41 @@ export class AdService {
     // ═══════════════════════════════════════
 // src/ad/ad.service.ts
 
-    // src/ad/ad.service.ts
-
     async getBusinessAds(
         businessId: string,
         page: number = 1,
-        limit: number = 100,
+        limit: number = 10,
+        statusFilter?: string, // ✅ جدید: active | pending | archived
     ) {
         const skip = (page - 1) * limit;
 
+        // ✅ ساخت where بر اساس فیلتر
+        const where: any = {
+            businessId,
+            status: { not: 'deleted' },
+        };
+
+        if (statusFilter === 'active') {
+            where.status = 'active';
+            where.expiresAt = { gt: new Date() }; // ✅ فقط فعال و منقضی نشده
+        } else if (statusFilter === 'pending') {
+            where.status = { in: ['pending', 'rejected'] };
+        } else if (statusFilter === 'archived') {
+            where.OR = [
+                { status: 'inactive' },
+                { status: 'expired' },
+                { status: 'active', expiresAt: { lt: new Date() } }, // ✅ فعال ولی منقضی شده
+            ];
+        }
+
         const [ads, total] = await Promise.all([
             this.prisma.ad.findMany({
-                where: {
-                    businessId,
-                },
+                where,
                 include: {
                     unit: { select: { id: true, title: true, shortCode: true } },
-                    arm: { select: { id: true, slug: true, name: true } },
+                    arm: { select: { id: true, slug: true, name: true, categoryTree: true } },
                     files: {
+                        where: { relatedModel: 'Ad' },
                         select: { id: true, path: true, thumbnailPath: true, fieldKey: true },
                     },
                 },
@@ -722,14 +739,11 @@ export class AdService {
                 skip,
                 take: limit,
             }),
-            this.prisma.ad.count({
-                where: { businessId },
-            }),
+            this.prisma.ad.count({ where }),
         ]);
 
         return {
             ads,
-            total,
             pagination: {
                 page,
                 limit,
@@ -738,6 +752,7 @@ export class AdService {
             },
         };
     }
+
     // ═══════════════════════════════════════
     // 6. دریافت کامل آگهی
     // ═══════════════════════════════════════
@@ -1196,7 +1211,54 @@ export class AdService {
         };
     }
 
+// ✅ متد جدید مخصوص کاتالوگ
+    async getCatalogAds(
+        businessId: string,
+        page: number = 1,
+        limit: number = 24,
+        search?: string,
+    ) {
+        const skip = (page - 1) * limit;
 
+        const where: any = {
+            businessId,
+            status: { not: 'deleted' },
+        };
 
+        if (search) {
+            where.OR = [
+                { title: { contains: search, mode: 'insensitive' } },
+                { productType: { contains: search, mode: 'insensitive' } },
+            ];
+        }
+
+        const [ads, total] = await Promise.all([
+            this.prisma.ad.findMany({
+                where,
+                include: {
+                    unit: { select: { id: true, title: true, shortCode: true } },
+                    arm: { select: { id: true, slug: true, name: true } },
+                    files: {
+                        select: { id: true, path: true, thumbnailPath: true, fieldKey: true },
+                    },
+                },
+                orderBy: { createdAt: 'desc' },
+                skip,
+                take: limit,
+            }),
+            this.prisma.ad.count({ where }),
+        ]);
+
+        return {
+            ads,
+            total,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit),
+            },
+        };
+    }
 
 }
