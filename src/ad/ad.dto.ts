@@ -576,11 +576,11 @@ export class AdListQueryDto {
 // ExtendAdDto
 // ═══════════════════════════════════════════════════════════════
 export class ExtendAdDto {
-    @ApiProperty({ example: 7, description: 'مدت تمدید (روز)', minimum: 1, maximum: 30 })
+    @ApiProperty({ example: 7, description: 'مدت تمدید (روز)', minimum: 1, maximum: 240 })
     @IsNotEmpty({ message: 'مدت تمدید الزامی است' })
     @IsNumber()
     @Min(1)
-    @Max(30)
+    @Max(240)
     validityHours: number;
 
     @ApiProperty({ example: false, description: 'فعال‌سازی نردبان در حین تمدید', required: false })
