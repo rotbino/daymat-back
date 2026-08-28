@@ -168,7 +168,7 @@ export class CatalogService {
                         id: true,
                         name: true,
                         slug: true,
-                        logoUrl: true,
+                        logoUrl: true, // ✅ این ممکن است null باشد
                         city: true,
                         province: true,
                         type: true,
@@ -180,10 +180,27 @@ export class CatalogService {
             orderBy: { createdAt: 'desc' },
         });
 
-        return saved.map(s => ({
-            ...s.business,
-            savedAt: s.createdAt,
-        }));
+        // ✅ برای هر business لوگو را جداگانه بگیر
+        const result = await Promise.all(
+            saved.map(async (s) => {
+                const logoFile = await this.prisma.file.findFirst({
+                    where: {
+                        relatedModel: 'Business',
+                        relatedId: s.business.id,
+                        fieldKey: 'logo',
+                    },
+                    select: { path: true, thumbnailPath: true },
+                });
+
+                return {
+                    ...s.business,
+                    logoUrl: logoFile?.path || s.business.logoUrl || null,
+                    savedAt: s.createdAt,
+                };
+            })
+        );
+
+        return result;
     }
 
     // ═══════════════════════════════════════════════════════
