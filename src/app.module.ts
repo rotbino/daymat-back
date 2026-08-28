@@ -17,6 +17,7 @@ import { I18nService } from './common/services/i18n.service';
 import {ActivityModule} from "./activity/activity.module";
 import {ArmAdminModule} from "./arm-admin/arm-admin.module";
 import {FeedbackModule} from "./feedback/feedback.module";
+import {CatalogModule} from "./catalog/catalog.module";
 
 
 @Global()
@@ -40,6 +41,7 @@ import {FeedbackModule} from "./feedback/feedback.module";
     SettingsModule,
     ArmAdminModule,
     FeedbackModule,
+    CatalogModule,
     AdminModule,
 
   ],

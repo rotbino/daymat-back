@@ -104,6 +104,7 @@ model User {
   adInteractions AdInteraction[]
   buyLeads        BuyLead[]
   feedbacks Feedback[]
+  catalogInteractions CatalogInteraction[]
   @@index([status])
   @@index([role])
   @@index([isPhoneVerified])
@@ -155,6 +156,7 @@ model Business {
 
   // ✅ چند فعالیت (many-to-many)
   activities   BusinessActivity[]
+   catalogInteractions CatalogInteraction[]
   @@index([type])
   @@index([slug], map: "Business_slug_idx")
 }
@@ -483,7 +485,24 @@ model AdInteraction {
    // @@unique([adId, userId, type]) // برای جلوگیری از بازدید تکراری یونیک
 }
 
+// schema.prisma - فقط این مدل اضافه شود
 
+model CatalogInteraction {
+    id         String   @id @default(auto()) @map("_id") @db.ObjectId
+    businessId String   @db.ObjectId
+    business   Business @relation(fields: [businessId], references: [id])
+    userId     String?  @db.ObjectId
+    user       User?    @relation(fields: [userId], references: [id])
+    type       String   // 'view' | 'save' | 'share'
+    createdAt  DateTime @default(now())
+    ipAddress  String?
+    userAgent  String?
+    sessionId  String?
+
+    @@index([businessId, type])
+    @@index([userId])
+    @@index([businessId, userId, type])
+}
 
 
 model CallEvent {
