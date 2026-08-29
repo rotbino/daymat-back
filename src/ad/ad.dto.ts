@@ -570,6 +570,11 @@ export class AdListQueryDto {
     @IsBoolean()
     @Transform(({ value }) => value === 'true' || value === true)
     requireSufficientStock?: boolean;
+
+    @ApiProperty({ required: false })
+    @IsOptional()
+    @IsString()
+    search?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════

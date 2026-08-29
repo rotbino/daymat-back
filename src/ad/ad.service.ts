@@ -508,6 +508,12 @@ export class AdService {
             expiresAt: { gt: new Date() }
         };
 
+        if (query.search) {
+            where.OR = [
+                { title: { contains: query.search, mode: 'insensitive' } },
+                { productType: { contains: query.search, mode: 'insensitive' } },
+            ];
+        }
         // ✅ فیلتر بر اساس categoryId (شامل فرزندان)
         if (query.categoryId) {
             const categoryNode = findNodeInTree(arm.categoryTree as any[], query.categoryId);
