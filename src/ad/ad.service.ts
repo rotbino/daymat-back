@@ -15,6 +15,17 @@ import {
     findNodeInTree,
     findCategoryPathInTree
 } from '../common/utils/arm.utils';
+import {SearchLogDto} from "./search-log.dto";
+
+const FA_NORMALIZE = (s: string) =>
+    (s ?? '')
+        .replace(/ي/g, 'ی')
+        .replace(/ك/g, 'ک')
+        .replace(/\u200c/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 @Injectable()
 export class AdService {
@@ -759,6 +770,10 @@ export class AdService {
         };
     }
 
+
+
+
+
     // ═══════════════════════════════════════
     // 6. دریافت کامل آگهی
     // ═══════════════════════════════════════
@@ -1270,6 +1285,162 @@ export class AdService {
                 totalPages: Math.ceil(total / limit),
             },
         };
+    }
+
+
+
+    //برای لاگ جستجوی کاربر
+
+    /** کش resolve کردن slug → id (TTL ده دقیقه) */
+    private armIdCache = new Map<string, { id: string; at: number }>();
+    private armIdCacheTtl = 10 * 60 * 1000;
+    /** throttle: آخرین لاگ هر (کاربر+بازار+ترم) */
+    private lastLogAt = new Map<string, number>();
+    private readonly LOG_THROTTLE_MS = 30_000;
+
+    private async resolveArmId(slug?: string): Promise<string | null> {
+        if (!slug) return null;
+        const hit = this.armIdCache.get(slug);
+        if (hit && Date.now() - hit.at < this.armIdCacheTtl) return hit.id;
+        const arm = await this.prisma.arm.findUnique({
+            where: { slug },
+            select: { id: true },
+        });
+        if (!arm) return null;
+        this.armIdCache.set(slug, { id: arm.id, at: Date.now() });
+        return arm.id;
+    }
+
+    /**
+     * ثبت لاگ جستجو — هرگز نباید مسیر کاربر را کند کند.
+     */
+    async logSearch(userId: string | undefined, dto: SearchLogDto): Promise<void> {
+        // بدون await از دید caller — اما خطاها را قورت می‌دهیم
+        void (async () => {
+            try {
+                const term = FA_NORMALIZE(dto.term);
+                if (term.length < 2 || term.length > 60) return; // junk
+
+                const armId = await this.resolveArmId(dto.armSlug);
+                if (!armId) return;
+
+                // throttle درون‌حافظه‌ای: جلوی دوباره‌ثبت (StrictMode/رفرش/اسپم)
+                const key = `${userId ?? 'anon'}|${armId}|${term}`;
+                const now = Date.now();
+                if (now - (this.lastLogAt.get(key) ?? 0) < this.LOG_THROTTLE_MS) return;
+                this.lastLogAt.set(key, now);
+                if (this.lastLogAt.size > 5000) this.lastLogAt.clear(); // جلوگیری از رشد
+
+                await this.prisma.searchLog.create({
+                    data: {
+                        armId,
+                        userId: userId ?? null,
+                        term,
+                        rawTerm: dto.term.slice(0, 120),
+                        resultCount: Math.max(0, Math.floor(dto.resultCount ?? 0)),
+                    },
+                });
+            } catch {
+                /* لاگ هیچ‌وقت نباید خطا بدهد */
+            }
+        })();
+    }
+
+    /**
+     * پیشنهاد جستجو: ترم‌های پرجستجو با تطابق پیشوند،
+     * به‌همراه تعداد جستجو و تعداد کاربر یکتا (exact، با aggregation).
+     */
+    async searchSuggest(armSlug: string, q: string, limit = 8) {
+        const term = FA_NORMALIZE(q);
+        if (term.length < 2) return { suggestions: [] };
+
+        const armId = await this.resolveArmId(armSlug);
+        if (!armId) return { suggestions: [] };
+
+        const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // ۳۰ روز
+
+        try {
+            const result = await this.prisma.$runCommandRaw({
+                aggregate: 'search_logs',
+                pipeline: [
+                    {
+                        $match: {
+                            armId: { $oid: armId },
+                            term: { $regex: `^${escapeRegex(term)}` }, // prefix → از ایندکس [armId, term] استفاده می‌کند
+                            createdAt: { $gte: { $date: since.toISOString() } },
+                            resultCount: { $gt: 0 }, // فقط ترم‌های نتیجه‌دار — تضمین «پیشنهاد خالی ندارد»
+                        },
+                    },
+                    {
+                        $group: {
+                            _id: '$term',
+                            searches: { $sum: 1 },
+                            users: { $addToSet: '$userId' }, // userId ها (null هم ممکن است باشد)
+                        },
+                    },
+                    {
+                        $project: {
+                            _id: 0,
+                            term: '$_id',
+                            searches: 1,
+                            // تعداد کاربران یکتا = اندازهٔ set منهای null (مهمان‌ها)
+                            userCount: {
+                                $cond: [
+                                    { $in: [null, '$users'] },
+                                    { $subtract: [{ $size: '$users' }, 1] },
+                                    { $size: '$users' },
+                                ],
+                            },
+                        },
+                    },
+                    { $sort: { searches: -1, userCount: -1 } },
+                    { $limit: Math.min(Math.max(limit, 1), 10) },
+                ],
+                cursor: {},
+            });
+
+            const rows: any[] = (result as any)?.cursor?.firstBatch ?? [];
+            return { suggestions: rows };
+        } catch {
+            // اگر aggregation به هر دلیلی شکست خورد، خالی برگرد — فرانت fallback دارد
+            return { suggestions: [] };
+        }
+    }
+
+    /** تاریخچه شخصی: آخرین ترم‌های یکتای کاربر (dedup در حافظه روی ۱۰۰ رکورد اخیر) */
+    async searchHistory(userId: string, armSlug?: string, take = 10) {
+        const armId = armSlug ? await this.resolveArmId(armSlug) : null;
+        const logs = await this.prisma.searchLog.findMany({
+            where: { userId, ...(armId ? { armId } : {}) },
+            orderBy: { createdAt: 'desc' },
+            take: 100,
+            select: { term: true, createdAt: true },
+        });
+
+        const seen = new Set<string>();
+        const items: { term: string; at: Date }[] = [];
+        for (const l of logs) {
+            if (seen.has(l.term)) continue;
+            seen.add(l.term);
+            items.push({ term: l.term, at: l.createdAt });
+            if (items.length >= take) break;
+        }
+        return { items };
+    }
+
+    async clearSearchHistory(userId: string, armSlug?: string) {
+        const armId = armSlug ? await this.resolveArmId(armSlug) : null;
+        const res = await this.prisma.searchLog.deleteMany({
+            where: { userId, ...(armId ? { armId } : {}) },
+        });
+        return { success: true, deleted: res.count };
+    }
+
+    /** پاک‌سازی دوره‌ای: لاگِ بالای ۹۰ روز (اختیاری — با @nestjs/schedule شبانه صدا بزن) */
+    async purgeOldSearchLogs(days = 90) {
+        const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+        const res = await this.prisma.searchLog.deleteMany({ where: { createdAt: { lt: cutoff } } });
+        return { deleted: res.count };
     }
 
 }

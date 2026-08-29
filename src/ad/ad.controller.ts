@@ -9,7 +9,7 @@ import {
     Param,
     Query,
     UseGuards,
-    BadRequestException,
+    BadRequestException, HttpCode,
 } from '@nestjs/common';
 import {
     ApiTags,
@@ -29,6 +29,7 @@ import { CurrentUser } from '../common/decorators/custom.decorators';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../common/guards/optional-jwt-auth.guard';
 import { PrismaService } from '../prisma/prisma.service';
+import {SearchLogDto} from "./search-log.dto";
 
 @ApiTags('ad')
 @Controller('ad')
@@ -76,6 +77,45 @@ export class AdController {
             Number(limit) || 10,
             search,
         );
+    }
+
+    // ============================================================
+// 3.5 جستجو: لاگ، پیشنهاد، تاریخچه
+// ⚠️ باید قبل از @Get(':id') و @Delete(':id') باشد
+// ============================================================
+    @Post('search-log')
+    @UseGuards(OptionalJwtAuthGuard)
+    @HttpCode(204)
+    @ApiOperation({ summary: 'ثبت لاگ جستجوی اجراشده — سبک، بدون انتظار پاسخ' })
+    async logSearch(@CurrentUser() user: any, @Body() dto: SearchLogDto) {
+        await this.adService.logSearch(user?.id, dto); // فایر-اند-فورگت داخل سرویس
+    }
+
+    @Get('search-suggest')
+    @ApiOperation({ summary: 'ترم‌های پرجستجو با تطابق پیشوند — با شمارش کاربران یکتا' })
+    async suggest(
+        @Query('armSlug') armSlug: string,
+        @Query('q') q: string,
+        @Query('limit') limit?: string,
+    ) {
+        return this.adService.searchSuggest(armSlug, q ?? '', Number(limit) || 8);
+    }
+
+    @Get('search-history')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'جستجوهای اخیر خود کاربر' })
+    async searchHistory(@CurrentUser() user: any, @Query('armSlug') armSlug?: string) {
+        return this.adService.searchHistory(user.id, armSlug, 10);
+    }
+
+    @Delete('search-history')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @HttpCode(200)
+    @ApiOperation({ summary: 'پاک کردن تاریخچه جستجوی کاربر' })
+    async clearHistory(@CurrentUser() user: any, @Query('armSlug') armSlug?: string) {
+        return this.adService.clearSearchHistory(user.id, armSlug);
     }
 
     // ============================================================

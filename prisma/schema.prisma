@@ -104,6 +104,7 @@ model User {
   adInteractions AdInteraction[]
   buyLeads        BuyLead[]
   feedbacks Feedback[]
+  searchLogs SearchLog[]
   catalogInteractions CatalogInteraction[]
   @@index([status])
   @@index([role])
@@ -310,7 +311,7 @@ model Arm {
   trustMetrics        TrustMetric[]
   files               File[]
   creditRequests      CreditRequest[]
-
+  searchLogs SearchLog[]
   feedbacks Feedback[]
   @@unique([slug])
   @@index([status])
@@ -738,5 +739,23 @@ model Feedback {
 
   @@index([armId, createdAt])
   @@index([userId])
+}
+
+// ─── مدل جدید ───
+model SearchLog {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  armId       String   @db.ObjectId
+  arm         Arm      @relation(fields: [armId], references: [id])
+  userId      String?  @db.ObjectId          // null = مهمان
+  user        User?    @relation(fields: [userId], references: [id])
+  term        String                          // نرمال‌شده — همهٔ کوئری‌ها روی این
+  rawTerm     String?                         // عین تایپ کاربر — فقط برای آنالیز
+  resultCount Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@index([armId, term])        // پیشنهاددهنده: match بر اساس arm + prefix ترم
+  @@index([userId, createdAt])  // تاریخچه شخصی + حذف بر اساس کاربر
+  @@index([createdAt])          // پاک‌سازی دوره‌ای
+  @@map("search_logs")
 }
 
