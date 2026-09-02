@@ -356,6 +356,8 @@ model ArmMembership {
 model Ad {
     id                    String    @id @default(auto()) @map("_id") @db.ObjectId
     armId                 String    @db.ObjectId
+    publishToMarket       Boolean @default(true) // ✅ نمایش در تابلوی بازار (کاتالوگ همیشه نشان می‌دهد)
+    marketIds             String[] @default([]) // مشخص می کند این آگهی در کدام بازارها نمایش داده شود.
     arm                   Arm       @relation(fields: [armId], references: [id])
     businessId            String    @db.ObjectId
     business              Business  @relation(fields: [businessId], references: [id])
