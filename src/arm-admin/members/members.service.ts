@@ -381,13 +381,20 @@ export class MembersService {
             });
         }
 
+        // ✅ چون یک کاربر ممکن است چند membership در یک بازار داشته باشد
+        // (با business های مختلف)، اولین active را انتخاب می‌کنیم
+        const membership = await this.prisma.armMembership.findFirst({
+            where: { armId: arm.id, userId, status: 'active' },
+        });
+        if (!membership) {
+            throw new NotFoundException({
+                errorCode: 'MEMBER_NOT_FOUND',
+                message: 'عضو یافت نشد',
+            });
+        }
+
         return this.prisma.armMembership.update({
-            where: {
-                armId_userId: {
-                    armId: arm.id,
-                    userId,
-                },
-            },
+            where: { id: membership.id },
             data: { role: newRole },
         });
     }
@@ -408,8 +415,10 @@ export class MembersService {
             });
         }
 
-        const membership = await this.prisma.armMembership.findUnique({
-            where: { armId_userId: { armId: arm.id, userId } },
+        // ✅ چون یک کاربر ممکن است چند membership در یک بازار داشته باشد
+        const membership = await this.prisma.armMembership.findFirst({
+            where: { armId: arm.id, userId },
+            orderBy: { joinedAt: 'desc' },
         });
         if (!membership) {
             throw new NotFoundException({
@@ -430,7 +439,7 @@ export class MembersService {
         }
 
         return this.prisma.armMembership.update({
-            where: { armId_userId: { armId: arm.id, userId } },
+            where: { id: membership.id },
             data: { status },
         });
     }

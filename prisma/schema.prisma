@@ -381,6 +381,8 @@ model ArmMembership {
 
   publishState     String?  // 'published' | 'paused' | null — وضعیت انتشار کاتالوگ در بازار
 
+  // ✅ businessId برای seller و buyer اجباری است، اما arm_owner می‌تواند null باشد
+  // (مالک بازار نماینده کسب‌وکار نیست — خود بازار مال اوست)
   businessId       String?  @db.ObjectId
   business         Business? @relation("BizArmMembership", fields: [businessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
@@ -398,11 +400,19 @@ model ArmMembership {
   reviewedByUserId String?  @db.ObjectId
   reviewedAt       DateTime?
 
-  @@unique([armId, userId])
+  // ✅ تغییر کلیدی: یک کسب‌وکار در یک بازار فقط یک membership دارد
+  // این به کاربر اجازه می‌دهد با چند کسب‌وکارش در یک بازار چند نقش داشته باشد
+  @@unique([armId, businessId])
+
+  // ✅ یک کاتالوگ در یک بازار فقط یک membership دارد (جلوی duplicate_publish جلوگیری می‌کند)
+  @@unique([armId, catalogId])
+
+  // ✅ ایندکس برای query سریع عضویت‌های کاربر
   @@index([userId])
   @@index([catalogId])
   @@index([businessId])
   @@index([armId, status])
+  @@index([armId, userId])
 }
 
 

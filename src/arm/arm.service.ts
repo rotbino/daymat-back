@@ -484,25 +484,35 @@ export class ArmService {
             resolvedBusinessId = (catalog.business as any).id;
         }
 
+        // ✅ businessId اجباری است (طبق schema جدید)
+        // اگه catalogId داده نشده، اولین کسب‌وکار فعال کاربر رو استفاده می‌کنیم
         if (!resolvedBusinessId) {
             const firstBiz = await this.prisma.business.findFirst({
                 where: { ownerUserId: userId, status: 'active' },
                 select: { id: true },
             });
-            resolvedBusinessId = firstBiz?.id ?? null;
+            if (!firstBiz) {
+                throw new BadRequestException({
+                    errorCode: 'BUSINESS_REQUIRED',
+                    message: 'برای عضویت در بازار باید یک کسب‌وکار داشته باشید',
+                });
+            }
+            resolvedBusinessId = firstBiz.id;
         }
 
-        const existing = await this.prisma.armMembership.findFirst({
-            where: { armId: arm.id, userId: userId },
+        // ✅ چک بر اساس (armId, businessId) — نه (armId, userId)
+        // این به کاربر اجازه می‌دهد همزمان با چند کسب‌وکارش در یک بازار عضو باشد
+        const existing = await this.prisma.armMembership.findUnique({
+            where: { armId_businessId: { armId: arm.id, businessId: resolvedBusinessId } },
         });
 
         const finalStatus = requireApproval ? 'pending' : 'active';
 
         if (existing) {
-            if (existing.status === 'active' && existing.catalogId) {
+            if (existing.status === 'active' && existing.catalogId && existing.catalogId === catalogId) {
                 throw new BadRequestException({
                     errorCode: 'ALREADY_MEMBER',
-                    message: 'شما قبلاً به این بازار پیوسته‌اید',
+                    message: 'این کاتالوگ قبلاً در این بازار منتشر شده',
                 });
             }
 
@@ -971,10 +981,11 @@ export class ArmService {
             throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'فقط مالک کاتالوگ' });
         }
 
+        // ✅ چک بر اساس (armId, catalogId) — مستقیم از unique constraint
         const membership = await this.prisma.armMembership.findUnique({
-            where: { armId_userId: { armId: arm.id, userId } },
+            where: { armId_catalogId: { armId: arm.id, catalogId } },
         });
-        if (!membership || membership.catalogId !== catalogId) {
+        if (!membership) {
             throw new BadRequestException({ errorCode: 'NOT_MEMBER', message: 'این کاتالوگ عضو این بازار نیست' });
         }
 
