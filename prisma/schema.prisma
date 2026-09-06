@@ -395,12 +395,13 @@ model ArmMembership {
   metadata         Json?
   joinedAt         DateTime @default(now())
   updatedAt        DateTime @updatedAt
-  // ✅ roleType نقش تجاری است (seller | buyer | null)
+  // ✅ roleType نقش تجاری است (seller | buyer | seller-buyer | null)
   //    - role نقش سیستمی است (arm_owner | arm_member) و هرگز تغییر نمی‌کند
-  //    - arm_owner می‌تواند همزمان seller یا buyer هم باشد (در همون رکورد)
-  //    - اگه catalogId پر باشه → seller
-  //    - اگه فقط businessId پر باشه → buyer
-  roleType         String?  // seller | buyer
+  //    - فقط businessId پر باشه → buyer (می‌تونه قیمت‌ها رو ببینه در بازار خصوصی)
+  //    - فقط catalogId پر باشه → seller (می‌تونه آگهی بذاره)
+  //    - هم businessId و هم catalogId پر باشه → seller-buyer (هردو)
+  //    - هیچ کدوم پر نباشه → فقط arm_owner یا arm_member بدون نقش تجاری
+  roleType         String?  // seller | buyer | seller-buyer
   rejectionReason  String?
   reviewedByUserId String?  @db.ObjectId
   reviewedAt       DateTime?

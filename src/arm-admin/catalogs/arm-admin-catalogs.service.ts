@@ -95,8 +95,7 @@ export class ArmAdminCatalogsService {
         const memberships = await this.prisma.armMembership.findMany({
             where: {
                 armId: arm.id,
-                roleType: 'seller',  // ✅ فقط seller ها
-                catalogId: { not: null },
+                catalogId: { not: null },  // ✅ seller = کسی که catalogId دارد (شامل seller و seller-buyer)
                 ...(ownerStatus !== 'all' ? { status: ownerStatus } : {}),
             },
             include: {
@@ -340,6 +339,11 @@ export class ArmAdminCatalogsService {
             });
         }
 
+        // ✅ تعیین roleType نهایی:
+        //    - اگه buyer هست (businessId داره ولی catalogId نداره) → seller-buyer
+        //    - وگرنه → seller
+        const newRoleType = existing?.businessId ? 'seller-buyer' : 'seller';
+
         // ✅ آپدیت یا ساخت membership
         // نکته: role رو دست نمی‌زنیم — اگه arm_owner بوده، arm_owner می‌مونه
         const membership = existing
@@ -348,7 +352,7 @@ export class ArmAdminCatalogsService {
                 data: {
                     status: 'active',
                     publishState: 'published',
-                    roleType: 'seller',
+                    roleType: newRoleType,
                     businessId,
                     catalogId,
                     rejectionReason: null,
@@ -406,7 +410,7 @@ export class ArmAdminCatalogsService {
         const memberships = await this.prisma.armMembership.findMany({
             where: {
                 armId: arm.id,
-                roleType: 'buyer',  // ✅ فقط buyer ها
+                businessId: { not: null },  // ✅ buyer = کسی که businessId دارد (شامل buyer و seller-buyer)
             },
             include: {
                 user: { select: { id: true, fullName: true, phone: true, avatarUrl: true } },
@@ -490,7 +494,7 @@ export class ArmAdminCatalogsService {
 
         // ✅ فقط عضویت‌های «زنده»ٔ خریدار exclude می‌شوند
         const liveBuyers = await this.prisma.armMembership.findMany({
-            where: { armId: arm.id, roleType: 'buyer', status: { in: ['active', 'pending', 'paused'] } },
+            where: { armId: arm.id, businessId: { not: null }, status: { in: ['active', 'pending', 'paused'] } },
             select: { businessId: true },
         });
         const excludeBizIds = liveBuyers.map((m) => m.businessId).filter(Boolean) as string[];
@@ -554,21 +558,18 @@ async addBuyer(slug: string, businessId: string) {
         where: { armId_userId: { armId: arm.id, userId: biz.ownerUserId } },
     });
 
-    // ✅ چک کن: اگه قبلاً seller شده (catalogId داره) → خطا
-    if (existing?.catalogId) {
-        throw new ConflictException({
-            errorCode: 'ALREADY_SELLER',
-            message: 'این کاربر قبلاً فروشنده این بازار است — نمی‌تواند خریدار باشد',
-        });
-    }
-
-    // ✅ چک کن: اگه قبلاً buyer شده → خطا
+    // ✅ چک کن: اگه قبلاً buyer هست (فقط businessId داره) → خطا
     if (existing?.roleType === 'buyer' && ['active', 'pending', 'paused'].includes(existing.status)) {
         throw new ConflictException({
             errorCode: 'ALREADY_BUYER',
             message: 'این کسب‌وکار قبلاً خریدار این بازار شده است',
         });
     }
+
+    // ✅ تعیین roleType نهایی:
+    //    - اگه seller هست (catalogId داره) → seller-buyer (هم فروشنده هم خریدار)
+    //    - وگرنه → buyer
+    const newRoleType = existing?.catalogId ? 'seller-buyer' : 'buyer';
 
     // ✅ آپدیت یا ساخت membership
     // نکته: role رو دست نمی‌زنیم — اگه arm_owner بوده، arm_owner می‌مونه
@@ -577,7 +578,7 @@ async addBuyer(slug: string, businessId: string) {
             where: { id: existing.id },
             data: {
                 status: 'active',
-                roleType: 'buyer',
+                roleType: newRoleType,
                 businessId: biz.id,
                 rejectionReason: null,
                 source: 'owner_add',
@@ -597,7 +598,7 @@ async addBuyer(slug: string, businessId: string) {
 
     return {
         membership,
-        message: `«${biz.name}» به‌عنوان خریدار به بازار اضافه شد`,
+        message: `«${biz.name}» به‌عنوان خریدار به بازار اضافه شد${newRoleType === 'seller-buyer' ? ' (اکنون هم فروشنده هم خریدار است)' : ''}`,
     };
 }
 
