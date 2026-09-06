@@ -452,6 +452,9 @@ export class ArmService {
     // ============================================================
     // 5. پیوستن به بازار — دو-مرحله‌ای
     // ============================================================
+    // roleType پارامتر قدیمی است — برای backward-compat نگه داشته شده
+    // در سیستم جدید، تشخیص seller/buyer از روی catalogId است
+    // ============================================================
     async join(userId: string, slug: string, roleType?: 'seller' | 'buyer', catalogId?: string, businessId?: string) {
         const arm = await this.prisma.arm.findUnique({ where: { slug } });
         if (!arm) {
@@ -500,16 +503,9 @@ export class ArmService {
             resolvedBusinessId = firstBiz.id;
         }
 
-        // ✅ چک بر اساس (armId, businessId, roleType)
-        // این به کاربر اجازه می‌دهد همزمان با چند کسب‌وکارش در یک بازار عضو باشد
-        // و همچنین arm_owner رو دست نمی‌زنه (چون roleType arm_owner نیست)
-        const effectiveRoleType = roleType || 'buyer'; // پیش‌فرض buyer
-        const existing = await this.prisma.armMembership.findFirst({
-            where: {
-                armId: arm.id,
-                businessId: resolvedBusinessId,
-                roleType: effectiveRoleType,
-            },
+        // ✅ membership این کاربر در این بازار رو پیدا کن (با armId + userId)
+        const existing = await this.prisma.armMembership.findUnique({
+            where: { armId_userId: { armId: arm.id, userId } },
         });
 
         const finalStatus = requireApproval ? 'pending' : 'active';
@@ -522,15 +518,16 @@ export class ArmService {
                 });
             }
 
+            // ✅ آپدیت کن — role رو دست نمی‌زنیم
             return this.prisma.armMembership.update({
                 where: { id: existing.id },
                 data: {
                     status: existing.status === 'active' ? 'active' : finalStatus,
                     rejectionReason: null,
                     joinedAt: new Date(),
-                    roleType: effectiveRoleType,
+                    roleType: roleType || existing.roleType || null,
                     catalogId: catalogId || existing.catalogId,
-                    businessId: resolvedBusinessId,
+                    businessId: resolvedBusinessId || existing.businessId,
                     source: 'manual',
                 },
             });
@@ -543,7 +540,7 @@ export class ArmService {
                 businessId: resolvedBusinessId,
                 status: finalStatus,
                 role: 'arm_member',
-                roleType: effectiveRoleType,
+                roleType: roleType || null,
                 catalogId: catalogId || null,
                 source: 'manual',
             },
@@ -987,11 +984,11 @@ export class ArmService {
             throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'فقط مالک کاتالوگ' });
         }
 
-        // ✅ چک کن: فقط seller membership رو پیدا کن (نه arm_owner رو)
-        const membership = await this.prisma.armMembership.findFirst({
-            where: { armId: arm.id, catalogId, roleType: 'seller' },
+        // ✅ membership این کاربر در این بازار رو پیدا کن (با armId + userId)
+        const membership = await this.prisma.armMembership.findUnique({
+            where: { armId_userId: { armId: arm.id, userId } },
         });
-        if (!membership) {
+        if (!membership || membership.catalogId !== catalogId) {
             throw new BadRequestException({ errorCode: 'NOT_MEMBER', message: 'این کاتالوگ عضو این بازار نیست' });
         }
 

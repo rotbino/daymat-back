@@ -395,24 +395,27 @@ model ArmMembership {
   metadata         Json?
   joinedAt         DateTime @default(now())
   updatedAt        DateTime @updatedAt
+  // ✅ roleType نقش تجاری است (seller | buyer | null)
+  //    - role نقش سیستمی است (arm_owner | arm_member) و هرگز تغییر نمی‌کند
+  //    - arm_owner می‌تواند همزمان seller یا buyer هم باشد (در همون رکورد)
+  //    - اگه catalogId پر باشه → seller
+  //    - اگه فقط businessId پر باشه → buyer
   roleType         String?  // seller | buyer
   rejectionReason  String?
   reviewedByUserId String?  @db.ObjectId
   reviewedAt       DateTime?
 
-  // ✅ تغییر کلیدی: یک کسب‌وکار در یک بازار فقط یک membership دارد
-  // این به کاربر اجازه می‌دهد با چند کسب‌وکارش در یک بازار چند نقش داشته باشد
-  @@unique([armId, businessId])
+  // ✅ یک کاربر در یک بازار فقط یک membership دارد
+  // این membership می‌تواند همزمان arm_owner و seller/buyer هم باشد
+  // (در همون رکورد businessId/catalogId/roleType ست می‌شود)
+  @@unique([armId, userId])
 
-  // ✅ یک کاتالوگ در یک بازار فقط یک membership دارد (جلوی duplicate_publish جلوگیری می‌کند)
-  @@unique([armId, catalogId])
-
-  // ✅ ایندکس برای query سریع عضویت‌های کاربر
+  // ✅ ایندکس‌ها برای query سریع
   @@index([userId])
   @@index([catalogId])
   @@index([businessId])
   @@index([armId, status])
-  @@index([armId, userId])
+  @@index([armId, roleType])
 }
 
 
