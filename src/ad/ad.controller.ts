@@ -294,6 +294,48 @@ export class AdController {
     }
 
     // ============================================================
+    // 15.5 — Publication endpoints (چند‌بازاری)
+    // ============================================================
+    @Get(':id/publications')
+    @ApiOperation({ summary: 'لیست بازارهایی که آگهی در آن‌ها منتشر شده' })
+    async getAdPublications(@Param('id') id: string) {
+        if (!ObjectId.isValid(id)) {
+            throw new BadRequestException({ errorCode: 'INVALID_AD_ID', message: 'شناسه آگهی نامعتبر است' });
+        }
+        return this.adService.getAdPublications(id);
+    }
+
+    @Post(':id/publish-to-market')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'انتشار آگهی در یک بازار جدید' })
+    async publishToMarket(
+        @Param('id') id: string,
+        @CurrentUser() user: any,
+        @Body() body: { armSlug: string },
+    ) {
+        if (!ObjectId.isValid(id)) {
+            throw new BadRequestException({ errorCode: 'INVALID_AD_ID', message: 'شناسه آگهی نامعتبر است' });
+        }
+        return this.adService.publishToMarket(user.id, id, body.armSlug);
+    }
+
+    @Delete(':id/publish-to-market/:armSlug')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'حذف انتشار آگهی از یک بازار' })
+    async unpublishFromMarket(
+        @Param('id') id: string,
+        @Param('armSlug') armSlug: string,
+        @CurrentUser() user: any,
+    ) {
+        if (!ObjectId.isValid(id)) {
+            throw new BadRequestException({ errorCode: 'INVALID_AD_ID', message: 'شناسه آگهی نامعتبر است' });
+        }
+        return this.adService.unpublishFromMarket(user.id, id, armSlug);
+    }
+
+    // ============================================================
     // 16. بوکمارک آگهی
     // ============================================================
     @Post(':id/save')

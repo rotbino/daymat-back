@@ -166,19 +166,30 @@ export class AdService {
             },
         });
 
-        // ─── ۷) انتشار خودکار کالای تازه — اگر کاتالوگ عضوِ منتشرشده دارد ───
+        // ─── ۷) انتشار خودکار کالای تازه — به همه بازارهایی که کاتالوگ در آن‌ها published است ───
         if (dto.publishToMarket !== false) {
-            const membership = await this.prisma.armMembership.findFirst({
+            // ✅ همه membership های published این کاتالوگ را بگیر (نه فقط اولی)
+            const memberships = await this.prisma.armMembership.findMany({
                 where: { catalogId: catalog.id, status: 'active', publishState: 'published' },
                 select: { armId: true },
             });
-            if (membership) {
-                const arm = await this.prisma.arm.findUnique({
-                    where: { id: membership.armId },
+            if (memberships.length > 0) {
+                // ✅ همه arm ها را با categoryTree شان بگیر
+                const arms = await this.prisma.arm.findMany({
+                    where: {
+                        id: { in: memberships.map(m => m.armId) },
+                        status: 'active',
+                    },
                     select: { id: true, categoryTree: true },
                 });
-                if (arm) {
-                    await this.catalogPublish.stampCatalogAds(arm, catalog.id, [ad.id]);
+                // ✅ در هر بازار stamp کن (مستقل از هم — اگه یکی fail شد، بقیه کار می‌کنند)
+                for (const arm of arms) {
+                    try {
+                        await this.catalogPublish.stampCatalogAds(arm, catalog.id, [ad.id], userId);
+                    } catch (err) {
+                        // log کن ولی ادامه بده — نباید ساخت آگهی fail بشه به خاطر یک بازار
+                        console.error(`stampCatalogAds failed for arm ${arm.id}:`, err);
+                    }
                 }
             }
         }
@@ -298,14 +309,26 @@ export class AdService {
             },
         });
 
-        // ─── اگر روی تابلوی بازاری است و دستهٔ کاتالوگ عوض شد → دستهٔ بازاری بازمحاسبه ───
-        if (ad.armId && dto.categoryId !== undefined) {
-            const arm = await this.prisma.arm.findUnique({
-                where: { id: ad.armId },
-                select: { id: true, categoryTree: true },
+        // ─── اگر دستهٔ کاتالوگ عوض شد → دستهٔ بازاری در همه بازارها بازمحاسبه ───
+        if (dto.categoryId !== undefined) {
+            // ✅ همه publication های این آگهی را بگیر
+            const publications = await this.prisma.adPublication.findMany({
+                where: { adId: id },
+                select: { armId: true },
             });
-            if (arm) {
-                await this.catalogPublish.stampCatalogAds(arm, ad.catalogId, [id]);
+            if (publications.length > 0) {
+                const arms = await this.prisma.arm.findMany({
+                    where: { id: { in: publications.map(p => p.armId) } },
+                    select: { id: true, categoryTree: true },
+                });
+                // ✅ در هر بازار re-stamp کن
+                for (const arm of arms) {
+                    try {
+                        await this.catalogPublish.stampCatalogAds(arm, ad.catalogId, [id], userId);
+                    } catch (err) {
+                        console.error(`re-stamp failed for arm ${arm.id}:`, err);
+                    }
+                }
             }
         }
 
@@ -482,11 +505,29 @@ export class AdService {
         }
         if (ad.status !== 'active') throw new BadRequestException({ errorCode: 'AD_NOT_ACTIVE', message: 'فقط آگهی‌های فعال قابل نردبان هستند' });
 
-        if (!ad.armId) {
+        // ✅ چک کن آگهی در حداقل یک بازار published است (از AdPublication)
+        const publicationCount = await this.prisma.adPublication.count({
+            where: {
+                adId: id,
+                status: { in: ['published', 'needs_category'] },
+            },
+        });
+        if (publicationCount === 0) {
             throw new BadRequestException({
                 errorCode: 'NOT_IN_MARKET',
                 message: 'این کالا در هیچ بازاری منتشر نشده است',
             });
+        }
+
+        // ✅ برای backward-compat: اگه ad.armId هست از اون استفاده کن، وگرنه آخرین published
+        let targetArmId = ad.armId;
+        if (!targetArmId) {
+            const lastPub = await this.prisma.adPublication.findFirst({
+                where: { adId: id, status: { in: ['published', 'needs_category'] } },
+                orderBy: { publishedAt: 'desc' },
+                select: { armId: true },
+            });
+            targetArmId = lastPub?.armId;
         }
 
         const config = (ad.arm?.config as any) || {};
@@ -503,7 +544,7 @@ export class AdService {
 
         await this.prisma.credit.create({
             data: {
-                userId, catalogId: ad.catalogId, armId: ad.armId,
+                userId, catalogId: ad.catalogId, armId: targetArmId,
                 amount: 0, currency: 'IRR', creditCount: -bumpCost,
                 pricePerCredit: null, creditType: 'purchased',
                 transactionType: 'spend', description: `نردبان آگهی "${ad.title}"`,
@@ -738,6 +779,100 @@ export class AdService {
     // ═══════════════════════════════════════
     // شماره تماس — مسیر بازاری با عضویت، مسیر کاتالوگی آزاد
     // ═══════════════════════════════════════
+
+    /**
+     * دریافت لیست بازارهایی که یک آگهی در آن‌ها منتشر شده
+     */
+    async getAdPublications(adId: string) {
+        return this.catalogPublish.getAdPublications(adId);
+    }
+
+    /**
+     * انتشار یک آگهی در یک بازار جدید (مالک آگهی)
+     */
+    async publishToMarket(userId: string, adId: string, armSlug: string) {
+        const ad = await this.prisma.ad.findUnique({
+            where: { id: adId },
+            select: {
+                id: true,
+                catalogId: true,
+                title: true,
+                status: true,
+                catalog: {
+                    select: { business: { select: { ownerUserId: true } } },
+                },
+            },
+        });
+        if (!ad) throw new NotFoundException({ errorCode: 'AD_NOT_FOUND', message: 'آگهی یافت نشد' });
+        if ((ad.catalog as any).business.ownerUserId !== userId) {
+            throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'شما مالک این آگهی نیستید' });
+        }
+        if (ad.status !== 'active') {
+            throw new BadRequestException({ errorCode: 'AD_NOT_ACTIVE', message: 'آگهی فعال نیست' });
+        }
+
+        const arm = await this.prisma.arm.findUnique({
+            where: { slug: armSlug },
+            select: { id: true, name: true, categoryTree: true, status: true },
+        });
+        if (!arm) throw new NotFoundException({ errorCode: 'ARM_NOT_FOUND', message: 'بازار یافت نشد' });
+        if (arm.status !== 'active') {
+            throw new BadRequestException({ errorCode: 'ARM_NOT_ACTIVE', message: 'بازار فعال نیست' });
+        }
+
+        const membership = await this.prisma.armMembership.findFirst({
+            where: {
+                armId: arm.id,
+                catalogId: ad.catalogId,
+                status: 'active',
+                publishState: 'published',
+            },
+        });
+        if (!membership) {
+            throw new BadRequestException({
+                errorCode: 'NOT_MEMBER',
+                message: 'کاتالوگ شما در این بازار منتشر نیست — اول عضو بازار شوید',
+            });
+        }
+
+        const result = await this.catalogPublish.stampCatalogAds(arm, ad.catalogId, [adId], userId);
+        return {
+            success: true,
+            arm: { id: arm.id, name: arm.name, slug: armSlug },
+            stamped: result.stamped,
+            needsCategory: result.needsCategory,
+        };
+    }
+
+    /**
+     * توقف انتشار یک آگهی در یک بازار
+     */
+    async unpublishFromMarket(userId: string, adId: string, armSlug: string) {
+        const ad = await this.prisma.ad.findUnique({
+            where: { id: adId },
+            select: {
+                id: true,
+                catalogId: true,
+                catalog: {
+                    select: { business: { select: { ownerUserId: true } } },
+                },
+            },
+        });
+        if (!ad) throw new NotFoundException({ errorCode: 'AD_NOT_FOUND', message: 'آگهی یافت نشد' });
+        if ((ad.catalog as any).business.ownerUserId !== userId) {
+            throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'شما مالک این آگهی نیستید' });
+        }
+
+        const arm = await this.prisma.arm.findUnique({
+            where: { slug: armSlug },
+            select: { id: true, name: true },
+        });
+        if (!arm) throw new NotFoundException({ errorCode: 'ARM_NOT_FOUND', message: 'بازار یافت نشد' });
+
+        await this.catalogPublish.unstampCatalogAds(ad.catalogId, arm.id);
+        return { success: true, message: `آگهی از بازار ${arm.name} حذف شد` };
+    }
+
     async getContactInfo(adId: string, userId: string) {
         const ad = await this.prisma.ad.findUnique({
             where: { id: adId },

@@ -350,6 +350,7 @@ model Arm {
   config              Json?
   memberships         ArmMembership[]
   ads                 Ad[]
+  adPublications      AdPublication[] @relation("ArmAdPublications")
   buyLeads            BuyLead[]
   credits             Credit[]
   trustMetrics        TrustMetric[]
@@ -487,6 +488,7 @@ model Ad {
     views                 AdView[]
     callEvents            CallEvent[]
     interactions          AdInteraction[]
+    publications          AdPublication[] @relation("AdPublications")
 
     @@index([productType])
     @@index([countryCode])
@@ -498,6 +500,46 @@ model Ad {
     @@index([catalogId])
     @@index([expiresAt])
     @@index([categoryPath])
+}
+
+// ============================================================
+// انتشار آگهی در بازار — AdPublication
+// ------------------------------------------------------------
+// اجازه می‌دهد یک آگهی به چند بازار منتشر شود.
+//
+// استراتژی (راه A - snapshot + deprecate):
+//   - فیلدهای Ad.armId, Ad.categoryId, Ad.categoryPath به‌عنوان CACHE نگه داشته می‌شوند
+//   - منبع حقیقت به AdPublication منتقل می‌شود
+//   - stampCatalogAds هر دو را آپدیت می‌کند
+// ============================================================
+
+model AdPublication {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  adId            String   @db.ObjectId
+  ad              Ad       @relation("AdPublications", fields: [adId], references: [id], onDelete: Cascade)
+
+  armId           String   @db.ObjectId
+  arm             Arm      @relation("ArmAdPublications", fields: [armId], references: [id], onDelete: Cascade)
+
+  catalogId       String   @db.ObjectId
+
+  categoryId      String?
+  categoryPath    String[] @default([])
+
+  status          String   @default("published")
+  rejectionReason String?
+
+  publishedAt     DateTime @default(now())
+  publishedBy     String?  @db.ObjectId
+  unpublishedAt   DateTime?
+  updatedAt       DateTime @updatedAt
+
+  @@unique([adId, armId])
+  @@index([armId, status])
+  @@index([armId, categoryId])
+  @@index([catalogId])
+  @@index([adId, status])
+  @@map("ad_publications")
 }
 
 model BuyLead {

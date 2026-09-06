@@ -985,7 +985,7 @@ export class ArmService {
                     message: 'عضویت شما در این بازار توسط مدیر بازار متوقف شده است',
                 });
             }
-            const stamp = await this.catalogPublish.stampCatalogAds(arm, catalogId);
+            const stamp = await this.catalogPublish.stampCatalogAds(arm, catalogId, undefined, userId);
             const updated = await this.prisma.armMembership.update({
                 where: { id: membership.id },
                 data: { publishState: 'published' },
