@@ -52,9 +52,10 @@ export class ArmAdminCatalogsService {
 
     /** دریافت/ساخت عضویت فرد در بازار (بدون کاتالوگ) */
     private async ensureMembership(armId: string, userId: string, businessId: string, roleType: 'seller' | 'buyer') {
-        // ✅ چک بر اساس (armId, businessId) — نه (armId, userId)
-        const existing = await this.prisma.armMembership.findUnique({
-            where: { armId_businessId: { armId, businessId } },
+        // ✅ چک کن: این business قبلاً با این roleType در این بازار عضو هست؟
+        // (arm_owner رو دست نزن)
+        const existing = await this.prisma.armMembership.findFirst({
+            where: { armId, businessId, roleType },
         });
         if (existing) return existing;
         return this.prisma.armMembership.create({
@@ -96,6 +97,7 @@ export class ArmAdminCatalogsService {
         const memberships = await this.prisma.armMembership.findMany({
             where: {
                 armId: arm.id,
+                roleType: 'seller',  // ✅ فقط seller، arm_owner رو نشون نده
                 catalogId: { not: null },
                 ...(ownerStatus !== 'all' ? { status: ownerStatus } : {}),
             },
@@ -302,6 +304,13 @@ export class ArmAdminCatalogsService {
     // ============================================================
     // S3) افزودن فروشنده — کاتالوگ + مهر انتشار
     // ============================================================
+    // ✅ نقش‌ها کاملاً جدا هستند:
+    //   - arm_owner: فقط userId و role=arm_owner دارد (businessId/catalogId همیشه null)
+    //   - seller:    businessId و catalogId دارد، role=arm_member، roleType=seller
+    //   - buyer:     businessId دارد ولی catalogId ندارد، role=arm_member، roleType=buyer
+    //
+    // این متد فقط seller membership را دست می‌زند، arm_owner را هرگز.
+    // ============================================================
     async addSeller(slug: string, catalogId: string) {
         const arm = await this.resolveArm(slug);
 
@@ -315,30 +324,44 @@ export class ArmAdminCatalogsService {
         const ownerUserId = (catalog.business as any).ownerUserId;
         const businessId = (catalog.business as any).id;
 
-        // ✅ چک بر اساس (armId, businessId) — نه (armId, userId)
-        // این به کاربر اجازه می‌دهد همزمان owner بازار و seller با کسب‌وکار دیگه باشه
-        const existingBizMembership = await this.prisma.armMembership.findUnique({
-            where: { armId_businessId: { armId: arm.id, businessId } },
+        // ✅ چک کن: این کسب‌وکار قبلاً seller این بازار هست با کاتالوگ دیگه‌ای؟
+        const existingSeller = await this.prisma.armMembership.findFirst({
+            where: {
+                armId: arm.id,
+                businessId,
+                roleType: 'seller',
+                status: { in: ['active', 'paused', 'pending'] },
+            },
         });
-        if (existingBizMembership?.catalogId && existingBizMembership.catalogId !== catalogId) {
+        if (existingSeller && existingSeller.catalogId && existingSeller.catalogId !== catalogId) {
             throw new ConflictException({
                 errorCode: 'BUSINESS_HAS_OTHER_CATALOG',
                 message: 'این کسب‌وکار با کاتالوگ دیگری در این بازار فعال است — ابتدا آن را حذف کنید',
             });
         }
 
-        // ✅ اگه این کاتالوگ قبلاً در این بازار published هست، جلوگیری از duplicate
-        const existingCatalogMembership = await this.prisma.armMembership.findUnique({
-            where: { armId_catalogId: { armId: arm.id, catalogId } },
+        // ✅ اگه همین کاتالوگ قبلاً seller membership داره، آپدیتش کن
+        // (نه arm_owner رو — فقط seller)
+        const existingCatalogMembership = await this.prisma.armMembership.findFirst({
+            where: {
+                armId: arm.id,
+                catalogId,
+                roleType: 'seller',
+            },
         });
 
-        const membership = existingBizMembership
+        const membership = existingSeller
             ? await this.prisma.armMembership.update({
-                where: { id: existingBizMembership.id },
+                where: { id: existingSeller.id },
                 data: {
-                    status: 'active', publishState: 'published', roleType: 'seller',
-                    businessId, catalogId, rejectionReason: null,
-                    reviewedByUserId: null, reviewedAt: null,
+                    status: 'active',
+                    publishState: 'published',
+                    roleType: 'seller',
+                    businessId,
+                    catalogId,
+                    rejectionReason: null,
+                    reviewedByUserId: null,
+                    reviewedAt: null,
                     source: 'owner_add',
                 },
             })
@@ -346,21 +369,32 @@ export class ArmAdminCatalogsService {
                 ? await this.prisma.armMembership.update({
                     where: { id: existingCatalogMembership.id },
                     data: {
-                        status: 'active', publishState: 'published', roleType: 'seller',
-                        businessId, catalogId, rejectionReason: null,
-                        reviewedByUserId: null, reviewedAt: null,
+                        status: 'active',
+                        publishState: 'published',
+                        roleType: 'seller',
+                        businessId,
+                        catalogId,
+                        rejectionReason: null,
+                        reviewedByUserId: null,
+                        reviewedAt: null,
                         source: 'owner_add',
                     },
                 })
                 : await this.prisma.armMembership.create({
                     data: {
-                        armId: arm.id, userId: ownerUserId, businessId, catalogId,
-                        role: 'arm_member', roleType: 'seller', status: 'active',
-                        publishState: 'published', source: 'owner_add',
+                        armId: arm.id,
+                        userId: ownerUserId,
+                        businessId,
+                        catalogId,
+                        role: 'arm_member',
+                        roleType: 'seller',
+                        status: 'active',
+                        publishState: 'published',
+                        source: 'owner_add',
                     },
                 });
 
-        const stamp = await this.catalogPublish.stampCatalogAds(arm, catalogId);
+        const stamp = await this.catalogPublish.stampCatalogAds(arm, catalogId, undefined, ownerUserId);
         return {
             membership,
             ...stamp,
@@ -538,29 +572,45 @@ async addBuyer(slug: string, businessId: string) {
         throw new NotFoundException({ errorCode: 'BUSINESS_NOT_FOUND', message: 'کسب‌وکار یافت نشد' });
     }
 
-    // ✅ چک بر اساس (armId, businessId) — نه (armId, userId)
-    // این به کاربر اجازه می‌دهد همزمان owner بازار و buyer با کسب‌وکارش باشه
-    const existing = await this.prisma.armMembership.findUnique({
-        where: { armId_businessId: { armId: arm.id, businessId: biz.id } },
+    // ✅ چک کن: این کسب‌وکار قبلاً buyer این بازار هست؟
+    // (فقط buyer membership رو چک کن، arm_owner رو دست نزن)
+    const existingBuyer = await this.prisma.armMembership.findFirst({
+        where: {
+            armId: arm.id,
+            businessId: biz.id,
+            roleType: 'buyer',
+        },
     });
-    if (existing?.roleType === 'buyer' && ['active', 'pending', 'paused'].includes(existing.status)) {
+    if (existingBuyer && ['active', 'pending', 'paused'].includes(existingBuyer.status)) {
         throw new ConflictException({
             errorCode: 'ALREADY_BUYER',
             message: 'این کسب‌وکار قبلاً خریدار این بازار شده است',
         });
     }
-    // removed → احیا می‌شود:
-    const membership = existing
+
+    // removed → احیا می‌شود؛ وگرنه جدید ساخته می‌شود
+    const membership = existingBuyer
         ? await this.prisma.armMembership.update({
-            where: { id: existing.id },
-            data: { status: 'active', roleType: 'buyer', businessId: biz.id, rejectionReason: null, source: 'owner_add' },
+            where: { id: existingBuyer.id },
+            data: {
+                status: 'active',
+                roleType: 'buyer',
+                businessId: biz.id,
+                rejectionReason: null,
+                source: 'owner_add',
+            },
         })
         : await this.prisma.armMembership.create({
-            data: { armId: arm.id, userId: biz.ownerUserId, businessId: biz.id, role: 'arm_member', roleType: 'buyer', status: 'active', source: 'owner_add' },
+            data: {
+                armId: arm.id,
+                userId: biz.ownerUserId,
+                businessId: biz.id,
+                role: 'arm_member',
+                roleType: 'buyer',
+                status: 'active',
+                source: 'owner_add',
+            },
         });
-
-
-    // خریدار catalogId ندارد — اگر قبلاً فروشنده بود، کاتالوگش دست نمی‌خورد
 
     return {
         membership,
@@ -946,9 +996,9 @@ async addCatalog(slug: string, catalogId: string) {
 
 // ─── خصوصی ───
 private async getMembershipByCatalog(armId: string, catalogId: string) {
-    // ✅ چک بر اساس (armId, catalogId) — مستقیم از unique constraint
-    const membership = await this.prisma.armMembership.findUnique({
-        where: { armId_catalogId: { armId, catalogId } },
+    // ✅ فقط seller membership رو پیدا کن (نه arm_owner رو)
+    const membership = await this.prisma.armMembership.findFirst({
+        where: { armId, catalogId, roleType: 'seller' },
     });
     if (!membership) {
         throw new NotFoundException({ errorCode: 'NOT_MEMBER', message: 'این کاتالوگ عضو این بازار نیست' });
