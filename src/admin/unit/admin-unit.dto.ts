@@ -1,12 +1,23 @@
 // src/admin/unit/admin-unit.dto.ts
-import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, IsOptional, IsBoolean } from 'class-validator';
+import {ApiProperty, ApiPropertyOptional} from '@nestjs/swagger';
+import {IsNotEmpty, IsString, IsOptional, IsBoolean, Min, IsNumber} from 'class-validator';
 
 export class CreateUnitDto {
     @ApiProperty({ example: 'تن', description: 'عنوان واحد' })
     @IsNotEmpty({ message: 'عنوان واحد الزامی است' })
     @IsString()
     title: string;
+
+    @ApiPropertyOptional({ example: 24, description: 'تعداد واحد خرد داخل بسته (null = واحد استاندارد)', required: false })
+    @IsOptional()
+    @IsNumber()
+    @Min(1)
+    containsQty?: number;
+
+    @ApiPropertyOptional({ description: 'آیا تعداد ثابت است (کاربر نمی‌تواند تغییر دهد)', default: false, required: false })
+    @IsOptional()
+    @IsBoolean()
+    qtyIsFixed?: boolean;
 
     @ApiProperty({ example: 't', description: 'کد کوتاه واحد' })
     @IsNotEmpty({ message: 'کد کوتاه واحد الزامی است' })
@@ -29,6 +40,17 @@ export class UpdateUnitDto {
     @IsOptional()
     @IsString()
     shortCode?: string;
+
+    @ApiPropertyOptional({ example: 24, description: 'تعداد واحد خرد داخل بسته (null = واحد استاندارد)', required: false })
+    @IsOptional()
+    @IsNumber()
+    @Min(1)
+    containsQty?: number;
+
+    @ApiPropertyOptional({ description: 'آیا تعداد ثابت است (کاربر نمی‌تواند تغییر دهد)', default: false, required: false })
+    @IsOptional()
+    @IsBoolean()
+    qtyIsFixed?: boolean;
 
     @ApiProperty({ example: true, description: 'آیا واحد پیش‌فرض است؟', required: false })
     @IsOptional()

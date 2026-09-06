@@ -20,8 +20,8 @@ import {AdminCreditService} from "./credit/admin-credit.service";
 import {AdminCreditController} from "./credit/admin-credit.controller";
 import {AdminPaymentService} from "./payment/admin-payment.service";
 import {AdminPaymentController} from "./payment/admin-payment.controller";
-import {AdminBusinessController} from "./business/admin-business.controller";
-import {AdminBusinessService} from "./business/admin-business.service";
+import {AdminCatalogController} from "./catalog/admin-catalog.controller";
+import {AdminCatalogService} from "./catalog/admin-catalog.service";
 import {AdminFeedbackController} from "./feedback/admin-feedback.controller";
 import {AdminFeedbackService} from "./feedback/admin-feedback.service";
 
@@ -37,7 +37,7 @@ import {AdminFeedbackService} from "./feedback/admin-feedback.service";
         AdminAdController,
         AdminCreditController,
         AdminPaymentController,
-        AdminBusinessController,
+        AdminCatalogController,
         AdminFeedbackController,
 
     ],
@@ -52,7 +52,7 @@ import {AdminFeedbackService} from "./feedback/admin-feedback.service";
         AdminAdService,
         AdminCreditService,
         AdminPaymentService,
-        AdminBusinessService,
+        AdminCatalogService,
         AdminFeedbackService,
     ],
     exports: [
@@ -66,7 +66,7 @@ import {AdminFeedbackService} from "./feedback/admin-feedback.service";
         AdminAdService,
         AdminCreditService,
         AdminPaymentService,
-        AdminBusinessService,
+        AdminCatalogService,
         AdminFeedbackService,
     ],
 })

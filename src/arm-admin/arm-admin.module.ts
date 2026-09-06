@@ -8,7 +8,10 @@ import { AuthModule } from '../auth/auth.module';
 import { AdminCategoryService } from '../admin/category/admin-category.service';
 import { ArmAdminAdController } from './ad/arm-admin-ad.controller';
 import { ArmAdminAdService } from './ad/arm-admin-ad.service';
-import { CreditModule } from '../credit/credit.module'; // ✅ اضافه شد
+import { CreditModule } from '../credit/credit.module';
+import {ArmAdminCatalogsController} from "./catalogs/arm-admin-catalogs.controller";
+import {ArmAdminCatalogsService} from "./catalogs/arm-admin-catalogs.service";
+import {UserMarketController} from "../user-market/user-market.controller"; // ✅ اضافه شد
 
 @Module({
     imports: [
@@ -20,12 +23,16 @@ import { CreditModule } from '../credit/credit.module'; // ✅ اضافه شد
     controllers: [
         ArmAdminController,
         ArmAdminAdController,
+        ArmAdminCatalogsController,
+        UserMarketController
     ],
     providers: [
         ArmAdminService,
         AdminCategoryService,
         ArmAdminAdService,
+        ArmAdminCatalogsService,
     ],
     exports: [ArmAdminService],
 })
 export class ArmAdminModule {}
+

@@ -50,20 +50,30 @@ export class CreditController {
     // ============================================================
     // 2. خرید اعتبار (انتخاب روش توسط کاربر)
     // ============================================================
-
+    // ============================================================
+    // 2. خرید اعتبار (انتخاب روش توسط کاربر)
+    // ============================================================
     @Post('purchase')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
     @ApiOperation({ summary: 'خرید اعتبار (انتخاب روش توسط کاربر)' })
     async purchase(@CurrentUser() user: any, @Body() dto: PurchaseCreditDto) {
-        const business = await this.creditService['prisma'].business.findFirst({
+        // ✅ کاتالوگ‌های کاربر از مسیر نهادهایش
+        const bizIds = (await this.creditService['prisma'].business.findMany({
             where: { ownerUserId: user.id, status: 'active' },
-        });
+            select: { id: true },
+        })).map((b) => b.id);
 
-        if (!business) {
+        const catalog = bizIds.length
+            ? await this.creditService['prisma'].catalog.findFirst({
+                where: { businessId: { in: bizIds }, status: 'active' },
+            })
+            : null;
+
+        if (!catalog) {
             throw new BadRequestException({
                 errorCode: 'NO_ACTIVE_BUSINESS',
-                message: 'ابتدا یک کسب‌وکار ثبت کنید',
+                message: 'ابتدا یک کاتالوگ ثبت کنید',
             });
         }
 
@@ -101,7 +111,7 @@ export class CreditController {
         } else if (dto.paymentMethod === 'manual') {
             return this.creditService.initiateManualPurchase(
                 user.id,
-                business.id,
+                catalog.id,
                 dto.amount,
                 dto.armId,
                 dto.receiptImage,
@@ -112,8 +122,6 @@ export class CreditController {
             );
         }
     }
-
-
 
     // ============================================================
     // 4. تأیید پرداخت آنلاین (Callback)

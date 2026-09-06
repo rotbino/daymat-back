@@ -82,7 +82,7 @@ export class AdminAdService {
                     createdAt: true, expiresAt: true,
                     categoryId: true,
                     unit: { select: { id: true, title: true, shortCode: true } },
-                    business: { select: { id: true, name: true, verificationTier: true } },
+                    catalog: { select: { id: true, name: true,  } },
                     arm: { select: { id: true, slug: true, name: true } },
                     createdBy: { select: { id: true, fullName: true, phone: true } },
                 },
@@ -107,7 +107,7 @@ export class AdminAdService {
             where: { id },
             include: {
                 unit: true,
-                business: true,
+                catalog: true,
                 arm: { select: { id: true, slug: true, name: true } },
                 createdBy: { select: { id: true, fullName: true, phone: true } },
                 views: { take: 10, orderBy: { viewedAt: 'desc' }, select: { viewedAt: true, source: true } },

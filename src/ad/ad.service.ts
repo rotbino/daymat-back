@@ -6,16 +6,14 @@ import {
     BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { ArmService } from '../arm/arm.service';
 import { CreateAdDto, UpdateAdDto, AdListQueryDto, ExtendAdDto } from './ad.dto';
 import { CreditService } from '../credit/credit.service';
 import {
-    collectCategoryIdsFromTree,
     flattenCategoryTree,
     findNodeInTree,
-    findCategoryPathInTree
 } from '../common/utils/arm.utils';
-import {SearchLogDto} from "./search-log.dto";
+import { SearchLogDto } from "./search-log.dto";
+import { CatalogPublishService } from "../common/services/catalog-publish.service";
 
 const FA_NORMALIZE = (s: string) =>
     (s ?? '')
@@ -27,11 +25,18 @@ const FA_NORMALIZE = (s: string) =>
 
 const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+/** include مشترکِ مالکیت کاتالوگ — مالک واقعی از مسیر نهاد */
+const CATALOG_OWNER_SELECT = {
+    id: true,
+    name: true,
+    business: { select: { id: true, ownerUserId: true, verificationTier: true } },
+} as const;
+
 @Injectable()
 export class AdService {
     constructor(
         private prisma: PrismaService,
-        private armService: ArmService,
+        private catalogPublish: CatalogPublishService,
         private creditService: CreditService,
     ) {}
 
@@ -46,70 +51,31 @@ export class AdService {
     }
 
     // ═══════════════════════════════════════
-    // 1. ثبت آگهی جدید
+    // 1. ثبت آگهی جدید — کاتالوگ‌محور نهایی
     // ═══════════════════════════════════════
-    // src/ad/ad.service.ts
-
-// ═══════════════════════════════════════
-// 1. ثبت آگهی جدید
-// ═══════════════════════════════════════
-    // src/ad/ad.service.ts
-
-// ═══════════════════════════════════════
-// 1. ثبت آگهی جدید
-// ═══════════════════════════════════════
     async create(userId: string, dto: CreateAdDto) {
-        const arm = await this.armService.findBySlug(dto.armSlug);
-        const config = arm.config as any || {};
-        const categoryTree = (arm.categoryTree as any[]) || [];
-
-        const business = await this.prisma.business.findFirst({
-            where: { ownerUserId: userId, status: 'active' },
+        // ─── ۱) کاتالوگ مالک — الزامی؛ مالکیت از مسیر نهاد ───
+        const catalog = await this.prisma.catalog.findUnique({
+            where: { id: dto.catalogId },
+            select: {
+                id: true,
+                business: { select: { ownerUserId: true } },
+            },
         });
-        if (!business) {
+        if (!catalog) {
             throw new BadRequestException({
-                errorCode: 'NO_ACTIVE_BUSINESS',
-                message: 'ابتدا یک کسب‌وکار ثبت کنید',
+                errorCode: 'INVALID_CATALOG',
+                message: 'کاتالوگ مورد نظر یافت نشد',
             });
         }
-
-        const membership = await this.prisma.armMembership.findFirst({
-            where: { armId: arm.id, userId: userId, status: 'active' },
-        });
-        if (!membership) {
+        if ((catalog.business as any).ownerUserId !== userId) {
             throw new ForbiddenException({
-                errorCode: 'NOT_MEMBER',
-                message: 'شما به این بازار نپیوسته اید',
+                errorCode: 'FORBIDDEN_CATALOG',
+                message: 'شما به این کاتالوگ دسترسی ندارید',
             });
         }
 
-        if (dto.categoryId) {
-            const existing = await this.prisma.ad.findFirst({
-                where: {
-                    armId: arm.id,
-                    businessId: business.id,
-                    categoryId: dto.categoryId,
-                    minQuantity: dto.minQuantity,
-                    productType: dto.productType,
-                    status: { not: 'deleted' },
-                },
-            });
-            if (existing) {
-                throw new BadRequestException({
-                    errorCode: 'DUPLICATE_MIN_QUANTITY',
-                    message: 'شما قبلاً برای این آگهی با همین حداقل خرید قیمت ثبت کرده اید.',
-                });
-            }
-        }
-
-        const allowAnonymous = this.getConfigValue(config, 'modules.priceTable.allowAnonymousPublishing', true);
-        if (dto.isAnonymous && !allowAnonymous) {
-            throw new BadRequestException({
-                errorCode: 'ANONYMOUS_NOT_ALLOWED',
-                message: 'انتشار ناشناس در این بازار مجاز نیست',
-            });
-        }
-
+        // ─── ۲) واحد — الزامی و سراسری ───
         if (!dto.unitId) {
             throw new BadRequestException({
                 errorCode: 'UNIT_ID_REQUIRED',
@@ -124,119 +90,23 @@ export class AdService {
             });
         }
 
-        // ─── خواندن تنظیمات سهمیه‌ها و هزینه‌ها ───
-        const maxActiveAdsPerUser = this.getConfigValue(config, 'modules.priceTable.maxActiveAdsPerUser', 5);
-        const maxTotalFreeAdPerUser = this.getConfigValue(config, 'modules.priceTable.maxTotalFreeAdPerUser', 20);
-        const bumpCostBase = this.getConfigValue(config, 'modules.priceTable.bumpCost', 10);
-        const extraActiveAdCostPerDay = this.getConfigValue(config, 'modules.priceTable.extraActiveAdCost', 2);
-        const adCreationCostMonthly = this.getConfigValue(config, 'modules.priceTable.adCreationCost', 2);
-        const defaultValidityHours = this.getConfigValue(config, 'modules.priceTable.adValidityDefaultHours', 24);
-        const requiresApprovalOnCreate = this.getConfigValue(config, 'modules.priceTable.approval.requiresApprovalOnCreate', false);
-
-        // ─── شمارش آگهی‌ها ───
-        const activeAdsCount = await this.prisma.ad.count({
-            where: { businessId: business.id, armId: arm.id, status: 'active', expiresAt: { gt: new Date() } },
-        });
-        const totalAdsCount = await this.prisma.ad.count({
-            where: { businessId: business.id, armId: arm.id, status: { not: 'deleted' } },
-        });
-
-        const hasReachedActiveLimit = activeAdsCount >= maxActiveAdsPerUser;
-        const hasReachedTotalLimit = totalAdsCount >= maxTotalFreeAdPerUser;
-        const needsCredit = hasReachedActiveLimit || hasReachedTotalLimit;
-
-        const freeActiveSlotsRemaining = Math.max(0, maxActiveAdsPerUser - activeAdsCount - 1);
-        const freeTotalSlotsRemaining = Math.max(0, maxTotalFreeAdPerUser - totalAdsCount - 1);
-
-        const validityHours = dto.validityHours || defaultValidityHours;
-
-        // ─── محاسبه هزینه نردبان ───
-        let bumpDurationHours: number | null = null;
-        let bumpCostTotal = 0;
-        let bumpExpiresAt: Date | null = null;
-
-        if (dto.isBumped) {
-            bumpDurationHours = dto.bumpDurationHours ?? 24;
-            if (bumpDurationHours > validityHours) {
-                throw new BadRequestException({
-                    errorCode: 'BUMP_DURATION_EXCEEDS_VALIDITY',
-                    message: 'مدت نردبان نمی‌تواند از اعتبار قیمت بیشتر باشد.',
-                });
-            }
-            bumpCostTotal = (bumpDurationHours / 24) * bumpCostBase;
-            if (!requiresApprovalOnCreate) {
-                bumpExpiresAt = new Date(Date.now() + bumpDurationHours * 60 * 60 * 1000);
-            }
-        }
-
-        // ─── محاسبه هزینه کل ───
-        let totalCost = 0;
-
-        // ✅ هزینه آگهی اضافه روی تابلو (روزانه)
-        if (hasReachedActiveLimit) {
-            const days = Math.max(1, Math.ceil(validityHours / 24));
-            totalCost += extraActiveAdCostPerDay * days;
-        }
-
-        // ✅ هزینه آگهی اضافه بابت پر شدن سهمیه کل (ماهانه)
-        if (hasReachedTotalLimit) {
-            totalCost += adCreationCostMonthly;
-        }
-
-        // ✅ هزینه نردبان
-        if (dto.isBumped && !requiresApprovalOnCreate) {
-            totalCost += bumpCostTotal;
-        }
-
-        // ─── کسر اعتبار در صورت نیاز ───
-        let creditDeducted = false;
-        if (totalCost > 0) {
-            const balance = await this.creditService.getUserBalance(userId);
-            if (balance.balance < totalCost) {
-                throw new BadRequestException({
-                    errorCode: 'INSUFFICIENT_CREDIT',
-                    message: `اعتبار کافی نیست. نیاز به ${totalCost} اعتبار دارید.`,
-                    data: { needed: totalCost, balance: balance.balance },
-                });
-            }
-            await this.prisma.credit.create({
-                data: {
-                    userId,
-                    businessId: business.id,
-                    armId: arm.id,
-                    amount: 0,
-                    currency: 'IRR',
-                    creditCount: -totalCost,
-                    pricePerCredit: null,
-                    creditType: 'purchased',
-                    transactionType: 'spend',
-                    status: 'success',
-                    description: `ثبت آگهی${dto.isBumped ? ' و نردبان' : ''}`,
-                    metadata: { ad_title: dto.title, cost: totalCost, arm_slug: arm.slug },
-                },
-            });
-            creditDeducted = true;
-        }
-
-        // ─── اعتبارسنجی دسته‌بندی ───
-        if (!dto.categoryId) {
+        // ─── ۳) جلوگیری از قیمت تکراری (در سطح کاتالوگ) ───
+        const duplicateWhere: any = {
+            catalogId: catalog.id,
+            productType: dto.productType,
+            minQuantity: dto.minQuantity,
+            status: { not: 'deleted' },
+        };
+        if (dto.categoryId) duplicateWhere.catalogCategoryId = dto.categoryId;
+        const existingDup = await this.prisma.ad.findFirst({ where: duplicateWhere });
+        if (existingDup) {
             throw new BadRequestException({
-                errorCode: 'CATEGORY_REQUIRED',
-                message: 'categoryId الزامی است.',
+                errorCode: 'DUPLICATE_MIN_QUANTITY',
+                message: 'برای این کالا با همین حداقل خرید قبلاً قیمت ثبت کرده‌اید.',
             });
         }
 
-        const categoryIds = collectCategoryIdsFromTree(categoryTree);
-        if (!categoryIds.has(dto.categoryId)) {
-            throw new BadRequestException({
-                errorCode: 'CATEGORY_NOT_AVAILABLE_IN_ARM',
-                message: 'این دسته‌بندی برای بازاری فعلی فعال نیست.',
-            });
-        }
-
-        const categorySelection = findNodeInTree(categoryTree, dto.categoryId);
-        const categoryPath = findCategoryPathInTree(categoryTree, dto.categoryId);
-
+        // ─── ۴) موجودی در برابر حداقل خرید ───
         if (dto.availableQuantity !== null && dto.availableQuantity !== undefined) {
             if (dto.minQuantity > dto.availableQuantity) {
                 throw new BadRequestException({
@@ -246,21 +116,26 @@ export class AdService {
             }
         }
 
-        const expiresAt = new Date();
-        expiresAt.setHours(validityHours, 0, 0, 0);
-        expiresAt.setDate(expiresAt.getDate());
+        // ─── ۵) اعتبار قیمت ───
+        const validityHours = dto.validityHours ?? 24;
+        const expiresAt = new Date(Date.now() + validityHours * 60 * 60 * 1000);
 
+        // ─── ۶) ساخت آگهی — همیشه فقط-کاتالوگی؛ انتشار با مهر بعدی ───
         const ad = await this.prisma.ad.create({
             data: {
-                armId: arm.id,
-                businessId: business.id,
+                armId: null,
+                catalogId: catalog.id,
                 createdByUserId: userId,
-                categoryId: dto.categoryId,
+                catalogCategoryId: dto.categoryId || null,
+                categoryId: null,
+                categoryPath: [],
+                giftPrice: dto.giftPrice ?? null,
+                volumeTiers: (dto.volumeTiers as any) ?? null,
                 unitId: dto.unitId,
-                title: dto.title || categorySelection?.title || '',
+                title: dto.title || '',
                 productType: dto.productType || null,
                 paymentMethods: (dto.paymentMethods as any) || null,
-                specs: dto.specs || null,
+                specs: (dto.specs as any) || null,
                 customFields: (dto.customFields as any) || {},
                 description: dto.description || '',
                 unitPrice: dto.unitPrice,
@@ -271,231 +146,175 @@ export class AdService {
                 availableQuantityBucket: dto.availableQuantityBucket || null,
                 city: dto.city || '',
                 province: dto.province || '',
-                countryCode: dto.countryCode || '98',
+                countryCode: dto.countryCode || 'IR',
                 provinceCode: dto.provinceCode || null,
                 cityCode: dto.cityCode || null,
                 locationDetail: dto.locationDetail || '',
                 validityHours,
                 expiresAt,
                 isAnonymous: dto.isAnonymous || false,
-                isBumped: dto.isBumped || false,
-                bumpDurationHours: dto.isBumped ? bumpDurationHours : null,
-                bumpExpiresAt: dto.isBumped ? bumpExpiresAt : null,
+                publishToMarket: dto.publishToMarket ?? true,
                 priceHistory: [{ price: dto.unitPrice, updatedAt: new Date().toISOString(), note: 'ثبت اولیه' }],
-                status: requiresApprovalOnCreate ? 'pending' : 'active',
+                status: 'active',
                 source: 'manual',
-                categoryPath: categoryPath,
                 unitQty: dto.unitQty || null,
                 unitIsVariableQty: dto.unitIsVariableQty || false,
-                unitBaseTitle: categorySelection?.baseUnitTitle || null,
             },
             include: {
                 unit: { select: { id: true, title: true, shortCode: true } },
-                business: { select: { id: true, name: true, verificationTier: true } },
+                catalog: { select: { id: true, name: true } },
             },
         });
 
-        return {
-            ...ad,
-            isOverQuota: needsCredit,
-            creditDeducted,
-            freeQuotaRemaining: Math.min(freeActiveSlotsRemaining, freeTotalSlotsRemaining),
-            requiresApproval: requiresApprovalOnCreate,
-            isBumped: ad.isBumped,
-            bumpStatus: ad.isBumped ? (ad.bumpExpiresAt ? 'active' : 'pending') : 'none',
-            bumpDurationHours: ad.bumpDurationHours,
-            bumpCostTotal: dto.isBumped ? bumpCostTotal : 0,
-        };
-    }
-
-// ═══════════════════════════════════════
-// 2. ویرایش آگهی
-// ═══════════════════════════════════════
-    async update(id: string, userId: string, dto: UpdateAdDto) {
-        const ad = await this.prisma.ad.findUnique({
-            where: { id },
-            include: {
-                business: { select: { ownerUserId: true } },
-                arm: { select: { config: true, id: true, categoryTree: true } },
-            },
-        });
-
-        if (!ad) throw new NotFoundException({ errorCode: 'AD_NOT_FOUND', message: 'آگهی یافت نشد' });
-        if (ad.business.ownerUserId !== userId) throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'شما اجازه ویرایش این آگهی را ندارید' });
-
-        const config = ad.arm.config as any || {};
-        const categoryTree = (ad.arm.categoryTree as any[]) || [];
-        const updateData: any = {};
-
-        const isRejected = ad.status === 'rejected' && ad.rejectionReason && ad.rejectionReason.length > 0;
-        if (isRejected) {
-            updateData.status = 'pending';
-            updateData.rejectionReason = null;
-        }
-
-        // ═══════════════════════════════════════
-        // ✅ تغییر categoryId و محاسبه categoryPath
-        // ═══════════════════════════════════════
-        if (dto.categoryId !== undefined && dto.categoryId !== ad.categoryId) {
-            const categoryIds = collectCategoryIdsFromTree(categoryTree);
-            if (!categoryIds.has(dto.categoryId)) {
-                throw new BadRequestException({
-                    errorCode: 'CATEGORY_NOT_AVAILABLE_IN_ARM',
-                    message: 'این دسته‌بندی برای بازاری فعلی فعال نیست.',
+        // ─── ۷) انتشار خودکار کالای تازه — اگر کاتالوگ عضوِ منتشرشده دارد ───
+        if (dto.publishToMarket !== false) {
+            const membership = await this.prisma.armMembership.findFirst({
+                where: { catalogId: catalog.id, status: 'active', publishState: 'published' },
+                select: { armId: true },
+            });
+            if (membership) {
+                const arm = await this.prisma.arm.findUnique({
+                    where: { id: membership.armId },
+                    select: { id: true, categoryTree: true },
                 });
-            }
-
-            updateData.categoryId = dto.categoryId;
-            const newCategoryPath = findCategoryPathInTree(categoryTree, dto.categoryId);
-            updateData.categoryPath = newCategoryPath;
-
-            const categorySelection = findNodeInTree(categoryTree, dto.categoryId);
-            updateData.unitBaseTitle = categorySelection?.baseUnitTitle || null;
-
-            if (dto.unitId === undefined && categorySelection) {
-                const newUnitId = categorySelection.overrideUnitId || null;
-                const newUnitQty = categorySelection.overrideUnitQty || null;
-                const newUnitIsVariableQty = categorySelection.overrideUnitIsVariableQty || false;
-                if (newUnitId) {
-                    updateData.unitId = newUnitId;
-                    updateData.unitQty = newUnitQty;
-                    updateData.unitIsVariableQty = newUnitIsVariableQty;
+                if (arm) {
+                    await this.catalogPublish.stampCatalogAds(arm, catalog.id, [ad.id]);
                 }
             }
         }
 
-        if (dto.minQuantity !== undefined && dto.minQuantity !== ad.minQuantity) {
-            const existing = await this.prisma.ad.findFirst({
-                where: {
-                    armId: ad.armId,
-                    businessId: ad.businessId,
-                    categoryId: ad.categoryId || dto.categoryId,
-                    minQuantity: dto.minQuantity,
-                    productType: dto.productType,
-                    status: { not: 'deleted' },
-                    id: { not: id },
-                },
-            });
-            if (existing) {
-                throw new BadRequestException({
-                    errorCode: 'DUPLICATE_MIN_QUANTITY',
-                    message: 'شما قبلاً برای این آگهی با همین حداقل خرید قیمت ثبت کرده اید.',
-                });
-            }
+        return {
+            ...ad,
+            requiresApproval: false,
+        };
+    }
+
+    // ============================================================
+    // ویرایش آگهی — کاتالوگ‌محور
+    // ============================================================
+    async update(id: string, userId: string, dto: UpdateAdDto) {
+        const ad = await this.prisma.ad.findUnique({
+            where: { id },
+            select: {
+                id: true,
+                createdByUserId: true,
+                catalogId: true,
+                armId: true,
+            },
+        });
+        if (!ad) {
+            throw new NotFoundException({ errorCode: 'AD_NOT_FOUND', message: 'آگهی یافت نشد' });
         }
 
-        if (dto.unitId !== undefined && dto.unitId !== ad.unitId) {
-            const unitExists = await this.prisma.unit.findUnique({ where: { id: dto.unitId } });
+        // ✅ مالکیت از مسیر نهاد
+        const catalog = await this.prisma.catalog.findUnique({
+            where: { id: ad.catalogId },
+            select: { business: { select: { ownerUserId: true } } },
+        });
+        if ((catalog as any)?.business?.ownerUserId !== userId) {
+            throw new ForbiddenException({
+                errorCode: 'FORBIDDEN',
+                message: 'شما اجازه ویرایش این آگهی را ندارید',
+            });
+        }
+
+        // ─── واحد ───
+        if (dto.unitId) {
+            const unitExists = await this.prisma.unit.findUnique({
+                where: { id: dto.unitId },
+                select: { id: true },
+            });
             if (!unitExists) {
                 throw new BadRequestException({
                     errorCode: 'UNIT_NOT_FOUND',
                     message: 'واحد اندازه‌گیری انتخاب شده معتبر نیست',
                 });
             }
-            updateData.unitId = dto.unitId;
-        }
-        if (dto.unitQty !== undefined) updateData.unitQty = dto.unitQty;
-        if (dto.unitIsVariableQty !== undefined) updateData.unitIsVariableQty = dto.unitIsVariableQty;
-
-        // ═══════════════════════════════════════
-        // نردبان (Bump)
-        // ═══════════════════════════════════════
-        const isBumpActive = ad.isBumped && ad.bumpExpiresAt && ad.bumpExpiresAt > new Date();
-
-        if (isBumpActive) {
-            if (dto.isBumped === true) {
-                throw new BadRequestException({ errorCode: 'BUMP_ALREADY_ACTIVE', message: 'آگهی در حال نردبان است.' });
-            }
-            if (dto.bumpDurationHours !== undefined) {
-                throw new BadRequestException({ errorCode: 'BUMP_DURATION_CHANGE_NOT_ALLOWED', message: 'تغییر مدت نردبان مجاز نیست.' });
-            }
         }
 
-        if (dto.isBumped !== undefined && dto.isBumped !== ad.isBumped) {
-            if (dto.isBumped === true) {
-                let bumpDurationHours = dto.bumpDurationHours ?? ad.bumpDurationHours ?? 24;
-                const validityHours = dto.validityHours ?? ad.validityHours;
-                if (bumpDurationHours > validityHours) {
-                    throw new BadRequestException({ errorCode: 'BUMP_DURATION_EXCEEDS_VALIDITY', message: 'مدت نردبان نمی‌تواند بیشتر از اعتبار باشد.' });
-                }
-                const baseCost = this.getConfigValue(config, 'modules.priceTable.bumpCost', 10);
-                const bumpCostTotal = (bumpDurationHours / 24) * baseCost;
-
-                if (ad.status === 'active') {
-                    const balance = await this.creditService.getUserBalance(userId);
-                    if (balance.balance < bumpCostTotal) {
-                        throw new BadRequestException({ errorCode: 'INSUFFICIENT_CREDIT', message: 'اعتبار کافی نیست.', data: { needed: bumpCostTotal, balance: balance.balance } });
-                    }
-                    await this.prisma.credit.create({
-                        data: {
-                            userId, businessId: ad.businessId, armId: ad.armId,
-                            amount: 0, currency: 'IRR', creditCount: -bumpCostTotal,
-                            creditType: 'purchased', status: 'success',
-                            transactionType: 'spend', description: `نردبان آگهی "${ad.title}"`,
-                            metadata: { ad_id: id, cost: bumpCostTotal },
-                        },
-                    });
-                    const bumpExpiresAt = new Date(Date.now() + bumpDurationHours * 60 * 60 * 1000);
-                    updateData.isBumped = true;
-                    updateData.bumpDurationHours = bumpDurationHours;
-                    updateData.bumpExpiresAt = bumpExpiresAt;
-                    updateData.bumpCount = { increment: 1 };
-                    updateData.lastBumpedAt = new Date();
-                    updateData.lastBumpCreditsSpent = bumpCostTotal;
-                } else {
-                    updateData.isBumped = true;
-                    updateData.bumpDurationHours = bumpDurationHours;
-                    updateData.bumpExpiresAt = null;
-                }
-            } else {
-                updateData.isBumped = false;
-                updateData.bumpDurationHours = null;
-                updateData.bumpExpiresAt = null;
+        // ─── جلوگیری از قیمت تکراری ───
+        if (dto.minQuantity !== undefined || dto.productType !== undefined || dto.categoryId !== undefined) {
+            const current = await this.prisma.ad.findUnique({
+                where: { id },
+                select: { productType: true, minQuantity: true, catalogCategoryId: true, catalogId: true },
+            });
+            const dupWhere: any = {
+                id: { not: id },
+                catalogId: current.catalogId,
+                productType: dto.productType ?? current.productType,
+                minQuantity: dto.minQuantity ?? current.minQuantity,
+                status: { not: 'deleted' },
+            };
+            const effectiveCategory = dto.categoryId !== undefined ? (dto.categoryId || null) : current.catalogCategoryId;
+            if (effectiveCategory) dupWhere.catalogCategoryId = effectiveCategory;
+            const dup = await this.prisma.ad.findFirst({ where: dupWhere });
+            if (dup) {
+                throw new BadRequestException({
+                    errorCode: 'DUPLICATE_MIN_QUANTITY',
+                    message: 'برای این کالا با همین حداقل خرید قبلاً قیمت ثبت کرده‌اید.',
+                });
             }
         }
 
-        // ─── سایر فیلدها ───
-        if (dto.status !== undefined) updateData.status = dto.status;
-        if (dto.unitPrice !== undefined) updateData.unitPrice = dto.unitPrice;
-        if (dto.singleUnitPrice !== undefined) updateData.singleUnitPrice = dto.singleUnitPrice;
-        if (dto.consumerPrice !== undefined) updateData.consumerPrice = dto.consumerPrice;
-        if (dto.minQuantity !== undefined) updateData.minQuantity = dto.minQuantity;
-        if (dto.availableQuantity !== undefined) updateData.availableQuantity = dto.availableQuantity;
-        if (dto.title !== undefined) updateData.title = dto.title;
-        if (dto.productType !== undefined) updateData.productType = dto.productType;
-        if (dto.description !== undefined) updateData.description = dto.description;
-        if (dto.city !== undefined) updateData.city = dto.city;
-        if (dto.cityCode !== undefined) updateData.cityCode = dto.cityCode;
-        if (dto.provinceCode !== undefined) updateData.provinceCode = dto.provinceCode;
-        if (dto.province !== undefined) updateData.province = dto.province;
-        if (dto.locationDetail !== undefined) updateData.locationDetail = dto.locationDetail;
-        if (dto.isAnonymous !== undefined) updateData.isAnonymous = dto.isAnonymous;
-        if (dto.availableQuantityBucket !== undefined) updateData.availableQuantityBucket = dto.availableQuantityBucket;
-        if (dto.customFields !== undefined) updateData.customFields = dto.customFields;
-        if (dto.paymentMethods !== undefined) updateData.paymentMethods = dto.paymentMethods;
-        if (dto.specs !== undefined) updateData.specs = dto.specs;
+        // ─── آپدیت ───
+        const expiresAt = dto.validityHours
+            ? new Date(Date.now() + dto.validityHours * 60 * 60 * 1000)
+            : undefined;
 
-        if (dto.unitPrice !== undefined && dto.unitPrice !== ad.unitPrice) {
-            const history = (ad.priceHistory as any[]) || [];
-            history.push({ price: dto.unitPrice, updatedAt: new Date().toISOString(), note: 'ویرایش قیمت' });
-            updateData.priceHistory = history;
-        }
-
-        updateData.updatedAt = new Date();
-
-        return this.prisma.ad.update({
+        const adUpdated = await this.prisma.ad.update({
             where: { id },
-            data: updateData,
+            data: {
+                ...(dto.categoryId !== undefined ? { catalogCategoryId: dto.categoryId || null } : {}),
+                ...(dto.unitId ? { unitId: dto.unitId } : {}),
+                ...(dto.title !== undefined ? { title: dto.title.trim() } : {}),
+                ...(dto.productType !== undefined ? { productType: dto.productType.trim() || null } : {}),
+                ...(dto.description !== undefined ? { description: dto.description || null } : {}),
+                ...(dto.unitPrice !== undefined ? { unitPrice: dto.unitPrice } : {}),
+                ...(dto.singleUnitPrice !== undefined ? { singleUnitPrice: dto.singleUnitPrice || null } : {}),
+                ...(dto.consumerPrice !== undefined ? { consumerPrice: dto.consumerPrice || null } : {}),
+                ...(dto.minQuantity !== undefined ? { minQuantity: dto.minQuantity } : {}),
+                ...(dto.availableQuantity !== undefined ? { availableQuantity: dto.availableQuantity || null } : {}),
+                ...(dto.city !== undefined ? { city: dto.city || null } : {}),
+                ...(dto.cityCode !== undefined ? { cityCode: dto.cityCode || null } : {}),
+                ...(dto.provinceCode !== undefined ? { provinceCode: dto.provinceCode || null } : {}),
+                ...(dto.province !== undefined ? { province: dto.province || null } : {}),
+                ...(dto.validityHours !== undefined
+                    ? { validityHours: dto.validityHours, ...(expiresAt ? { expiresAt } : {}) }
+                    : {}),
+                ...(dto.giftPrice !== undefined ? { giftPrice: dto.giftPrice || null } : {}),
+                ...(dto.volumeTiers !== undefined ? { volumeTiers: (dto.volumeTiers as any) || null } : {}),
+                ...(dto.isAnonymous !== undefined ? { isAnonymous: dto.isAnonymous } : {}),
+                ...(dto.publishToMarket !== undefined ? { publishToMarket: dto.publishToMarket } : {}),
+                ...(dto.status !== undefined ? { status: dto.status } : {}),
+                ...(dto.unitQty !== undefined ? { unitQty: dto.unitQty ?? null } : {}),
+                ...(dto.unitIsVariableQty !== undefined ? { unitIsVariableQty: dto.unitIsVariableQty } : {}),
+                ...(dto.paymentMethods !== undefined ? { paymentMethods: (dto.paymentMethods as any) || null } : {}),
+                ...(dto.specs !== undefined ? { specs: (dto.specs as any) || null } : {}),
+                ...(dto.customFields !== undefined ? { customFields: (dto.customFields as any) || null } : {}),
+                updatedAt: new Date(),
+            },
             include: {
                 unit: { select: { id: true, title: true, shortCode: true } },
-                business: { select: { id: true, name: true, verificationTier: true, trustScore: true } },
             },
         });
+
+        // ─── اگر روی تابلوی بازاری است و دستهٔ کاتالوگ عوض شد → دستهٔ بازاری بازمحاسبه ───
+        if (ad.armId && dto.categoryId !== undefined) {
+            const arm = await this.prisma.arm.findUnique({
+                where: { id: ad.armId },
+                select: { id: true, categoryTree: true },
+            });
+            if (arm) {
+                await this.catalogPublish.stampCatalogAds(arm, ad.catalogId, [id]);
+            }
+        }
+
+        return adUpdated;
     }
 
-// ═══════════════════════════════════════
-// 3. تابلوی قیمت (ویترین زنده)
-// ═══════════════════════════════════════
+    // ═══════════════════════════════════════
+    // 3. تابلوی قیمت (ویترین زنده)
+    // ═══════════════════════════════════════
     async getVitrine(armSlug: string, query: AdListQueryDto) {
         const arm = await this.prisma.arm.findUnique({
             where: { slug: armSlug },
@@ -506,6 +325,7 @@ export class AdService {
             throw new NotFoundException({ errorCode: 'ARM_NOT_FOUND', message: 'بازار یافت نشد' });
         }
 
+        const config = arm.config as any || {};
         const flatCategory = flattenCategoryTree(arm.categoryTree);
         const categoryMap = new Map(flatCategory.map((s: any) => [s.categoryId, s]));
 
@@ -516,8 +336,15 @@ export class AdService {
         const where: any = {
             armId: arm.id,
             status: 'active',
-            expiresAt: { gt: new Date() }
+            publishToMarket: true,
+            expiresAt: { gt: new Date() },
         };
+
+        // فیلتر نوع فروش ویترین (visibleSalesTypes روی config بازار)
+        const visibleSalesTypes = config?.modules?.priceTable?.visibleSalesTypes;
+        if (Array.isArray(visibleSalesTypes) && visibleSalesTypes.length) {
+            where.catalog = { salesType: { in: visibleSalesTypes } };
+        }
 
         if (query.search) {
             where.OR = [
@@ -525,10 +352,8 @@ export class AdService {
                 { productType: { contains: query.search, mode: 'insensitive' } },
             ];
         }
-        // ✅ فیلتر بر اساس categoryId (شامل فرزندان)
         if (query.categoryId) {
             const categoryNode = findNodeInTree(arm.categoryTree as any[], query.categoryId);
-
             if (categoryNode) {
                 if (categoryNode.children && categoryNode.children.length > 0) {
                     where.categoryPath = { has: query.categoryId };
@@ -539,37 +364,19 @@ export class AdService {
                 where.categoryId = query.categoryId;
             }
         }
-
-        // ✅ فیلتر شهر
-        if (query.cityCode) {
-            where.cityCode = query.cityCode;
-        }
-
-        // ✅ فیلتر استان
-        if (query.provinceCode) {
-            where.provinceCode = query.provinceCode;
-        }
-
-        // ✅ فیلتر قیمت
+        if (query.cityCode) where.cityCode = query.cityCode;
+        if (query.provinceCode) where.provinceCode = query.provinceCode;
         if (query.minPrice !== undefined || query.maxPrice !== undefined) {
             where.unitPrice = {};
             if (query.minPrice !== undefined) where.unitPrice.gte = query.minPrice;
             if (query.maxPrice !== undefined) where.unitPrice.lte = query.maxPrice;
         }
-
-        // ✅ فیلتر موجودی
         if (query.minAvailableQuantity !== undefined || query.maxAvailableQuantity !== undefined) {
             where.availableQuantity = {};
             if (query.minAvailableQuantity !== undefined) where.availableQuantity.gte = query.minAvailableQuantity;
             if (query.maxAvailableQuantity !== undefined) where.availableQuantity.lte = query.maxAvailableQuantity;
         }
-
-        // ✅ فیلتر حداقل سفارش
-        if (query.minQuantity !== undefined) {
-            where.minQuantity = { gte: query.minQuantity };
-        }
-
-        // ✅ فیلتر نردبان
+        if (query.minQuantity !== undefined) where.minQuantity = { gte: query.minQuantity };
         if (query.bumpFilter === 'bumped') {
             where.isBumped = true;
             where.bumpExpiresAt = { gt: new Date() };
@@ -590,16 +397,16 @@ export class AdService {
                 take: limit,
                 select: {
                     id: true,
-                    title: true,             // ✅ اضافه شد
+                    title: true,
                     productType: true,
                     unitPrice: true,
-                    singleUnitPrice: true,   // ✅ اضافه شد
-                    consumerPrice: true,     // ✅ اضافه شد
+                    singleUnitPrice: true,
+                    consumerPrice: true,
                     minQuantity: true,
                     availableQuantity: true,
                     city: true,
-                    cityCode: true,          // ✅ اضافه شد
-                    provinceCode: true,      // ✅ اضافه شد
+                    cityCode: true,
+                    provinceCode: true,
                     isBumped: true,
                     unitQty: true,
                     unitIsVariableQty: true,
@@ -607,22 +414,23 @@ export class AdService {
                     categoryId: true,
                     categoryPath: true,
                     isAnonymous: true,
-                    paymentMethods: true,    // ✅ اضافه شد
+                    paymentMethods: true,
                     updatedAt: true,
-                    createdAt: true,         // ✅ اضافه شد
+                    createdAt: true,
                     unit: { select: { shortCode: true, title: true } },
-                    business: {
+                    catalog: {
                         select: {
                             name: true,
-                            verificationTier: true,
                             type: true,
                             city: true,
-                            phone: true
+                            phone: true,
+                            // ✅ تیک اعتماد از نهاد
+                            business: { select: { verificationTier: true } },
                         },
                     },
                     files: {
                         where: { relatedModel: 'Ad', fieldKey: { startsWith: 'ad-image' } },
-                        select: { path: true, thumbnailPath: true }, // ✅ path هم اضافه شد
+                        select: { path: true, thumbnailPath: true },
                         take: 1,
                     },
                 },
@@ -630,10 +438,11 @@ export class AdService {
             this.prisma.ad.count({ where }),
         ]);
 
-        const adsWithCustomLabel = ads.map(ad => {
+        const adsWithCustomLabel = ads.map((ad: any) => {
             const selection = categoryMap.get(ad.categoryId) as any | undefined;
             return {
                 ...ad,
+                verificationTier: (ad.catalog as any)?.business?.verificationTier ?? null, // ✅ شکل قدیمی برای فرانت
                 categoryTitle: selection?.customLabel || selection?.title || ad.categoryId || '',
                 unitBaseTitle: selection?.baseUnitTitle || ad.unitBaseTitle || null,
             };
@@ -645,29 +454,42 @@ export class AdService {
                 page,
                 limit,
                 total,
-                totalPages: Math.ceil(total / limit)
+                totalPages: Math.ceil(total / limit),
             },
         };
     }
 
-
     // ═══════════════════════════════════════
-    // 4. نردبان
+    // 4. نردبان — فقط برای آگهیِ منتشرشده در بازار
     // ═══════════════════════════════════════
     async bump(id: string, userId: string) {
         const ad = await this.prisma.ad.findUnique({
             where: { id },
             include: {
-                arm: true,
-                business: { select: { ownerUserId: true, id: true } },
+                arm: { select: { id: true, slug: true, config: true } },
+                catalog: {
+                    select: {
+                        id: true,
+                        business: { select: { ownerUserId: true, verificationTier: true } },
+                    },
+                },
             },
         });
 
         if (!ad) throw new NotFoundException({ errorCode: 'AD_NOT_FOUND', message: 'آگهی یافت نشد' });
-        if (ad.business.ownerUserId !== userId) throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'شما اجازه نردبان این آگهی را ندارید' });
+        if ((ad.catalog as any).business.ownerUserId !== userId) {
+            throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'شما اجازه نردبان این آگهی را ندارید' });
+        }
         if (ad.status !== 'active') throw new BadRequestException({ errorCode: 'AD_NOT_ACTIVE', message: 'فقط آگهی‌های فعال قابل نردبان هستند' });
 
-        const config = ad.arm.config as any || {};
+        if (!ad.armId) {
+            throw new BadRequestException({
+                errorCode: 'NOT_IN_MARKET',
+                message: 'این کالا در هیچ بازاری منتشر نشده است',
+            });
+        }
+
+        const config = (ad.arm?.config as any) || {};
         const bumpCost = this.getConfigValue(config, 'economy.bumpCost', 10);
 
         const balance = await this.creditService.getUserBalance(userId);
@@ -681,12 +503,12 @@ export class AdService {
 
         await this.prisma.credit.create({
             data: {
-                userId, businessId: ad.businessId, armId: ad.armId,
+                userId, catalogId: ad.catalogId, armId: ad.armId,
                 amount: 0, currency: 'IRR', creditCount: -bumpCost,
                 pricePerCredit: null, creditType: 'purchased',
                 transactionType: 'spend', description: `نردبان آگهی "${ad.title}"`,
                 relatedEntityId: ad.id, relatedEntityType: 'Ad',
-                metadata: { ad_title: ad.title, cost: bumpCost, arm_slug: ad.arm.slug },
+                metadata: { ad_title: ad.title, cost: bumpCost, arm_slug: ad.arm?.slug },
             },
         });
 
@@ -704,150 +526,33 @@ export class AdService {
                 updatedAt: new Date(),
             },
             include: {
-                business: { select: { id: true, name: true, verificationTier: true } },
+                catalog: { select: { id: true, name: true } },
             },
         });
     }
 
-    // ═══════════════════════════════════════
-    // 5. لیست آگهی‌های یک کسب‌وکار
-    // ═══════════════════════════════════════
-// src/ad/ad.service.ts
-
-    async getBusinessAds(
-        businessId: string,
-        page: number = 1,
-        limit: number = 10,
-        statusFilter?: string, // ✅ جدید: active | pending | archived
-    ) {
-        const skip = (page - 1) * limit;
-
-        // ✅ ساخت where بر اساس فیلتر
-        const where: any = {
-            businessId,
-            status: { not: 'deleted' },
-        };
-
-        if (statusFilter === 'active') {
-            where.status = 'active';
-            where.expiresAt = { gt: new Date() }; // ✅ فقط فعال و منقضی نشده
-        } else if (statusFilter === 'pending') {
-            where.status = { in: ['pending', 'rejected'] };
-        } else if (statusFilter === 'archived') {
-            where.OR = [
-                { status: 'inactive' },
-                { status: 'expired' },
-                { status: 'active', expiresAt: { lt: new Date() } }, // ✅ فعال ولی منقضی شده
-            ];
-        }
-
-        const [ads, total] = await Promise.all([
-            this.prisma.ad.findMany({
-                where,
-                include: {
-                    unit: { select: { id: true, title: true, shortCode: true } },
-                    arm: { select: { id: true, slug: true, name: true, categoryTree: true } },
-                    files: {
-                        where: { relatedModel: 'Ad' },
-                        select: { id: true, path: true, thumbnailPath: true, fieldKey: true },
-                    },
-                },
-                orderBy: { createdAt: 'desc' },
-                skip,
-                take: limit,
-            }),
-            this.prisma.ad.count({ where }),
-        ]);
-
-        return {
-            ads,
-            pagination: {
-                page,
-                limit,
-                total,
-                totalPages: Math.ceil(total / limit),
-            },
-        };
-    }
-
-
-
-
-
-    // ═══════════════════════════════════════
-    // 6. دریافت کامل آگهی
-    // ═══════════════════════════════════════
-    // src/ad/ad.service.ts
-
+    // ============================================================
+    // جزئیات آگهی — همهٔ فیلدها + کاتالوگ با مالک (از مسیر نهاد)
+    // ============================================================
     async findOne(id: string) {
         const ad = await this.prisma.ad.findUnique({
             where: { id },
-            select: {
-                id: true,
-                title: true,
-                productType: true,
-                unitPrice: true,
-                singleUnitPrice: true,  // ✅ اضافه شد
-                consumerPrice: true,    // ✅ اضافه شد
-                minQuantity: true,
-                availableQuantity: true,
-                city: true,
-                cityCode: true,         // ✅ اضافه شد
-                province: true,
-                provinceCode: true,     // ✅ اضافه شد
-                countryCode: true,      // ✅ اضافه شد
-                locationDetail: true,   // ✅ اضافه شد
-                isBumped: true,
-                isAnonymous: true,
-                description: true,
-                updatedAt: true,
-                createdAt: true,
-                expiresAt: true,
-                viewCount: true,
-                callCount: true,
-                categoryId: true,
-                categoryPath: true,     // ✅ اضافه شد
+            include: {
                 unit: { select: { id: true, title: true, shortCode: true } },
-                unitQty: true,
-                unitIsVariableQty: true,
-                unitBaseTitle: true,
-                paymentMethods: true,   // ✅ اضافه شد
-                specs: true,            // ✅ اضافه شد
-                customFields: true,     // ✅ اضافه شد
-                bumpDurationHours: true, // ✅ اضافه شد
-                bumpExpiresAt: true,    // ✅ اضافه شد
-                business: {
-                    select: {
-                        id: true,
-                        name: true,
-                        shortDescription: true,
-                        description: true,
-                        type: true,
-                        city: true,
-                        slug: true,
-                        cityCode: true,     // ✅ اضافه شد
-                        province: true,
-                        provinceCode: true, // ✅ اضافه شد
-                        countryCode: true,  // ✅ اضافه شد
-                        phone: true,
-                        website: true,
-                        verificationTier: true,
-                        trustScore: true,
-                        logoUrl: true,
-                        createdAt: true,
-                        files: { where: { fieldKey: 'logo' }, select: { id: true, path: true, thumbnailPath: true }, take: 1 },
-                        owner: {
-                            select: {
-                                id: true, fullName: true, phone: true, avatarUrl: true,
-                                files: { where: { fieldKey: 'avatar' }, select: { id: true, path: true, thumbnailPath: true }, take: 1 },
+                catalog: {
+                    include: {
+                        business: {
+                            include: {
+                                owner: {
+                                    select: { id: true, fullName: true, phone: true, avatarUrl: true },
+                                },
                             },
                         },
-                        activities: { select: { activity: { select: { id: true, title: true } } }, take: 10 },
                     },
                 },
                 files: {
                     where: { relatedModel: 'Ad' },
-                    select: { id: true, path: true, thumbnailPath: true,  fieldKey: true },
+                    select: { id: true, path: true, thumbnailPath: true, fieldKey: true },
                 },
             },
         });
@@ -856,47 +561,35 @@ export class AdService {
 
         this.prisma.ad.update({ where: { id }, data: { viewCount: { increment: 1 } } }).catch(() => {});
 
-        const business = ad.business;
-        const owner = business?.owner;
-        const ownerAvatar = owner?.files?.[0];
-        const logoFile = business?.files?.[0];
-        const API_BASE = process.env.API_BASE_URL || 'http://localhost:3011';
+        const ownerAvatar = await this.prisma.file.findFirst({
+            where: { relatedModel: 'User', relatedId: ad.createdByUserId, fieldKey: 'avatar' },
+            orderBy: { createdAt: 'desc' },
+            select: { id: true, path: true, thumbnailPath: true },
+        });
 
-        const getFileUrl = (file: any, isThumbnail = false) => {
-            if (!file) return null;
-            if (file.path?.startsWith('http')) return file.path;
-            if (isThumbnail && file.thumbnailPath) return file.thumbnailPath;
-            return `${API_BASE}/file/${file.id}`;
-        };
+        const bizOwner = (ad.catalog as any)?.business?.owner;
+        const bizVerificationTier = (ad.catalog as any)?.business?.verificationTier ?? null;
 
         return {
             ...ad,
-            business: business ? {
-                id: business.id,
-                name: business.name,
-                slug: business.slug,
-                shortDescription: business.shortDescription,
-                description: business.description,
-                type: business.type,
-                city: business.city,
-                cityCode: business.cityCode,        // ✅ اضافه شد
-                province: business.province,
-                provinceCode: business.provinceCode, // ✅ اضافه شد
-                countryCode: business.countryCode,   // ✅ اضافه شد
-                phone: business.phone,
-                website: business.website,
-                verificationTier: business.verificationTier,
-                trustScore: business.trustScore,
-                logoUrl: logoFile ? getFileUrl(logoFile, true) : business.logoUrl,
-                logoFile: logoFile ? { id: logoFile.id, path: logoFile.path, thumbnailPath: logoFile.thumbnailPath, fullUrl: getFileUrl(logoFile), thumbnailUrl: getFileUrl(logoFile, true) } : null,
-                createdAt: business.createdAt,
-                owner: owner ? {
-                    id: owner.id, fullName: owner.fullName, phone: owner.phone,
-                    avatarUrl: ownerAvatar ? getFileUrl(ownerAvatar, true) : owner.avatarUrl,
-                    avatarFile: ownerAvatar ? { id: ownerAvatar.id, path: ownerAvatar.path, thumbnailPath: ownerAvatar.thumbnailPath, fullUrl: getFileUrl(ownerAvatar), thumbnailUrl: getFileUrl(ownerAvatar, true) } : null,
-                } : null,
-                activities: business.activities?.map((a: any) => a.activity) || [],
+            // ✅ شکل قدیمی owner برای فرانت حفظ شد
+            owner: bizOwner ? {
+                id: bizOwner.id,
+                fullName: bizOwner.fullName,
+                phone: bizOwner.phone,
+                avatarUrl: ownerAvatar?.thumbnailPath || ownerAvatar?.path || bizOwner.avatarUrl || null,
             } : null,
+            verificationTier: bizVerificationTier,
+            catalog: {
+                ...ad.catalog,
+                owner: bizOwner ? {
+                    id: bizOwner.id,
+                    fullName: bizOwner.fullName,
+                    phone: bizOwner.phone,
+                    avatarUrl: ownerAvatar?.thumbnailPath || ownerAvatar?.path || bizOwner.avatarUrl || null,
+                } : null,
+            },
+            files: ad.files,
         };
     }
 
@@ -907,27 +600,34 @@ export class AdService {
         const ad = await this.prisma.ad.findUnique({
             where: { id },
             include: {
-                business: { select: { ownerUserId: true } },
                 arm: { select: { config: true } },
+                catalog: {
+                    select: {
+                        id: true,
+                        business: { select: { ownerUserId: true } },
+                    },
+                },
             },
         });
 
         if (!ad) throw new NotFoundException();
-        if (ad.business.ownerUserId !== userId) throw new ForbiddenException();
+        if ((ad.catalog as any).business.ownerUserId !== userId) throw new ForbiddenException();
         if (ad.status !== 'active' && ad.status !== 'expired' && ad.status !== 'inactive') {
             throw new BadRequestException('آگهی قابل تمدید نیست');
         }
 
-        const config = ad.arm.config as any || {};
+        const config = (ad.arm?.config as any) || {};
         const maxActiveAds = config.modules?.priceTable?.maxActiveAdsPerUser || 5;
         const bumpCostPerDay = config.economy?.bumpCost || 10;
         const defaultBumpHours = 24;
 
         let activationCost = 0;
-        const activeAdsCount = await this.prisma.ad.count({
-            where: { businessId: ad.businessId, status: 'active', expiresAt: { gt: new Date() }, id: { not: id } },
-        });
-        if (activeAdsCount >= maxActiveAds) activationCost = bumpCostPerDay;
+        if (ad.armId) {
+            const activeAdsCount = await this.prisma.ad.count({
+                where: { catalogId: ad.catalogId, status: 'active', expiresAt: { gt: new Date() }, id: { not: id } },
+            });
+            if (activeAdsCount >= maxActiveAds) activationCost = bumpCostPerDay;
+        }
 
         let bumpCost = 0;
         let bumpDurationHours = 0;
@@ -952,7 +652,7 @@ export class AdService {
             }
             await this.prisma.credit.create({
                 data: {
-                    userId, businessId: ad.businessId, armId: ad.armId,
+                    userId, catalogId: ad.catalogId, armId: ad.armId,
                     amount: 0, currency: 'IRR', creditCount: -totalCost,
                     creditType: 'purchased', status: 'success',
                     transactionType: 'spend',
@@ -981,31 +681,38 @@ export class AdService {
             },
             include: {
                 unit: { select: { id: true, title: true, shortCode: true } },
-                business: { select: { id: true, name: true, verificationTier: true, trustScore: true } },
+                catalog: { select: { id: true, name: true } },
             },
         });
     }
 
     // ═══════════════════════════════════════
-    // 8-15: بقیه متدها بدون تغییر
+    // 8. حذف آگهی
     // ═══════════════════════════════════════
     async remove(id: string, userId: string) {
         const ad = await this.prisma.ad.findUnique({
             where: { id },
-            include: { business: { select: { ownerUserId: true } } },
+            include: {
+                catalog: { select: { business: { select: { ownerUserId: true } } } },
+            },
         });
         if (!ad) throw new NotFoundException({ errorCode: 'AD_NOT_FOUND', message: 'آگهی یافت نشد' });
-        if (ad.business.ownerUserId !== userId) throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'شما اجازه حذف این آگهی را ندارید' });
+        if ((ad.catalog as any).business.ownerUserId !== userId) {
+            throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'شما اجازه حذف این آگهی را ندارید' });
+        }
         return this.prisma.ad.update({ where: { id }, data: { status: 'deleted', updatedAt: new Date() } });
     }
 
     async getPriceHistory(id: string, userId?: string) {
         const ad = await this.prisma.ad.findUnique({
             where: { id },
-            select: { id: true, title: true, unitPrice: true, priceHistory: true, business: { select: { ownerUserId: true } } },
+            select: {
+                id: true, title: true, unitPrice: true, priceHistory: true,
+                catalog: { select: { business: { select: { ownerUserId: true } } } },
+            },
         });
         if (!ad) throw new NotFoundException({ errorCode: 'AD_NOT_FOUND', message: 'آگهی یافت نشد' });
-        if (userId && ad.business?.ownerUserId === userId) {
+        if (userId && (ad.catalog as any)?.business?.ownerUserId === userId) {
             return { currentPrice: ad.unitPrice, history: ad.priceHistory || [] };
         }
         const history = (ad.priceHistory as any[]) || [];
@@ -1028,20 +735,20 @@ export class AdService {
         return { expiredCount: expired.count };
     }
 
+    // ═══════════════════════════════════════
+    // شماره تماس — مسیر بازاری با عضویت، مسیر کاتالوگی آزاد
+    // ═══════════════════════════════════════
     async getContactInfo(adId: string, userId: string) {
         const ad = await this.prisma.ad.findUnique({
             where: { id: adId },
             include: {
-                arm: true,
-                business: {
+                arm: { select: { id: true, config: true } },
+                catalog: {
                     select: {
                         id: true,
                         phone: true,
                         name: true,
-                        ownerUserId: true,
-                        owner: {
-                            select: { phone: true },
-                        },
+                        business: { select: { owner: { select: { phone: true } } } },
                     },
                 },
             },
@@ -1049,12 +756,35 @@ export class AdService {
         if (!ad) throw new NotFoundException({ errorCode: 'AD_NOT_FOUND', message: 'آگهی یافت نشد' });
         if (ad.status !== 'active') throw new BadRequestException({ errorCode: 'AD_NOT_ACTIVE', message: 'این آگهی فعال نیست' });
 
+        await this.prisma.callEvent.create({
+            data: { adId: ad.id, callerId: userId, initiatedAt: new Date(), source: ad.armId ? 'direct' : 'catalog' },
+        });
+        await this.prisma.ad.update({ where: { id: adId }, data: { callCount: { increment: 1 } } });
+
+        const ownerPhone = (ad.catalog as any)?.business?.owner?.phone ?? null;
+
+        // ✅ آگهیِ فقط-کاتالوگی: شماره = اطلاعات عمومی کاتالوگ/نهاد — بدون چک عضویت
+        if (!ad.armId) {
+            const phone = ad.catalog.phone || ownerPhone;
+            if (!phone) {
+                throw new BadRequestException({ errorCode: 'NO_CONTACT', message: 'شماره تماس ثبت نشده است' });
+            }
+            return {
+                catalogName: ad.catalog.name,
+                phone,
+                ownerPhone,
+                remainingCalls: null,
+                dailyLimit: null,
+            };
+        }
+
+        // ─── مسیر بازاری ───
         const membership = await this.prisma.armMembership.findFirst({
             where: { armId: ad.armId, userId, status: 'active' },
         });
         if (!membership) throw new ForbiddenException({ errorCode: 'NOT_MEMBER', message: 'شما به این بازار نپیوسته اید.' });
 
-        const config = ad.arm.config as any || {};
+        const config = (ad.arm?.config as any) || {};
         const dailyCallLimit = config.features?.dailyCallLimit || 20;
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -1069,15 +799,10 @@ export class AdService {
             });
         }
 
-        await this.prisma.callEvent.create({
-            data: { adId: ad.id, callerId: userId, initiatedAt: new Date(), source: 'direct' },
-        });
-        await this.prisma.ad.update({ where: { id: adId }, data: { callCount: { increment: 1 } } });
-
         return {
-            businessName: ad.business.name,
-            phone: ad.business.phone || ad.business.owner?.phone || null,
-            ownerPhone: ad.business.owner?.phone || null,
+            catalogName: ad.catalog.name,
+            phone: ad.catalog.phone || ownerPhone,
+            ownerPhone,
             remainingCalls: dailyCallLimit - (callsToday + 1),
             dailyLimit: dailyCallLimit,
         };
@@ -1085,23 +810,30 @@ export class AdService {
 
     async bulkUpdate(userId: string, updates: { id: string; unitPrice: number }[]) {
         if (!updates || updates.length === 0) throw new BadRequestException('هیچ آگهی ارسال نشده است.');
-        const userBusinesses = await this.prisma.business.findMany({
+
+        // ✅ کاتالوگ‌های کاربر از مسیر نهادها
+        const userBizIds = (await this.prisma.business.findMany({
             where: { ownerUserId: userId, status: 'active' },
             select: { id: true },
+        })).map((b) => b.id);
+
+        const userCatalogs = await this.prisma.catalog.findMany({
+            where: { businessId: { in: userBizIds }, status: 'active' },
+            select: { id: true },
         });
-        const businessIds = userBusinesses.map(b => b.id);
+        const catalogIds = userCatalogs.map((b) => b.id);
 
         const ads = await this.prisma.ad.findMany({
-            where: { id: { in: updates.map(u => u.id) } },
-            select: { id: true, businessId: true },
+            where: { id: { in: updates.map((u) => u.id) } },
+            select: { id: true, catalogId: true },
         });
         for (const ad of ads) {
-            if (!businessIds.includes(ad.businessId)) {
+            if (!catalogIds.includes(ad.catalogId)) {
                 throw new ForbiddenException(`شما مالک آگهی ${ad.id} نیستید.`);
             }
         }
 
-        const updatePromises = updates.map(update =>
+        const updatePromises = updates.map((update) =>
             this.prisma.ad.update({
                 where: { id: update.id },
                 data: {
@@ -1110,7 +842,7 @@ export class AdService {
                     priceHistory: { push: { price: update.unitPrice, updatedAt: new Date().toISOString(), note: 'ویرایش گروهی قیمت' } },
                 },
                 select: { id: true, unitPrice: true },
-            })
+            }),
         );
         const results = await this.prisma.$transaction(updatePromises);
         return { message: `${results.length} آگهی به‌روزرسانی شد`, updatedAds: results };
@@ -1123,7 +855,7 @@ export class AdService {
         });
         if (!ad) throw new NotFoundException({ errorCode: 'AD_NOT_FOUND', message: 'آگهی یافت نشد' });
 
-        const config = ad.arm.config as any || {};
+        const config = (ad.arm?.config as any) || {};
         const interactionCost = config.economy?.interactionCosts || {};
         const cost = interactionCost[type] || 0;
 
@@ -1169,20 +901,14 @@ export class AdService {
 
         return { success: true, interaction, cost };
     }
+
     async isAdSaved(adId: string, userId: string | null) {
         if (!userId) return { isSaved: false };
-
         const saved = await this.prisma.adInteraction.findFirst({
-            where: {
-                adId,
-                userId,
-                type: 'save',
-            },
+            where: { adId, userId, type: 'save' },
         });
-
         return { isSaved: !!saved };
     }
-
 
     async getAdStats(adId: string) {
         const interactions = await this.prisma.adInteraction.groupBy({ by: ['type'], where: { adId }, _count: true });
@@ -1191,12 +917,12 @@ export class AdService {
         });
 
         const summary = {
-            totalViews: interactions.find(i => i.type === 'view')?._count || 0,
+            totalViews: interactions.find((i) => i.type === 'view')?._count || 0,
             uniqueViews: uniqueViews.length,
-            totalSaves: interactions.find(i => i.type === 'save')?._count || 0,
-            totalCalls: interactions.find(i => i.type === 'call')?._count || 0,
-            totalComments: interactions.find(i => i.type === 'comment')?._count || 0,
-            totalShares: interactions.find(i => i.type === 'share')?._count || 0,
+            totalSaves: interactions.find((i) => i.type === 'save')?._count || 0,
+            totalCalls: interactions.find((i) => i.type === 'call')?._count || 0,
+            totalComments: interactions.find((i) => i.type === 'comment')?._count || 0,
+            totalShares: interactions.find((i) => i.type === 'share')?._count || 0,
         };
 
         const interactionList = await this.prisma.adInteraction.findMany({
@@ -1234,36 +960,58 @@ export class AdService {
         };
     }
 
-// ✅ متد جدید مخصوص کاتالوگ
-    // src/ad/ad.service.ts
-
+    // ═══════════════════════════════════════
+    // لیست کالاهای یک کاتالوگ — search + statusFilter
+    // ═══════════════════════════════════════
     async getCatalogAds(
-        businessId: string,
+        catalogId: string,
         page: number = 1,
-        limit: number = 100,
+        limit: number = 10,
         search?: string,
+        statusFilter?: string,
     ) {
         const skip = (page - 1) * limit;
 
         const where: any = {
-            businessId,
+            catalogId,
             status: { not: 'deleted' },
         };
 
-        if (search) {
-            where.OR = [
-                { title: { contains: search, mode: 'insensitive' } },
-                { productType: { contains: search, mode: 'insensitive' } },
-            ];
+        const andConds: any[] = [];
+
+        if (statusFilter === 'active') {
+            andConds.push({ status: 'active', expiresAt: { gt: new Date() } });
+        } else if (statusFilter === 'pending') {
+            andConds.push({ status: { in: ['pending', 'rejected'] } });
+        } else if (statusFilter === 'archived') {
+            andConds.push({
+                OR: [
+                    { status: 'inactive' },
+                    { status: 'expired' },
+                    { status: 'active', expiresAt: { lt: new Date() } },
+                ],
+            });
         }
+
+        if (search) {
+            andConds.push({
+                OR: [
+                    { title: { contains: search, mode: 'insensitive' } },
+                    { productType: { contains: search, mode: 'insensitive' } },
+                ],
+            });
+        }
+
+        if (andConds.length) where.AND = andConds;
 
         const [ads, total] = await Promise.all([
             this.prisma.ad.findMany({
                 where,
                 include: {
                     unit: { select: { id: true, title: true, shortCode: true } },
-                    arm: { select: { id: true, slug: true, name: true } },
+                    arm: { select: { id: true, slug: true, name: true, categoryTree: true } },
                     files: {
+                        where: { relatedModel: 'Ad' },
                         select: { id: true, path: true, thumbnailPath: true, fieldKey: true },
                     },
                 },
@@ -1274,7 +1022,6 @@ export class AdService {
             this.prisma.ad.count({ where }),
         ]);
 
-        // ✅ مطمئن شو path مستقیم برگردد
         return {
             ads,
             total,
@@ -1287,14 +1034,12 @@ export class AdService {
         };
     }
 
+    // ═══════════════════════════════════════
+    // جستجو — لاگ/پیشنهاد/تاریخچه
+    // ═══════════════════════════════════════
 
-
-    //برای لاگ جستجوی کاربر
-
-    /** کش resolve کردن slug → id (TTL ده دقیقه) */
     private armIdCache = new Map<string, { id: string; at: number }>();
     private armIdCacheTtl = 10 * 60 * 1000;
-    /** throttle: آخرین لاگ هر (کاربر+بازار+ترم) */
     private lastLogAt = new Map<string, number>();
     private readonly LOG_THROTTLE_MS = 30_000;
 
@@ -1311,25 +1056,20 @@ export class AdService {
         return arm.id;
     }
 
-    /**
-     * ثبت لاگ جستجو — هرگز نباید مسیر کاربر را کند کند.
-     */
     async logSearch(userId: string | undefined, dto: SearchLogDto): Promise<void> {
-        // بدون await از دید caller — اما خطاها را قورت می‌دهیم
         void (async () => {
             try {
                 const term = FA_NORMALIZE(dto.term);
-                if (term.length < 2 || term.length > 60) return; // junk
+                if (term.length < 2 || term.length > 60) return;
 
                 const armId = await this.resolveArmId(dto.armSlug);
                 if (!armId) return;
 
-                // throttle درون‌حافظه‌ای: جلوی دوباره‌ثبت (StrictMode/رفرش/اسپم)
                 const key = `${userId ?? 'anon'}|${armId}|${term}`;
                 const now = Date.now();
                 if (now - (this.lastLogAt.get(key) ?? 0) < this.LOG_THROTTLE_MS) return;
                 this.lastLogAt.set(key, now);
-                if (this.lastLogAt.size > 5000) this.lastLogAt.clear(); // جلوگیری از رشد
+                if (this.lastLogAt.size > 5000) this.lastLogAt.clear();
 
                 await this.prisma.searchLog.create({
                     data: {
@@ -1346,10 +1086,6 @@ export class AdService {
         })();
     }
 
-    /**
-     * پیشنهاد جستجو: ترم‌های پرجستجو با تطابق پیشوند،
-     * به‌همراه تعداد جستجو و تعداد کاربر یکتا (exact، با aggregation).
-     */
     async searchSuggest(armSlug: string, q: string, limit = 8) {
         const term = FA_NORMALIZE(q);
         if (term.length < 2) return { suggestions: [] };
@@ -1357,7 +1093,7 @@ export class AdService {
         const armId = await this.resolveArmId(armSlug);
         if (!armId) return { suggestions: [] };
 
-        const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // ۳۰ روز
+        const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
         try {
             const result = await this.prisma.$runCommandRaw({
@@ -1366,16 +1102,16 @@ export class AdService {
                     {
                         $match: {
                             armId: { $oid: armId },
-                            term: { $regex: `^${escapeRegex(term)}` }, // prefix → از ایندکس [armId, term] استفاده می‌کند
+                            term: { $regex: `^${escapeRegex(term)}` },
                             createdAt: { $gte: { $date: since.toISOString() } },
-                            resultCount: { $gt: 0 }, // فقط ترم‌های نتیجه‌دار — تضمین «پیشنهاد خالی ندارد»
+                            resultCount: { $gt: 0 },
                         },
                     },
                     {
                         $group: {
                             _id: '$term',
                             searches: { $sum: 1 },
-                            users: { $addToSet: '$userId' }, // userId ها (null هم ممکن است باشد)
+                            users: { $addToSet: '$userId' },
                         },
                     },
                     {
@@ -1383,7 +1119,6 @@ export class AdService {
                             _id: 0,
                             term: '$_id',
                             searches: 1,
-                            // تعداد کاربران یکتا = اندازهٔ set منهای null (مهمان‌ها)
                             userCount: {
                                 $cond: [
                                     { $in: [null, '$users'] },
@@ -1402,12 +1137,10 @@ export class AdService {
             const rows: any[] = (result as any)?.cursor?.firstBatch ?? [];
             return { suggestions: rows };
         } catch {
-            // اگر aggregation به هر دلیلی شکست خورد، خالی برگرد — فرانت fallback دارد
             return { suggestions: [] };
         }
     }
 
-    /** تاریخچه شخصی: آخرین ترم‌های یکتای کاربر (dedup در حافظه روی ۱۰۰ رکورد اخیر) */
     async searchHistory(userId: string, armSlug?: string, take = 10) {
         const armId = armSlug ? await this.resolveArmId(armSlug) : null;
         const logs = await this.prisma.searchLog.findMany({
@@ -1436,11 +1169,179 @@ export class AdService {
         return { success: true, deleted: res.count };
     }
 
-    /** پاک‌سازی دوره‌ای: لاگِ بالای ۹۰ روز (اختیاری — با @nestjs/schedule شبانه صدا بزن) */
     async purgeOldSearchLogs(days = 90) {
         const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
         const res = await this.prisma.searchLog.deleteMany({ where: { createdAt: { lt: cutoff } } });
         return { deleted: res.count };
     }
 
+    // ═══════════════════════════════════════
+    // اعلان‌های مشتق
+    // ═══════════════════════════════════════
+    async derivedNotifications(userId: string) {
+        const userBizIds = (await this.prisma.business.findMany({
+            where: { ownerUserId: userId, status: 'active' },
+            select: { id: true },
+        })).map((b) => b.id);
+
+        const catalogs = await this.prisma.catalog.findMany({
+            where: { businessId: { in: userBizIds }, status: 'active' },
+            select: { id: true, name: true, slug: true, logoUrl: true, phone: true, shortDescription: true, industryName: true },
+        });
+
+        const now = new Date();
+        const soon = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+        const items: any[] = [];
+        const catalogIds: string[] = [];
+
+        for (const b of catalogs) {
+            catalogIds.push(b.id);
+
+            const expiring = await this.prisma.ad.findMany({
+                where: {
+                    catalogId: b.id,
+                    status: 'active',
+                    OR: [{ expiresAt: { lte: soon } }],
+                },
+                select: { id: true, productType: true, title: true, expiresAt: true },
+                orderBy: { expiresAt: 'asc' },
+                take: 20,
+            });
+
+            for (const ad of expiring) {
+                const expired = new Date(ad.expiresAt).getTime() <= now.getTime();
+                items.push({
+                    id: `exp-${ad.id}`,
+                    type: 'price-expired',
+                    severity: expired ? 'danger' : 'warning',
+                    title: expired
+                        ? `قیمت «${ad.productType || ad.title}» تمام شده`
+                        : `اعتبار قیمت «${ad.productType || ad.title}» تا امشب تمام می‌شود`,
+                    action: { label: expired ? 'تازه‌سازی قیمت' : 'دیدن', href: `/my-catalogs?catalog=${b.id}` },
+                    catalogId: b.id,
+                });
+            }
+
+            if (!b.slug) {
+                items.push({
+                    id: `noslug-${b.id}`,
+                    type: 'incomplete',
+                    severity: 'warning',
+                    title: `«${b.name}» آدرس اختصاصی ندارد — برای اشتراک‌گذاری تنظیمش کن`,
+                    action: { label: 'تنظیم آدرس', href: `/my-catalogs?catalog=${b.id}` },
+                    catalogId: b.id,
+                });
+            }
+            if (!b.logoUrl) {
+                items.push({
+                    id: `nologo-${b.id}`,
+                    type: 'incomplete',
+                    severity: 'info',
+                    title: `«${b.name}» لوگو ندارد — کاتالوگ با لوگو اعتماد بیشتری می‌گیرد`,
+                    action: { label: 'افزودن لوگو', href: `/my-catalogs?catalog=${b.id}` },
+                    catalogId: b.id,
+                });
+            }
+        }
+
+        const memberships = await this.prisma.armMembership.findMany({
+            where: { userId, catalogId: { in: catalogIds.length ? catalogIds : ['__none__'] } },
+            select: {
+                status: true, catalogId: true, roleType: true, publishState: true,
+                joinedAt: true,
+                arm: { select: { name: true, slug: true } },
+            },
+        });
+
+        // ═══ ✅ NEW — عضویتِ تازهٔ فروشنده: جشنِ عضویت (۴۸ ساعت اول) ═══
+        const freshSellerMemberships = memberships.filter((m) =>
+            m.roleType === 'seller' &&
+            m.status === 'active' &&
+            m.publishState === 'published' &&
+            Date.now() - new Date(m.joinedAt).getTime() < 48 * 60 * 60 * 1000,
+        );
+        for (const m of freshSellerMemberships) {
+            items.unshift({
+                id: `joined-${m.catalogId}-${m.arm.slug}`,
+                type: 'membership',
+                severity: 'success',
+                title: `🎉 کاتالوگت فروشندهٔ ${m.arm.name} شد!`,
+                body: 'کالاهات حالا کنار رقیب‌هات روی تابلوی قیمت دیده می‌شوند — برای پیدا شدن در فیلترها، دسته‌بندی بازار را برایشان انتخاب کن',
+                action: { label: 'تنظیم دسته‌ها', href: `/my-catalogs?catalog=${m.catalogId}&filter=uncat` },
+                catalogId: m.catalogId,
+            });
+        }
+
+        // ═══ ✅ NEW — عضویتِ تازهٔ خریدار ═══
+        const freshBuyerMemberships = memberships.filter((m) =>
+            m.roleType === 'buyer' &&
+            m.status === 'active' &&
+            Date.now() - new Date(m.joinedAt).getTime() < 48 * 60 * 60 * 1000,
+        );
+        for (const m of freshBuyerMemberships) {
+            items.unshift({
+                id: `buyer-${m.catalogId}-${m.arm.slug}`,
+                type: 'membership-buyer',
+                severity: 'success',
+                title: `به ${m.arm.name} خوش آمدی!`,
+                body: 'حالا قیمت‌های روز همهٔ فروشندگان این بازار را می‌بینی — مقایسه کن و مستقیم تماس بگیر',
+                action: { label: 'دیدن تابلو', href: `/${m.arm.slug}` },
+                catalogId: m.catalogId,
+            });
+        }
+
+        // کاتالوگ‌های منتشرنشده
+        for (const b of catalogs) {
+            const has = memberships.some((m) => m.catalogId === b.id && m.status === 'active');
+            if (!has && catalogIds.length) {
+                items.push({
+                    id: `nopub-${b.id}`,
+                    type: 'unpublished',
+                    severity: 'info',
+                    title: `«${b.name}» در هیچ بازاری منتشر نشده`,
+                    action: { label: 'انتشار', href: `/my-catalogs?catalog=${b.id}` },
+                    catalogId: b.id,
+                });
+            }
+        }
+
+        // کالاهای منتشرشدهٔ بی‌دسته در بازار
+        const memberCatIds = memberships
+            .filter((m) => m.status === 'active' && m.catalogId)
+            .map((m) => m.catalogId!);
+        if (memberCatIds.length) {
+            const needCatAds = await this.prisma.ad.findMany({
+                where: {
+                    catalogId: { in: memberCatIds },
+                    armId: { not: null },
+                    status: 'active',
+                    categoryId: null,
+                    catalogCategoryId: { not: null },
+                },
+                select: { catalogId: true, arm: { select: { name: true, slug: true } } },
+                take: 500,
+            });
+            const perCat = new Map<string, { count: number; armName: string }>();
+            for (const a of needCatAds) {
+                const cur = perCat.get(a.catalogId) ?? { count: 0, armName: (a.arm as any)?.name ?? 'بازار' };
+                perCat.set(a.catalogId, { count: cur.count + 1, armName: cur.armName });
+            }
+            const slugOf = new Map(catalogs.map((b) => [b.id, b.slug]));
+            for (const [catId, info] of perCat) {
+                items.push({
+                    id: `needcat-${catId}`,
+                    type: 'market-setup',
+                    severity: 'warning',
+                    title: `${info.count.toLocaleString('fa-IR')} کالای تو در ${info.armName} دسته‌بندی نشده است`,
+                    body: 'برای اینکه در فیلترها و جستجوی بازار پیدا شوی، دسته‌بندی بازار را برای این کالاها انتخاب کن',
+                    action: { label: 'تنظیم دسته‌ها', href: `/my-catalogs?catalog=${catId}&filter=uncat` },
+                    catalogId: catId,
+                });
+            }
+        }
+
+        const unread = items.filter((i) => i.severity !== 'info').length;
+        return { items, unread };
+    }
 }

@@ -9,7 +9,7 @@ import {
     IsDateString,
     IsIn, IsObject, IsInt
 } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import {ApiProperty, ApiPropertyOptional} from '@nestjs/swagger';
 
 // ============================================================
 // ثبت‌نام
@@ -40,6 +40,12 @@ export class RegisterDto {
     @IsNotEmpty({ message: 'رمز عبور الزامی است' })
     @MinLength(6, { message: 'رمز عبور باید حداقل ۶ کاراکتر باشد' })
     password: string;
+
+    @ApiPropertyOptional({ example: 'AB3xKm9Q', description: 'کد دعوت (در صورت ورود از لینک رفرال‌دار)', required: false })
+    @IsOptional()
+    @IsString()
+    @MaxLength(16)
+    refCode?: string;
 }
 
 // ============================================================
@@ -133,7 +139,7 @@ export class UpdateProfileDto {
     @ApiProperty({ example: 1385, description: 'سال شروع فعالیت تجاری', required: false })
     @IsOptional()
     @IsInt()
-    businessStartYear?: number;
+    catalogStartYear?: number;
 
     @ApiProperty({ example: 'https://mycompany.com', required: false })
     @IsOptional()

@@ -12,8 +12,8 @@ export enum ArmRole {
     arm_member = 'arm_member',
 }
 
-export enum BusinessRole {
-    business_owner = 'business_owner',
-    business_admin = 'business_admin',
-    business_seller = 'business_seller',
+export enum CatalogRole {
+    catalog_owner = 'catalog_owner',
+    catalog_admin = 'catalog_admin',
+    catalog_seller = 'catalog_seller',
 }

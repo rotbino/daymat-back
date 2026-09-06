@@ -158,7 +158,7 @@ export class CreditService {
                     await prisma.credit.create({
                         data: {
                             userId: transaction.userId,
-                            businessId: transaction.businessId,
+                            catalogId: transaction.catalogId,
                             armId: transaction.armId,
                             amount: transaction.amount,
                             currency: transaction.currency || 'IRR',
@@ -217,11 +217,11 @@ export class CreditService {
 
 
 // ============================================================
-// 4. مصرف اعتبار (با تفکیک Business)
+// 4. مصرف اعتبار (با تفکیک Catalog)
 // ============================================================
     async spendCredit(
         userId: string,
-        businessId: string | undefined,
+        catalogId: string | undefined,
         amount: number,
         transactionType: string,
         description: string,
@@ -240,7 +240,7 @@ export class CreditService {
         return this.prisma.credit.create({
             data: {
                 userId: userId,
-                businessId: businessId || null,
+                catalogId: catalogId || null,
                 armId: null,
                 amount: 0,                              // ← مبلغ صفر (مصرف اعتبار)
                 currency: 'IRR',                        // ← واحد پول
@@ -270,7 +270,7 @@ export class CreditService {
             take: limit,
             skip: offset,
             include: {
-                business: {
+                catalog: {
                     select: { id: true, name: true },
                 },
             },
@@ -291,12 +291,12 @@ export class CreditService {
     }
 
     // ============================================================
-    // 6. گزارش مصرف هر Business
+    // 6. گزارش مصرف هر Catalog
     // ============================================================
-    async getBusinessConsumption(businessId: string) {
+    async getCatalogConsumption(catalogId: string) {
         const result = await this.prisma.credit.aggregate({
             where: {
-                businessId,
+                catalogId,
                 amount: { lt: 0 },
             },
             _sum: { amount: true },
@@ -346,7 +346,7 @@ export class CreditService {
                 user: {
                     select: { id: true, fullName: true, phone: true },
                 },
-                business: {
+                catalog: {
                     select: { id: true, name: true },
                 },
             },
@@ -889,18 +889,12 @@ export class CreditService {
 
 
 
-// ============================================================
-//  پرداخت کارت به کارت (فیشی)
-// ============================================================
-    // src/credit/credit.service.ts
-
-    // src/credit/credit.service.ts
-
-    // src/credit/credit.service.ts - initiateManualPurchase
-
+    // ============================================================
+    // پرداخت کارت به کارت (فیشی) — مالکیت از مسیر نهاد
+    // ============================================================
     async initiateManualPurchase(
         userId: string,
-        businessId: string,
+        catalogId: string,
         amount: number,
         armId?: string,
         receiptImage?: string,
@@ -909,14 +903,24 @@ export class CreditService {
         creditPrice?: number,
         currency?: string,
     ) {
-        // ۱. بررسی کسب‌وکار
-        const business = await this.prisma.business.findFirst({
-            where: { id: businessId, ownerUserId: userId },
+        // ۱. بررسی کاتالوگ — مالکیت از مسیر نهاد
+        const catalog = await this.prisma.catalog.findUnique({
+            where: { id: catalogId },
+            select: {
+                id: true,
+                business: { select: { ownerUserId: true } },
+            },
         });
-        if (!business) {
+        if (!catalog) {
             throw new NotFoundException({
-                errorCode: 'BUSINESS_NOT_FOUND',
-                message: 'کسب‌وکار یافت نشد',
+                errorCode: 'CATALOG_NOT_FOUND',
+                message: 'کاتالوگ یافت نشد',
+            });
+        }
+        if ((catalog.business as any).ownerUserId !== userId) {
+            throw new ForbiddenException({
+                errorCode: 'FORBIDDEN',
+                message: 'شما به این کاتالوگ دسترسی ندارید',
             });
         }
 
@@ -958,11 +962,11 @@ export class CreditService {
         const finalCreditCount = creditCount || Math.floor(amount / finalCreditPrice);
         const finalCreditPriceValue = creditPrice || (creditCount ? amount / creditCount : finalCreditPrice);
 
-        // ۵. ✅ ایجاد درخواست خرید دستی (بدون واریز اعتبار)
+        // ۵. ایجاد درخواست خرید دستی (بدون واریز اعتبار)
         const request = await this.prisma.creditRequest.create({
             data: {
                 userId,
-                businessId,
+                catalogId,
                 armId: armId || null,
                 amount,
                 status: 'pending',
@@ -976,7 +980,7 @@ export class CreditService {
                     paymentMethod: 'manual',
                     paymentMode: 'manual',
                     user_id: userId,
-                    business_id: businessId,
+                    catalog_id: catalogId,
                     requested_at: new Date().toISOString(),
                 },
             },
@@ -1023,7 +1027,7 @@ export class CreditService {
                         phone: true,
                     },
                 },
-                business: {
+                catalog: {
                     select: {
                         id: true,
                         name: true,

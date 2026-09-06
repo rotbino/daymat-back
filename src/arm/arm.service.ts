@@ -7,18 +7,21 @@ import {
     ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateArmDto,  } from './dto/create-arm.dto';
+import { CreateArmDto, } from './dto/create-arm.dto';
 import { LocationService } from '../location/location.service';
 import { SystemRole } from "src/common/enums/prisma-enums";
+import { CatalogPublishService } from "../common/services/catalog-publish.service";
+
 @Injectable()
 export class ArmService {
     constructor(
         private prisma: PrismaService,
         private locationService: LocationService,
+        private catalogPublish: CatalogPublishService,
     ) {}
 
     // ============================================================
-    // 1. ایجاد بازاری جدید (فقط مدیران سیستم)
+    // 1. ایجاد بازاری جدید
     // ============================================================
     async create(userId: string, dto: CreateArmDto) {
         if (dto.customDomain) {
@@ -43,11 +46,10 @@ export class ArmService {
             });
         }
 
-        // بررسی موقعیت‌ها
         if (dto.config.locationSelections && dto.config.locationSelections.length > 0) {
             const locations = await this.prisma.location.findMany({
                 where: {
-                    id: { in: dto.config.locationSelections.map(l => l.locationId) },
+                    id: { in: dto.config.locationSelections.map((l) => l.locationId) },
                     isActive: true,
                 },
             });
@@ -59,10 +61,8 @@ export class ArmService {
             }
         }
 
-        // ✅ ساخت locationTree
         const locationTree = await this.buildLocationTreeFromConfig(dto.config);
 
-        // ایجاد بازار با تراکنش
         const arm = await this.prisma.$transaction(async (prisma) => {
             const newArm = await prisma.arm.create({
                 data: {
@@ -84,7 +84,6 @@ export class ArmService {
                     featuresEnabled: dto.featuresEnabled || [],
                     rankingAlgorithm: dto.rankingAlgorithm || 'simple',
                     metadata: dto.metadata || null,
-                    // ✅ categoryTree خالی
                     categoryTree: [],
                     config: {
                         ...dto.config,
@@ -110,7 +109,10 @@ export class ArmService {
     }
 
     // ============================================================
-    // 2. دریافت بازار با slug
+    // 2. دریافت بازار با slug — بدون وابستگی به رلیشن‌های حساس
+    // ============================================================
+    // ============================================================
+    // 2. دریافت بازار با slug — بدون رلیشن‌های حساس؛ مهمان هم ۲۰۰ می‌گیرد
     // ============================================================
     async findBySlug(slug: string, userId?: string) {
         const arm = await this.prisma.arm.findUnique({
@@ -135,7 +137,6 @@ export class ArmService {
         const config = arm.config as any || {};
         const general = config.general || {};
 
-        // پیدا کردن لوگو
         let logoFile = null;
         if (general.logoFileId) {
             logoFile = await this.prisma.file.findFirst({
@@ -148,7 +149,6 @@ export class ArmService {
                 select: { id: true, path: true, thumbnailPath: true, fieldKey: true },
             });
         }
-
         if (!logoFile) {
             logoFile = await this.prisma.file.findFirst({
                 where: {
@@ -169,28 +169,20 @@ export class ArmService {
             select: { id: true, path: true, thumbnailPath: true, fieldKey: true },
         });
 
-        // ✅ categoryTree مستقیم از فیلد سطح بالا
         const categoryTree = arm.categoryTree || [];
 
-        // ✅ allowedCategoryScopeTree - اول از فیلد سطح بالا، بعد از داخل config
-        // چون ممکنه داده‌های قدیمی داخل config ذخیره شده باشن
         const allowedCategoryScopeTree = arm.allowedCategoryScopeTree ||
             config.allowedCategoryScopeTree || [];
 
-        // ✅ اگر allowedCategoryScopeTree داخل config بود ولی در فیلد سطح بالا نبود،
-        // مهاجرت داده به فیلد سطح بالا (آپدیت خودکار)
         if (!arm.allowedCategoryScopeTree && config.allowedCategoryScopeTree) {
             await this.prisma.arm.update({
                 where: { id: arm.id },
                 data: {
                     allowedCategoryScopeTree: config.allowedCategoryScopeTree,
                 },
-            }).catch(() => {
-                // اگر آپدیت شکست خورد، مشکلی نیست، داده رو از config می‌خونیم
-            });
+            }).catch(() => {});
         }
 
-        // ✅ locationTree از cached یا rebuild
         let locationTree = config._cachedLocationTree;
         if (!locationTree) {
             locationTree = await this.buildLocationTreeFromConfig(config);
@@ -205,6 +197,7 @@ export class ArmService {
             });
         }
 
+        // ✅ مالکیت — کوئری مستقل، بدون رلیشن تودرتو (مهمان هم امن)
         let isArmOwner = false;
         let isSystemAdmin = false;
 
@@ -229,7 +222,6 @@ export class ArmService {
             isSystemAdmin = user?.role === SystemRole.system_admin;
         }
 
-        // ✅ پاک‌سازی config از فیلدهایی که به سطح بالا منتقل شدن
         const {
             allowedCategoryScopeTree: _removedFromConfig,
             categorySelections: _removedCategorySelections,
@@ -287,7 +279,6 @@ export class ArmService {
         const config = arm.config as any || {};
         const general = config.general || {};
 
-        // پیدا کردن لوگو
         let logoFile = null;
         if (general.logoFileId) {
             logoFile = await this.prisma.file.findFirst({
@@ -300,7 +291,6 @@ export class ArmService {
                 select: { id: true, path: true, thumbnailPath: true, fieldKey: true },
             });
         }
-
         if (!logoFile) {
             logoFile = await this.prisma.file.findFirst({
                 where: {
@@ -321,14 +311,11 @@ export class ArmService {
             select: { id: true, path: true, thumbnailPath: true, fieldKey: true },
         });
 
-        // ✅ categoryTree مستقیم از فیلد سطح بالا
         const categoryTree = arm.categoryTree || [];
 
-        // ✅ allowedCategoryScopeTree - اول از فیلد سطح بالا، بعد از داخل config
         const allowedCategoryScopeTree = arm.allowedCategoryScopeTree ||
             config.allowedCategoryScopeTree || [];
 
-        // ✅ مهاجرت خودکار داده
         if (!arm.allowedCategoryScopeTree && config.allowedCategoryScopeTree) {
             await this.prisma.arm.update({
                 where: { id: arm.id },
@@ -338,7 +325,6 @@ export class ArmService {
             }).catch(() => {});
         }
 
-        // ✅ locationTree
         let locationTree = config._cachedLocationTree;
         if (!locationTree) {
             locationTree = await this.buildLocationTreeFromConfig(config);
@@ -353,7 +339,6 @@ export class ArmService {
             });
         }
 
-        // ✅ پاک‌سازی config
         const {
             allowedCategoryScopeTree: _removedFromConfig,
             categorySelections: _removedCategorySelections,
@@ -384,7 +369,7 @@ export class ArmService {
     }
 
     // ============================================================
-    // 4. لیست بازارهای کاربر
+    // 4. لیست بازارهای کاربر — null-safe برای عضویتِ بی-کاتالوگ
     // ============================================================
     async getUserArms(userId: string) {
         const memberships = await this.prisma.armMembership.findMany({
@@ -392,11 +377,12 @@ export class ArmService {
             select: {
                 role: true,
                 status: true,
+                publishState: true,
                 rejectionReason: true,
                 joinedAt: true,
                 roleType: true,
-                businessId: true,
-                business: {
+                catalogId: true,
+                catalog: {
                     select: { id: true, name: true, type: true },
                 },
                 arm: {
@@ -407,7 +393,7 @@ export class ArmService {
                         slogan: true,
                         colorPrimary: true,
                         config: true,
-                        categoryTree: true, // ✅ اضافه
+                        categoryTree: true,
                     },
                 },
             },
@@ -416,7 +402,7 @@ export class ArmService {
 
         if (memberships.length === 0) return [];
 
-        const armIds = memberships.map(m => m.arm.id);
+        const armIds = memberships.map((m) => m.arm.id);
 
         const logoFiles = await this.prisma.file.findMany({
             where: {
@@ -448,12 +434,15 @@ export class ArmService {
                 logoUrl: logoUrl,
                 role: m.role,
                 status: m.status,
+                catalogId: m.catalogId,
+                publishState: m.catalogId ? m.publishState : null,
                 rejectionReason: m.rejectionReason,
                 joinedAt: m.joinedAt,
                 roleType: m.roleType,
-                businessId: m.businessId,
-                business: m.business,
-                categoryTree: m.arm.categoryTree || [], // ✅ اضافه
+                catalog: m.catalog
+                    ? { id: m.catalog.id, name: m.catalog.name, type: m.catalog.type }
+                    : null,
+                categoryTree: m.arm.categoryTree || [],
             });
         }
 
@@ -461,9 +450,9 @@ export class ArmService {
     }
 
     // ============================================================
-    // 5. پیوستن به بازار
+    // 5. پیوستن به بازار — دو-مرحله‌ای
     // ============================================================
-    async join(userId: string, slug: string, roleType?: 'seller' | 'buyer', businessId?: string) {
+    async join(userId: string, slug: string, roleType?: 'seller' | 'buyer', catalogId?: string, businessId?: string) {
         const arm = await this.prisma.arm.findUnique({ where: { slug } });
         if (!arm) {
             throw new NotFoundException({
@@ -473,27 +462,34 @@ export class ArmService {
         }
 
         const config = arm.config as any || {};
-        const requireBusiness = config.accessRules?.requireBusinessForMembership ?? false;
+        const requireCatalog = config.accessRules?.requireCatalogForMembership ?? false;
         const requireApproval = config.accessRules?.requireAdminApprovalForMembership ?? false;
 
-        if (requireBusiness && !businessId) {
-            throw new BadRequestException({
-                errorCode: 'BUSINESS_REQUIRED',
-                message: 'برای پیوستن به این بازار، ابتدا باید کسب‌وکار خود را انتخاب کنید.',
+        let resolvedBusinessId = businessId || null;
+        if (catalogId) {
+            const catalog = await this.prisma.catalog.findUnique({
+                where: { id: catalogId },
+                select: {
+                    id: true,
+                    name: true,
+                    business: { select: { id: true, ownerUserId: true } },
+                },
             });
-        }
-
-        if (businessId) {
-            const business = await this.prisma.business.findFirst({
-                where: { id: businessId, ownerUserId: userId },
-                select: { id: true, name: true },
-            });
-            if (!business) {
+            if (!catalog || (catalog.business as any).ownerUserId !== userId) {
                 throw new BadRequestException({
                     errorCode: 'BUSINESS_NOT_FOUND',
-                    message: 'کسب‌وکار یافت نشد یا متعلق به شما نیست',
+                    message: 'کاتالوگ یافت نشد یا متعلق به شما نیست',
                 });
             }
+            resolvedBusinessId = (catalog.business as any).id;
+        }
+
+        if (!resolvedBusinessId) {
+            const firstBiz = await this.prisma.business.findFirst({
+                where: { ownerUserId: userId, status: 'active' },
+                select: { id: true },
+            });
+            resolvedBusinessId = firstBiz?.id ?? null;
         }
 
         const existing = await this.prisma.armMembership.findFirst({
@@ -503,7 +499,7 @@ export class ArmService {
         const finalStatus = requireApproval ? 'pending' : 'active';
 
         if (existing) {
-            if (existing.status === 'active' && existing.businessId) {
+            if (existing.status === 'active' && existing.catalogId) {
                 throw new BadRequestException({
                     errorCode: 'ALREADY_MEMBER',
                     message: 'شما قبلاً به این بازار پیوسته‌اید',
@@ -517,7 +513,8 @@ export class ArmService {
                     rejectionReason: null,
                     joinedAt: new Date(),
                     roleType: roleType || existing.roleType || null,
-                    businessId: businessId || existing.businessId,
+                    catalogId: catalogId || existing.catalogId,
+                    businessId: resolvedBusinessId || existing.businessId,
                     source: 'manual',
                 },
             });
@@ -527,10 +524,11 @@ export class ArmService {
             data: {
                 armId: arm.id,
                 userId: userId,
+                businessId: resolvedBusinessId,
                 status: finalStatus,
                 role: 'arm_member',
                 roleType: roleType || null,
-                businessId: businessId || null,
+                catalogId: catalogId || null,
                 source: 'manual',
             },
         });
@@ -564,6 +562,10 @@ export class ArmService {
                 errorCode: 'ADMIN_CANNOT_LEAVE',
                 message: 'مدیر بازار نمی‌تواند از بازار خارج شود.',
             });
+        }
+
+        if (membership.catalogId) {
+            await this.catalogPublish.unstampCatalogAds(membership.catalogId, arm.id);
         }
 
         return this.prisma.armMembership.update({
@@ -662,13 +664,12 @@ export class ArmService {
         if (dto.rankingAlgorithm) updateData.rankingAlgorithm = dto.rankingAlgorithm;
         if (dto.metadata !== undefined) updateData.metadata = dto.metadata;
 
-        // ✅ ذخیره categoryTree
         if ((dto as any).categoryTree !== undefined) {
             updateData.categoryTree = (dto as any).categoryTree;
         }
 
         if (dto.config) {
-            const locationIds = dto.config.locationSelections?.map(l => l.locationId) || [];
+            const locationIds = dto.config.locationSelections?.map((l) => l.locationId) || [];
             if (locationIds.length > 0) {
                 const locations = await this.prisma.location.findMany({
                     where: { id: { in: locationIds }, isActive: true },
@@ -683,12 +684,10 @@ export class ArmService {
 
             let updatedConfig = { ...dto.config };
 
-            // ✅ حذف categorySelections و _cachedCategoryTree از config
             delete updatedConfig.categorySelections;
             delete updatedConfig._cachedCategoryTree;
             delete updatedConfig._treeUpdatedAt;
 
-            // ✅ locationTree فقط اگه تغییر کرده
             const oldConfig = arm.config as any || {};
             const oldLocationSelections = oldConfig.locationSelections || [];
             const newLocationSelections = updatedConfig.locationSelections || [];
@@ -877,7 +876,7 @@ export class ArmService {
                 });
             }
 
-            const selection = selections.find(s => s.locationId === city.id);
+            const selection = selections.find((s) => s.locationId === city.id);
             provinceMap.get(province.id).children.push({
                 id: city.id,
                 title: city.title,
@@ -947,5 +946,111 @@ export class ArmService {
             message: 'بازار و تمام وابسته‌های آن با موفقیت حذف شدند',
             deletedArm: { id: arm.id, slug: arm.slug, name: arm.name },
         };
+    }
+
+    // ============================================================
+    // 16. سوییچ انتشار صاحب کاتالوگ — مالکیت از مسیر نهاد
+    // ============================================================
+    async toggleCatalogPublish(userId: string, slug: string, catalogId: string, published: boolean) {
+        const arm = await this.prisma.arm.findUnique({
+            where: { slug },
+            select: { id: true, name: true, categoryTree: true },
+        });
+        if (!arm) {
+            throw new NotFoundException({ errorCode: 'ARM_NOT_FOUND', message: 'بازار یافت نشد' });
+        }
+
+        const catalog = await this.prisma.catalog.findUnique({
+            where: { id: catalogId },
+            select: {
+                id: true,
+                business: { select: { ownerUserId: true } },
+            },
+        });
+        if (!catalog || (catalog.business as any).ownerUserId !== userId) {
+            throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'فقط مالک کاتالوگ' });
+        }
+
+        const membership = await this.prisma.armMembership.findUnique({
+            where: { armId_userId: { armId: arm.id, userId } },
+        });
+        if (!membership || membership.catalogId !== catalogId) {
+            throw new BadRequestException({ errorCode: 'NOT_MEMBER', message: 'این کاتالوگ عضو این بازار نیست' });
+        }
+
+        if (published) {
+            if (membership.status !== 'active') {
+                throw new BadRequestException({
+                    errorCode: 'MEMBERSHIP_PAUSED',
+                    message: 'عضویت شما در این بازار توسط مدیر بازار متوقف شده است',
+                });
+            }
+            const stamp = await this.catalogPublish.stampCatalogAds(arm, catalogId);
+            const updated = await this.prisma.armMembership.update({
+                where: { id: membership.id },
+                data: { publishState: 'published' },
+            });
+            return { membership: updated, ...stamp };
+        }
+
+        await this.catalogPublish.unstampCatalogAds(catalogId, arm.id);
+        const updated = await this.prisma.armMembership.update({
+            where: { id: membership.id },
+            data: { publishState: 'paused' },
+        });
+        return { membership: updated };
+    }
+
+    // ============================================================
+    // 17. بازارهای فعال عمومی
+    // ============================================================
+    async suggestedArms(catalogId?: string, userId?: string, limit = 6) {
+        const excludeArmIds: string[] = [];
+
+        if (catalogId) {
+            const catalogMemberships = await this.prisma.armMembership.findMany({
+                where: { catalogId },
+                select: { armId: true },
+            });
+            excludeArmIds.push(...catalogMemberships.map((m) => m.armId));
+        }
+
+        if (userId) {
+            const myMemberships = await this.prisma.armMembership.findMany({
+                where: { userId },
+                select: { armId: true },
+            });
+            excludeArmIds.push(...myMemberships.map((m) => m.armId));
+        }
+
+        const arms = await this.prisma.arm.findMany({
+            where: {
+                status: 'active',
+                visibility: 'public',
+                ...(excludeArmIds.length ? { id: { notIn: excludeArmIds } } : {}),
+            },
+            select: {
+                id: true,
+                slug: true,
+                name: true,
+                shortName: true,
+                slogan: true,
+                logoUrl: true,
+                icon: true,
+                _count: {
+                    select: {
+                        memberships: true,
+                        ads: true,
+                    },
+                },
+            },
+            take: Math.min(limit * 3, 30),
+        });
+
+        arms.sort((a: any, b: any) =>
+            (b._count?.memberships ?? 0) - (a._count?.memberships ?? 0),
+        );
+
+        return { items: arms.slice(0, limit) };
     }
 }

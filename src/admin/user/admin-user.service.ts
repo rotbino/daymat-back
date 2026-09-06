@@ -1,8 +1,7 @@
 // src/admin/user/admin-user.service.ts
-import {BadRequestException, Injectable, NotFoundException} from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import {ArmRole} from "../../common/enums/prisma-enums";
-
+import { ArmRole } from '../../common/enums/prisma-enums';
 
 @Injectable()
 export class AdminUserService {
@@ -46,8 +45,8 @@ export class AdminUserService {
         // جستجوی متن
         if (search) {
             where.OR = [
-                { fullName: { contains: search, mode: 'insensitive' } },
-                { phone: { contains: search, mode: 'insensitive' } },
+                { fullName: { contains: search } },
+                { phone: { contains: search } },
             ];
         }
 
@@ -65,12 +64,12 @@ export class AdminUserService {
         if (isPhoneVerified === 'true') where.isPhoneVerified = true;
         if (isPhoneVerified === 'false') where.isPhoneVerified = false;
 
-        // فیلتر پیوستن به
+        // فیلتر سطح عضویت
         if (membershipTier && membershipTier !== 'all') {
             where.membershipTier = membershipTier;
         }
 
-        // فیلتر بازه زمانی پیوستن به
+        // فیلتر بازه زمانی
         if (startDate || endDate) {
             where.createdAt = {};
             if (startDate) where.createdAt.gte = new Date(startDate);
@@ -78,14 +77,13 @@ export class AdminUserService {
         }
 
         // فیلتر بر اساس بازار
-        let armFilter: any = {};
         if (armSlug && armSlug !== 'all') {
             const arm = await this.prisma.arm.findUnique({
                 where: { slug: armSlug },
                 select: { id: true },
             });
             if (arm) {
-                armFilter = { armMemberships: { some: { armId: arm.id } } };
+                where.armMemberships = { some: { armId: arm.id } };
             }
         }
 
@@ -102,7 +100,7 @@ export class AdminUserService {
 
         const [items, total] = await Promise.all([
             this.prisma.user.findMany({
-                where: { ...where, ...armFilter },
+                where,
                 skip,
                 take: Number(limit),
                 select: {
@@ -117,6 +115,7 @@ export class AdminUserService {
                     membershipTier: true,
                     lastLoginAt: true,
                     createdAt: true,
+                    // ✅ شمارنده‌ها — catalogs (نه cataloges) + businessها
                     _count: {
                         select: {
                             businesses: true,
@@ -128,7 +127,7 @@ export class AdminUserService {
                 },
                 orderBy: orderByMap[sortBy] || { createdAt: 'desc' },
             }),
-            this.prisma.user.count({ where: { ...where, ...armFilter } }),
+            this.prisma.user.count({ where }),
         ]);
 
         // محاسبه آمار
@@ -167,6 +166,9 @@ export class AdminUserService {
     // ============================================================
     // جزئیات کامل یک کاربر
     // ============================================================
+    // ============================================================
+    // جزئیات کامل یک کاربر
+    // ============================================================
     async getUserDetail(userId: string) {
         const user = await this.prisma.user.findUnique({
             where: { id: userId },
@@ -185,26 +187,30 @@ export class AdminUserService {
                 lastLoginAt: true,
                 createdAt: true,
                 updatedAt: true,
+                // ✅ نهادهای تجاری کاربر (تیک اعتماد اینجاست)
                 businesses: {
                     select: {
                         id: true,
                         name: true,
                         type: true,
+                        industryName: true,
                         verificationTier: true,
+                        verificationStatus: true,
                         trustScore: true,
                         city: true,
                         province: true,
                         status: true,
                         createdAt: true,
-                        _count: { select: { ads: true } },
+                        _count: { select: { catalogs: true } },
                     },
-                    orderBy: { createdAt: 'desc' },
+                    orderBy: { createdAt: 'asc' },
                 },
                 armMemberships: {
                     select: {
                         id: true,
                         role: true,
                         status: true,
+                        publishState: true,
                         joinedAt: true,
                         arm: {
                             select: {
@@ -225,7 +231,6 @@ export class AdminUserService {
                         status: true,
                         createdAt: true,
                         arm: { select: { id: true, name: true, slug: true } },
-
                     },
                     orderBy: { createdAt: 'desc' },
                     take: 50,
@@ -272,9 +277,31 @@ export class AdminUserService {
             });
         }
 
+        // ✅ کاتالوگ‌ها — از مسیر نهادهای کاربر (رلیشن مستقیم User→Catalog وجود ندارد)
+        const bizIds = user.businesses.map((b) => b.id);
+        const catalogs = bizIds.length
+            ? await this.prisma.catalog.findMany({
+                where: { businessId: { in: bizIds }, status: { not: 'closed' } },
+                select: {
+                    id: true,
+                    name: true,
+                    slug: true,
+                    salesType: true,
+                    type: true,
+                    status: true,
+                    city: true,
+                    createdAt: true,
+                    businessId: true,
+                    business: { select: { id: true, name: true } },
+                    _count: { select: { ads: true } },
+                },
+                orderBy: { createdAt: 'asc' },
+            })
+            : [];
+
         // ترکیب تراکنش‌ها
         const allTransactions = [
-            ...user.credits.map(c => ({
+            ...user.credits.map((c) => ({
                 id: c.id,
                 type: 'credit' as const,
                 amount: c.amount,
@@ -287,7 +314,7 @@ export class AdminUserService {
                 arm: c.arm,
                 metadata: c.metadata,
             })),
-            ...user.creditRequests.map(cr => ({
+            ...user.creditRequests.map((cr) => ({
                 id: cr.id,
                 type: 'creditRequest' as const,
                 amount: cr.amount,
@@ -304,6 +331,7 @@ export class AdminUserService {
 
         return {
             ...user,
+            catalogs,          // ✅ کاتالوگ‌ها جداگانه تزریق می‌شوند
             allTransactions,
             credits: undefined,
             creditRequests: undefined,
@@ -335,9 +363,10 @@ export class AdminUserService {
         });
     }
 
-    // تغییر نقش کاربر در یک بازو
+    // ============================================================
+    // تغییر نقش کاربر در یک بازار
+    // ============================================================
     async updateArmMembershipRole(userId: string, armSlug: string, role: string) {
-        // اعتبارسنجی نقش
         const validRoles = ['arm_owner', 'arm_seller', 'arm_buyer', 'arm_member'];
         if (!validRoles.includes(role)) {
             throw new BadRequestException({
@@ -369,7 +398,7 @@ export class AdminUserService {
 
         return this.prisma.armMembership.update({
             where: { id: membership.id },
-            data: { role: role as ArmRole }, // ✅
+            data: { role: role as ArmRole },
             select: { id: true, role: true, arm: { select: { slug: true, name: true } } },
         });
     }

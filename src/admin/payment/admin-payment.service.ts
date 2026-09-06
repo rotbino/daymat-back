@@ -42,7 +42,7 @@ export class AdminPaymentService {
                     receiptNote: true, rejectReason: true, createdAt: true,
                     verifiedAt: true, metadata: true,
                     user: { select: { id: true, fullName: true, phone: true } },
-                    business: { select: { id: true, name: true, city: true, province: true } },
+                    catalog: { select: { id: true, name: true, city: true, province: true } },
                     arm: { select: { id: true, slug: true, name: true, colorPrimary: true } },
                 },
                 orderBy: { [sortBy]: sortOrder },

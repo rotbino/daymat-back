@@ -317,14 +317,14 @@ export class AdminArmService {
     // آمار داشبورد
     // ============================================================
     async getDashboardStats() {
-        const [totalUsers, activeUsers, totalArms, activeArms, totalAds, pendingAds, totalBusinesses, pendingMemberships, pendingVerifications, totalCredits] = await Promise.all([
+        const [totalUsers, activeUsers, totalArms, activeArms, totalAds, pendingAds, totalCataloges, pendingMemberships, pendingVerifications, totalCredits] = await Promise.all([
             this.prisma.user.count(),
             this.prisma.user.count({ where: { status: 'active' } }),
             this.prisma.arm.count(),
             this.prisma.arm.count({ where: { status: 'active' } }),
             this.prisma.ad.count({ where: { status: { not: 'deleted' } } }),
             this.prisma.ad.count({ where: { status: 'pending' } }),
-            this.prisma.business.count(),
+            this.prisma.catalog.count(),
             this.prisma.armMembership.count({ where: { status: 'pending' } }),
             this.prisma.verification.count({ where: { status: 'pending' } }),
             this.prisma.credit.count({ where: { status: 'success' } }),
@@ -337,7 +337,7 @@ export class AdminArmService {
             activeArms,
             totalAds,
             pendingAds,
-            totalBusinesses,
+            totalCataloges,
             pendingMemberships,
             pendingVerifications,
             totalCredits,

@@ -1,230 +1,192 @@
 // src/business/business.dto.ts
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
     IsNotEmpty,
-    IsString,
     IsOptional,
-    IsEnum,
-    IsArray,
+    IsString,
+    MaxLength,
+    IsIn,
+    IsNumber, IsArray,
 } from 'class-validator';
 
 export class CreateBusinessDto {
-    @ApiProperty({ example: 'پخش مصالح نارین', description: 'نام کسب‌وکار' })
+    @ApiProperty({ example: 'شرکت پخش خوشگوار', description: 'نام کسب‌وکار' })
     @IsNotEmpty({ message: 'نام کسب‌وکار الزامی است' })
     @IsString()
+    @MaxLength(120)
     name: string;
 
-
-    @ApiProperty({ example: 'پخش عمده مصالح ساختمانی', required: false })
-    @IsOptional()
-    @IsString()
-    shortDescription?: string;
-
-    @ApiProperty({ example: 'ali-supermarket', description: 'اسلاگ کسب و کار', required: false })
-    @IsOptional()
-    @IsString()
-    slug?: string;
-
-
-    @ApiProperty({
-        example: 'wholesaler',
-        description: 'نوع کسب‌وکار',
-        enum: ['producer', 'wholesaler', 'importer', 'exporter', 'distributor', 'retailer', 'contractor', 'service_provider', 'other'],
-    })
-    @IsNotEmpty({ message: 'نوع کسب‌وکار الزامی است' })
-    @IsEnum(['producer', 'wholesaler', 'importer', 'exporter', 'distributor', 'retailer', 'contractor', 'service_provider', 'other'])
-    type: string;
-
-    @ApiProperty({ example: '98', required: false, default: '98' })
-    @IsOptional()
-    @IsString()
-    countryCode?: string;
-
-
-    @ApiProperty({ example: 'تهران', description: 'شهر', required: false })
-    @IsOptional()
-    @IsString()
-    city?: string;
-
-    @ApiProperty({ example: 'تهران', description: 'استان', required: false })
-    @IsOptional()
-    @IsString()
-    province?: string;
-
-    @ApiProperty({ example: '01', description: 'کد استان', required: false })
-    @IsOptional()
-    @IsString()
-    provinceCode?: string;
-
-    @ApiProperty({ example: '0112', description: 'کد شهر', required: false })
-    @IsOptional()
-    @IsString()
-    cityCode?: string;
-
-    @ApiProperty({ example: '021-12345678', description: 'تلفن', required: false })
-    @IsOptional()
-    @IsString()
-    phone?: string;
-
-    @ApiProperty({ example: 'توضیحات درباره کسب‌وکار', description: 'توضیحات', required: false })
-    @IsOptional()
-    @IsString()
-    description?: string;
-
-    @ApiProperty({ example: 'https://example.com/logo.png', description: 'آدرس لوگو', required: false })
-    @IsOptional()
-    @IsString()
-    logoUrl?: string;
-
-    @ApiProperty({ example: 'آدرس کامل', description: 'آدرس', required: false })
-    @IsOptional()
-    @IsString()
-    address?: string;
-
-    @ApiProperty({ example: 'https://example.com', description: 'وب‌سایت', required: false })
-    @IsOptional()
-    @IsString()
-    website?: string;
-
-    @ApiProperty({ example: 'صاحب کسب‌وکار', description: 'سمت کاربر در کسب‌وکار', required: false })
-    @IsOptional()
-    @IsString()
-    position?: string;
-
-    @ApiProperty({ example: '6a577c6da5d63434e0ac34a0', description: 'شناسه فایل لوگو', required: false })
-    @IsOptional()
-    @IsString()
-    logoFileId?: string;
-
-    @ApiProperty({ example: '6a5950314ac0957d6a72dde2', description: 'شناسه صنف اصلی (Industry)', required: false })
-    @IsOptional()
-    @IsString()
-    industryId?: string;
-    @IsOptional()
-    @IsString()
-    industryName?: string;
-
-    @ApiProperty({ example: ['6a595...', '6a595...'], description: 'لیست شناسه فعالیت‌ها (Activity)', required: false })
-    @IsOptional()
-    @IsArray()
-    @IsString({ each: true })
-    activityIds?: string[];
-
-    @ApiProperty({
-        example: 'barton',
-        description: 'شناسه یکتای بازار (slug)',
-        required: true,
-    })
-    @IsNotEmpty({ message: 'شناسه بازار الزامی است' })
-    @IsString()
-    armSlug: string;
-}
-
-export class UpdateBusinessDto {
-    @ApiProperty({ example: 'بازرگانی آهن مرکزی', description: 'نام کسب‌وکار', required: false })
-    @IsOptional()
-    @IsString()
-    name?: string;
-
-    @ApiProperty({ example: 'پخش عمده مصالح ساختمانی', description: 'معرفی کوتاه کسب‌وکار', required: false })
-    @IsOptional()
-    @IsString()
-    shortDescription?: string;  // ✅ اضافه شد
-
-    @ApiProperty({ example: 'ali-supermarket', description: 'اسلاگ کسب و کار', required: false })
-    @IsOptional()
-    @IsString()
-    slug?: string;
-
-
-    @ApiProperty({
-        example: 'wholesaler',
-        description: 'نوع کسب‌وکار',
+    @ApiPropertyOptional({
+        example: 'distributor',
         enum: ['producer', 'wholesaler', 'importer', 'exporter', 'distributor', 'retailer', 'contractor', 'service_provider', 'other'],
         required: false,
     })
     @IsOptional()
-    @IsEnum(['producer', 'wholesaler', 'importer', 'exporter', 'distributor', 'retailer', 'contractor', 'service_provider', 'other'])
+    @IsIn(['producer', 'wholesaler', 'importer', 'exporter', 'distributor', 'retailer', 'contractor', 'service_provider', 'other'])
     type?: string;
 
-    @ApiProperty({ example: 'تهران', description: 'شهر', required: false })
+    @ApiPropertyOptional({ example: 'پخش مواد غذایی', required: false })
     @IsOptional()
     @IsString()
-    city?: string;
+    @MaxLength(60)
+    industryName?: string;
 
-    @ApiProperty({ example: 'تهران', description: 'استان', required: false })
+    @ApiPropertyOptional({ example: 'پخش انواع نوشیدنی', required: false })
     @IsOptional()
     @IsString()
-    province?: string;
+    shortDescription?: string;
 
-    @ApiProperty({ example: '01', description: 'کد استان', required: false })
-    @IsOptional()
-    @IsString()
-    provinceCode?: string;
-
-    @ApiProperty({ example: '0112', description: 'کد شهر', required: false })
-    @IsOptional()
-    @IsString()
-    cityCode?: string;
-
-    @ApiProperty({ example: '021-12345678', description: 'تلفن', required: false })
-    @IsOptional()
-    @IsString()
-    phone?: string;
-
-    @ApiProperty({ example: 'توضیحات درباره کسب‌وکار', description: 'توضیحات', required: false })
+    @ApiPropertyOptional({ required: false })
     @IsOptional()
     @IsString()
     description?: string;
 
-    @ApiProperty({ example: 'https://example.com/logo.png', description: 'آدرس لوگو', required: false })
+    @ApiPropertyOptional({ required: false })
     @IsOptional()
     @IsString()
-    logoUrl?: string;
+    province?: string;
 
-    @ApiProperty({ example: 'آدرس کامل', description: 'آدرس', required: false })
+    @ApiPropertyOptional({ required: false })
+    @IsOptional()
+    @IsString()
+    provinceCode?: string;
+
+    @ApiPropertyOptional({ required: false })
+    @IsOptional()
+    @IsString()
+    city?: string;
+
+    @ApiPropertyOptional({ required: false })
+    @IsOptional()
+    @IsString()
+    cityCode?: string;
+
+    @ApiPropertyOptional({ required: false })
     @IsOptional()
     @IsString()
     address?: string;
 
-    @ApiProperty({ example: 'https://example.com', description: 'وب‌سایت', required: false })
+    @ApiPropertyOptional({ required: false })
+    @IsOptional()
+    @IsString()
+    phone?: string;
+
+    @ApiPropertyOptional({ required: false })
     @IsOptional()
     @IsString()
     website?: string;
 
-    @ApiProperty({ example: 'صاحب کسب‌وکار', description: 'سمت کاربر در کسب‌وکار', required: false })
+    @ApiPropertyOptional({ required: false })
     @IsOptional()
     @IsString()
-    position?: string;
+    logoUrl?: string;
 
-    @ApiProperty({ example: '6a577c6da5d63434e0ac34a0', description: 'شناسه فایل لوگو', required: false })
+    @ApiPropertyOptional({ example: '1234567890', required: false })
     @IsOptional()
     @IsString()
-    logoFileId?: string;
+    @MaxLength(10)
+    nationalId?: string;
 
-    @ApiProperty({ example: '6a5950314ac0957d6a72dde2', description: 'شناسه صنف اصلی (Industry)', required: false })
+    @ApiPropertyOptional({ required: false })
     @IsOptional()
     @IsString()
-    industryId?: string;
+    businessLicense?: string;
 
+    @ApiPropertyOptional({ example: 1395, description: 'سال شروع فعالیت تجاری', required: false })
     @IsOptional()
-    @IsString()
-    industryName?: string;
-
-    @ApiProperty({ example: ['6a595...', '6a595...'], description: 'لیست شناسه فعالیت‌ها (Activity)', required: false })
-    @IsOptional()
-    @IsArray()
-    @IsString({ each: true })
-    activityIds?: string[];
-
-
+    @IsNumber()
+    businessStartYear?: number;
 }
 
+export class UpdateBusinessDto {
+    @ApiPropertyOptional({ required: false })
+    @IsOptional()
+    @IsString()
+    @MaxLength(120)
+    name?: string;
 
-export class RequestVerificationDto {
+    @ApiPropertyOptional({ required: false })
+    @IsOptional()
+    @IsIn(['producer', 'wholesaler', 'importer', 'exporter', 'distributor', 'retailer', 'contractor', 'service_provider', 'other'])
+    type?: string;
+
+    @ApiPropertyOptional({ required: false })
+    @IsOptional()
+    @IsString()
+    @MaxLength(60)
+    industryName?: string;
+
+    @ApiPropertyOptional({ required: false })
+    @IsOptional()
+    @IsString()
+    shortDescription?: string;
+
+    @ApiPropertyOptional({ required: false })
+    @IsOptional()
+    @IsString()
+    description?: string;
+
+    @ApiPropertyOptional({ required: false })
+    @IsOptional()
+    @IsString()
+    province?: string;
+
+    @ApiPropertyOptional({ required: false })
+    @IsOptional()
+    @IsString()
+    provinceCode?: string;
+
+    @ApiPropertyOptional({ required: false })
+    @IsOptional()
+    @IsString()
+    city?: string;
+
+    @ApiPropertyOptional({ required: false })
+    @IsOptional()
+    @IsString()
+    cityCode?: string;
+
+    @ApiPropertyOptional({ required: false })
+    @IsOptional()
+    @IsString()
+    address?: string;
+
+    @ApiPropertyOptional({ required: false })
+    @IsOptional()
+    @IsString()
+    phone?: string;
+
+    @ApiPropertyOptional({ required: false })
+    @IsOptional()
+    @IsString()
+    website?: string;
+
+    @ApiPropertyOptional({ required: false })
+    @IsOptional()
+    @IsString()
+    logoUrl?: string;
+
+    @ApiPropertyOptional({ required: false })
+    @IsOptional()
+    @IsString()
+    @MaxLength(10)
+    nationalId?: string;
+
+    @ApiPropertyOptional({ required: false })
+    @IsOptional()
+    @IsString()
+    businessLicense?: string;
+
+    @ApiPropertyOptional({ required: false })
+    @IsOptional()
+    @IsNumber()
+    businessStartYear?: number;
+}
+
+export class RequestBusinessVerificationDto {
     @ApiProperty({ enum: ['blue', 'silver', 'gold'] })
     @IsNotEmpty()
-    @IsEnum(['blue', 'silver', 'gold'])
+    @IsIn(['blue', 'silver', 'gold'])
     level: string;
 
     @ApiProperty({ example: '1234567890' })
@@ -232,18 +194,20 @@ export class RequestVerificationDto {
     @IsString()
     nationalId: string;
 
-    @ApiProperty({ required: false, description: 'شناسه فایل کارت ملی (در صورت تأیید قبلی اختیاری)' })
+    @ApiPropertyOptional({ required: false, description: 'شناسه فایل کارت ملی (در صورت تأیید قبلی اختیاری)' })
     @IsOptional()
     @IsString()
-    nationalCardFileId?: string;   // ← اختیاری شد
+    nationalCardFileId?: string;
 
-    @ApiProperty()
+    @ApiPropertyOptional({ required: false })
+    @IsOptional()
     @IsArray()
     @IsString({ each: true })
-    licenseFileIds: string[];
+    licenseFileIds?: string[];
 
-    @ApiProperty()
+    @ApiPropertyOptional({ required: false })
+    @IsOptional()
     @IsArray()
     @IsString({ each: true })
-    awardFileIds: string[];
+    awardFileIds?: string[];
 }

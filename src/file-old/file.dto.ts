@@ -5,12 +5,12 @@ import { IsNotEmpty, IsString, IsOptional } from 'class-validator';
 export class UploadFileDto {
     @ApiProperty({
         example: 'User',
-        description: 'نام مدل: User | Business | Ad',
-        enum: ['User', 'Business', 'Ad']
+        description: 'نام مدل: User | Catalog | Ad',
+        enum: ['User', 'Catalog', 'Ad']
     })
     @IsNotEmpty()
     @IsString()
-    model: 'User' | 'Business' | 'Ad';
+    model: 'User' | 'Catalog' | 'Ad';
 
     @ApiProperty({ example: '67a1b2c3d4e5f67890123456', description: 'شناسه رکورد در مدل' })
     @IsNotEmpty()

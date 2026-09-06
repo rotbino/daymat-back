@@ -60,24 +60,10 @@ export class AdController {
     }
 
     // ============================================================
-    // 3. لیست آگهی‌های یک کسب‌وکار
+    // 3. لیست آگهی‌های یک کاتالوگ
     // ============================================================
 
-    @Get('business/:businessId')
-    @UseGuards(OptionalJwtAuthGuard)
-    async getBusinessAds(
-        @Param('businessId') businessId: string,
-        @Query('page') page?: string,
-        @Query('limit') limit?: string,
-        @Query('search') search?: string, // ✅ search به جای status
-    ) {
-        return this.adService.getBusinessAds(
-            businessId,
-            Number(page) || 1,
-            Number(limit) || 10,
-            search,
-        );
-    }
+
 
     // ============================================================
 // 3.5 جستجو: لاگ، پیشنهاد، تاریخچه
@@ -349,23 +335,33 @@ export class AdController {
         return this.adService.isAdSaved(id, user?.id || null);
     }
 
-    // src/ad/ad.controller.ts
-
-    @Get('catalog/:businessId')
+    @Get('catalog/:catalogId')
     @UseGuards(OptionalJwtAuthGuard)
-    @ApiOperation({ summary: 'لیست آگهی‌های کاتالوگ کسب‌وکار (عمومی)' })
+    @ApiOperation({ summary: 'لیست کالاهای یک کاتالوگ — با search و status' })
     async getCatalogAds(
-        @Param('businessId') businessId: string,
+        @Param('catalogId') catalogId: string,
         @Query('page') page?: string,
         @Query('limit') limit?: string,
         @Query('search') search?: string,
+        @Query('status') status?: string,
     ) {
         return this.adService.getCatalogAds(
-            businessId,
+            catalogId,
             Number(page) || 1,
-            Number(limit) || 24,
+            Number(limit) || 10,
             search,
+            status,
         );
+    }
+
+
+
+    @Get('notifications')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'اعلان‌های مشتق از دیتای کاربر (قیمت‌های در حال انقضا، کاتالوگ ناقص)' })
+    async derivedNotifications(@CurrentUser() user: any) {
+        return this.adService.derivedNotifications(user.id);
     }
 
 }

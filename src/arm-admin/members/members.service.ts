@@ -1,20 +1,23 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+// src/arm-admin/members/members.service.ts
+import {
+    BadRequestException,
+    Injectable,
+    NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import {SystemRole,ArmRole} from "../../common/enums/prisma-enums";
-
+import { SystemRole, ArmRole } from '../../common/enums/prisma-enums';
+import { CatalogPublishService } from '../../common/services/catalog-publish.service';
 
 @Injectable()
 export class MembersService {
-    constructor(private prisma: PrismaService) {}
+    constructor(
+        private prisma: PrismaService,
+        private catalogPublish: CatalogPublishService,
+    ) {}
 
     // ============================================================
     // دریافت لیست اعضا با پیجینگ، فیلتر، جستجو و سورت
     // ============================================================
-    // src/arm-admin/members/members.service.ts
-
-// ============================================================
-// دریافت لیست اعضا با پیجینگ، فیلتر، جستجو و سورت
-// ============================================================
     async getMembers(
         slug: string,
         page: number = 1,
@@ -50,9 +53,10 @@ export class MembersService {
 
         if (search) {
             where.OR = [
-                { user: { fullName: { contains: search, mode: 'insensitive' } } },
-                { user: { phone: { contains: search, mode: 'insensitive' } } },
-                { business: { name: { contains: search, mode: 'insensitive' } } },
+                // ✅ مونگو: بدون mode:'insensitive' — پایدارتر
+                { user: { is: { fullName: { contains: search } } } },
+                { user: { is: { phone: { contains: search } } } },
+                { catalog: { is: { name: { contains: search } } } },
             ];
         }
 
@@ -62,62 +66,65 @@ export class MembersService {
         // ابتدا همهٔ اعضای pending و سپس بقیه را برمی‌گردانیم.
         const useDefaultPrioritySort = !sortBy && (!status || status === 'all');
 
+        // ✅ include مشترک — رلیشن‌ها با include (نه select) تا آبجکت برگردند
+        const MEMBER_INCLUDE = {
+            user: {
+                select: {
+                    id: true,
+                    fullName: true,
+                    phone: true,
+                    isPhoneVerified: true,
+                    avatarUrl: true,
+                    role: true,
+                },
+            },
+            catalog: {
+                select: {
+                    id: true,
+                    name: true,
+                    type: true,
+                    city: true,
+                    province: true,
+                    // ✅ تیک اعتماد از مسیر نهاد
+                    business: { select: { verificationTier: true } },
+                },
+            },
+        };
+
         if (useDefaultPrioritySort) {
-            // دریافت همهٔ اعضای منطبق (بدون پیجینگ) – برای حجم‌های متوسط مناسب است
             const allMembers = await this.prisma.armMembership.findMany({
                 where,
-                include: {
-                    user: {
-                        select: {
-                            id: true,
-                            fullName: true,
-                            phone: true,
-                            isPhoneVerified: true,
-                            avatarUrl: true,
-                            role: true,
-                        },
-                    },
-                    business: {
-                        select: {
-                            id: true,
-                            name: true,
-                            type: true,
-                            verificationTier: true,
-                            city: true,
-                            province: true,
-                            trustScore: true,
-                        },
-                    },
-                },
+                include: MEMBER_INCLUDE,
             });
 
-            // تفکیک بر اساس status
-            const pendingMembers = allMembers.filter(m => m.status === 'pending');
-            const otherMembers = allMembers.filter(m => m.status !== 'pending');
+            const pendingMembers = allMembers.filter((m) => m.status === 'pending');
+            const otherMembers = allMembers.filter((m) => m.status !== 'pending');
 
-            // مرتب‌سازی هر گروه بر اساس joinedAt (نزولی)
             const sortByJoinedAtDesc = (a: any, b: any) =>
                 new Date(b.joinedAt).getTime() - new Date(a.joinedAt).getTime();
 
             pendingMembers.sort(sortByJoinedAtDesc);
             otherMembers.sort(sortByJoinedAtDesc);
 
-            // ترکیب: ابتدا pending سپس دیگر اعضا
             const sortedMembers = [...pendingMembers, ...otherMembers];
             const total = sortedMembers.length;
             const items = sortedMembers.slice(skip, skip + limit);
 
-            // فرمت‌دهی نهایی
-            const formattedItems = items.map(item => ({
+            const formattedItems = items.map((item: any) => ({
                 ...item,
-                roleDisplay: this.getRoleDisplay(item.role as ArmRole), // ← تبدیل نوع
+                // ✅ شکل قدیمی catalog برای فرانت (verificationTier سطح اول)
+                catalog: item.catalog ? {
+                    ...item.catalog,
+                    verificationTier: (item.catalog as any)?.business?.verificationTier ?? null,
+                } : null,
+                roleDisplay: this.getRoleDisplay(item.role as ArmRole),
                 user: {
                     id: item.user.id,
                     fullName: item.user.fullName,
                     phone: item.user.phone,
                     isPhoneVerified: item.user.isPhoneVerified,
                     avatarUrl: item.user.avatarUrl,
-                    systemRoleDisplay: this.getSystemRoleDisplay(item.user.role as SystemRole), // ← تبدیل نوع
+                    systemRoleDisplay: this.getSystemRoleDisplay(item.user.role as SystemRole),
                 },
             }));
 
@@ -132,7 +139,6 @@ export class MembersService {
             };
         }
 
-        // در غیر این صورت، همان منطق قبلی با orderBy اجرا می‌شود
         let orderBy: any = {};
         switch (sortBy) {
             case 'name': orderBy = { user: { fullName: sortOrder } }; break;
@@ -149,45 +155,27 @@ export class MembersService {
                     where,
                     skip,
                     take: Number(limit),
-                    include: {
-                        user: {
-                            select: {
-                                id: true,
-                                fullName: true,
-                                phone: true,
-                                isPhoneVerified: true,
-                                avatarUrl: true,
-                                role: true,
-                            },
-                        },
-                        business: {
-                            select: {
-                                id: true,
-                                name: true,
-                                type: true,
-                                verificationTier: true,
-                                city: true,
-                                province: true,
-                                trustScore: true,
-                            },
-                        },
-                    },
+                    include: MEMBER_INCLUDE,
                     orderBy,
                 }),
                 this.prisma.armMembership.count({ where }),
             ]);
 
-            const validItems = items.filter(item => item.user !== null);
-            const formattedItems = validItems.map(item => ({
+            const validItems = items.filter((item: any) => item.user !== null);
+            const formattedItems = validItems.map((item: any) => ({
                 ...item,
-                roleDisplay: this.getRoleDisplay(item.role as ArmRole), // ← تبدیل نوع
+                catalog: item.catalog ? {
+                    ...item.catalog,
+                    verificationTier: (item.catalog as any)?.business?.verificationTier ?? null,
+                } : null,
+                roleDisplay: this.getRoleDisplay(item.role as ArmRole),
                 user: {
                     id: item.user.id,
                     fullName: item.user.fullName,
                     phone: item.user.phone,
                     isPhoneVerified: item.user.isPhoneVerified,
                     avatarUrl: item.user.avatarUrl,
-                    systemRoleDisplay: this.getSystemRoleDisplay(item.user.role as SystemRole), // ← تبدیل نوع
+                    systemRoleDisplay: this.getSystemRoleDisplay(item.user.role as SystemRole),
                 },
             }));
 
@@ -213,6 +201,7 @@ export class MembersService {
             };
         }
     }
+
     // ============================================================
     // دریافت یک عضو با جزئیات کامل
     // ============================================================
@@ -229,7 +218,7 @@ export class MembersService {
             });
         }
 
-        // ۱. اطلاعات عضو (با درج فعالیت‌ها و سایر اطلاعات مربوط به کسب‌وکار)
+        // ۱. اطلاعات عضو — کاتالوگ با include کامل؛ فعالیت‌ها از مسیر نهاد
         const member = await this.prisma.armMembership.findFirst({
             where: {
                 armId: arm.id,
@@ -246,7 +235,7 @@ export class MembersService {
                         role: true,
                     },
                 },
-                business: {
+                catalog: {
                     include: {
                         ads: {
                             where: { status: 'active' },
@@ -254,11 +243,15 @@ export class MembersService {
                             take: 10,
                             orderBy: { createdAt: 'desc' },
                         },
-                        // ✅ فعالیت‌های کسب‌وکار
-                        activities: {
+                        // ✅ فعالیت‌ها از مسیر نهادِ کاتالوگ
+                        business: {
                             include: {
-                                activity: {
-                                    select: { id: true, title: true },
+                                activities: {
+                                    include: {
+                                        activity: {
+                                            select: { id: true, title: true },
+                                        },
+                                    },
                                 },
                             },
                         },
@@ -274,14 +267,13 @@ export class MembersService {
             });
         }
 
-        // ✅ تبدیل فعالیت‌ها به آرایه‌ای از { id, title }
-        if (member.business) {
-            (member.business as any).activities = member.business.activities.map(
-                (ba: any) => ba.activity
-            );
+        // ✅ فعالیت‌ها را به شکل قدیمی روی کاتالوگ map کن
+        if (member.catalog) {
+            (member.catalog as any).activities =
+                ((member.catalog as any).business as any)?.activities?.map((ba: any) => ba.activity) ?? [];
         }
 
-        // ۲. دریافت همه تراکنش‌های کاربر در این بازار
+        // ۲. تراکنش‌های کاربر در این بازار
         let credits: any[] = [];
         let creditRequests: any[] = [];
 
@@ -289,7 +281,7 @@ export class MembersService {
             credits = await this.prisma.credit.findMany({
                 where: {
                     armId: arm.id,
-                    userId: userId,
+                    userId,
                 },
                 select: {
                     id: true,
@@ -308,7 +300,7 @@ export class MembersService {
             creditRequests = await this.prisma.creditRequest.findMany({
                 where: {
                     armId: arm.id,
-                    userId: userId,
+                    userId,
                 },
                 select: {
                     id: true,
@@ -330,7 +322,7 @@ export class MembersService {
 
         // ۳. ترکیب و فرمت‌دهی
         const allTransactions = [
-            ...credits.map(c => ({
+            ...credits.map((c) => ({
                 id: c.id,
                 amount: c.amount,
                 creditCount: c.creditCount || 0,
@@ -342,7 +334,7 @@ export class MembersService {
                 metadata: c.metadata,
                 isCreditRequest: false,
             })),
-            ...creditRequests.map(cr => ({
+            ...creditRequests.map((cr) => ({
                 id: cr.id,
                 amount: cr.amount,
                 creditCount: cr.metadata?.creditCount || 0,
@@ -357,13 +349,13 @@ export class MembersService {
         ];
 
         allTransactions.sort((a, b) =>
-            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
         );
 
         return {
             ...member,
-            roleDisplay: this.getRoleDisplay(member.role as ArmRole), // ← تبدیل نوع
-            systemRoleDisplay: this.getSystemRoleDisplay(member.user.role as SystemRole), // ← تبدیل نوع
+            roleDisplay: this.getRoleDisplay(member.role as ArmRole),
+            systemRoleDisplay: this.getSystemRoleDisplay(member.user.role as SystemRole),
             allTransactions,
             _debug: {
                 creditsCount: credits.length,
@@ -406,7 +398,7 @@ export class MembersService {
     async updateMemberStatus(slug: string, userId: string, status: string) {
         const arm = await this.prisma.arm.findUnique({
             where: { slug },
-            select: { id: true },
+            select: { id: true, categoryTree: true },
         });
 
         if (!arm) {
@@ -416,13 +408,29 @@ export class MembersService {
             });
         }
 
+        const membership = await this.prisma.armMembership.findUnique({
+            where: { armId_userId: { armId: arm.id, userId } },
+        });
+        if (!membership) {
+            throw new NotFoundException({
+                errorCode: 'MEMBER_NOT_FOUND',
+                message: 'عضو یافت نشد',
+            });
+        }
+
+        // ✅ اثر بر تابلوی بازار:
+        //    غیرفعال (paused/banned/removed) → برداشتن مهر آگهی‌ها
+        //    فعال + کاتالوگِ منتشرشده → مهر مجدد
+        if (membership.catalogId) {
+            if (status !== 'active') {
+                await this.catalogPublish.unstampCatalogAds(membership.catalogId, arm.id);
+            } else if (membership.publishState === 'published') {
+                await this.catalogPublish.stampCatalogAds(arm, membership.catalogId);
+            }
+        }
+
         return this.prisma.armMembership.update({
-            where: {
-                armId_userId: {
-                    armId: arm.id,
-                    userId,
-                },
-            },
+            where: { armId_userId: { armId: arm.id, userId } },
             data: { status },
         });
     }
@@ -459,12 +467,12 @@ export class MembersService {
     }
 
     // ============================================================
-// تأیید پیوستن به کاربر
-// ============================================================
+    // تأیید پیوستن کاربر
+    // ============================================================
     async approveMember(slug: string, userId: string, adminUserId: string) {
         const arm = await this.prisma.arm.findUnique({
             where: { slug },
-            select: { id: true },
+            select: { id: true, categoryTree: true },
         });
 
         if (!arm) {
@@ -485,7 +493,7 @@ export class MembersService {
             });
         }
 
-        return this.prisma.armMembership.update({
+        const updated = await this.prisma.armMembership.update({
             where: { id: membership.id },
             data: {
                 status: 'active',
@@ -495,11 +503,18 @@ export class MembersService {
                 updatedAt: new Date(),
             },
         });
+
+        // ✅ اگر کاتالوگِ منتشرشده دارد → کالاهایش روی تابلو بیاید
+        if (membership.catalogId && membership.publishState === 'published') {
+            await this.catalogPublish.stampCatalogAds(arm, membership.catalogId);
+        }
+
+        return updated;
     }
 
-// ============================================================
-// رد پیوستن به کاربر
-// ============================================================
+    // ============================================================
+    // رد پیوستن کاربر
+    // ============================================================
     async rejectMember(slug: string, userId: string, reason: string, adminUserId: string) {
         if (!reason || !reason.trim()) {
             throw new BadRequestException({
@@ -544,8 +559,8 @@ export class MembersService {
     }
 
     // ============================================================
-// حذف کامل پیوستن به (خروج از بازار)
-// ============================================================
+    // حذف کامل عضو (خروج از بازار)
+    // ============================================================
     async removeMember(slug: string, userId: string, adminUserId: string) {
         const arm = await this.prisma.arm.findUnique({
             where: { slug },
@@ -570,10 +585,16 @@ export class MembersService {
             });
         }
 
+        // ✅ کالاهایش از تابلوی این بازار برداشته شود
+        if (membership.catalogId) {
+            await this.catalogPublish.unstampCatalogAds(membership.catalogId, arm.id);
+        }
+
         return this.prisma.armMembership.update({
             where: { id: membership.id },
             data: {
-                status: 'removed',              // وضعیت جدید
+                status: 'removed',
+                publishState: null,
                 reviewedByUserId: adminUserId,
                 reviewedAt: new Date(),
                 updatedAt: new Date(),

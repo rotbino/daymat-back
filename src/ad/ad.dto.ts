@@ -1,8 +1,8 @@
 // src/ad/ad.dto.ts
-import { ApiProperty } from '@nestjs/swagger';
+import {ApiProperty, ApiPropertyOptional} from '@nestjs/swagger';
 import {
     IsNotEmpty, IsString, IsNumber, IsOptional, IsBoolean,
-    Min, Max, IsEnum, ValidateNested, IsObject,
+    Min, Max, IsEnum, ValidateNested, IsObject, IsArray,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 
@@ -135,10 +135,40 @@ class CustomFieldsDto {
 // CreateAdDto
 // ═══════════════════════════════════════════════════════════════
 export class CreateAdDto {
-    @ApiProperty({ example: 'barton', description: 'شناسه یکتای بازار (slug)' })
-    @IsNotEmpty({ message: 'شناسه بازار الزامی است' })
+    // ❌ قبلاً: @IsNotEmpty — ✅ حالا اختیاری (آگهی مالِ کاتالوگ است، نه بازار)
+    @ApiPropertyOptional({ example: 'barton', description: 'شناسه بازار (اختیاری — فقط اگر از مسیر بازاری ثبت شود)' })
+    @IsOptional()
     @IsString()
-    armSlug: string;
+    armSlug?: string;
+
+    // ✅ جدید — کاتالوگ مالک آگهی (الزامی در جریان جدید)
+    @ApiProperty({ description: 'شناسه کاتالوگ (Catalog) مالک آگهی' })
+    @IsNotEmpty({ message: 'کاتالوگ الزامی است' })
+    @IsString()
+    catalogId: string;
+
+    // ✅ قیمت اشانتیون (اختیاری — فروش عمده)
+    @ApiPropertyOptional({ example: 550000, description: 'قیمت هر واحد در حالت اشانتیون', required: false })
+    @IsOptional()
+    @IsNumber()
+    @Min(0)
+    giftPrice?: number;
+
+    // ✅ پلکانهٔ حجمی (اختیاری — فروش عمده)
+    @ApiPropertyOptional({
+        description: 'تخفیف حجمی — مثلاً [{minQty: 5, price: 120000}, {minQty: 10, price: 110000}]',
+        required: false,
+        type: [Object],
+    })
+    @IsOptional()
+    @IsArray()
+    volumeTiers?: { minQty: number; price: number }[];
+
+
+    @ApiPropertyOptional({ description: 'نمایش در تابلوی قیمت بازار', default: true })
+    @IsOptional()
+    @IsBoolean()
+    publishToMarket?: boolean;
 
     @ApiProperty({ example: 'cat_1011', description: 'شناسه دسته‌بندی', required: false })
     @IsOptional()
@@ -296,6 +326,29 @@ export class UpdateAdDto {
     @IsOptional()
     @IsBoolean()
     forceReapproval?: boolean;
+
+    @ApiPropertyOptional({ description: 'نمایش در تابلوی قیمت بازار', default: true })
+    @IsOptional()
+    @IsBoolean()
+    publishToMarket?: boolean;
+
+    // ✅ قیمت اشانتیون (اختیاری — فروش عمده)
+    @ApiPropertyOptional({ example: 550000, description: 'قیمت هر واحد در حالت اشانتیون', required: false })
+    @IsOptional()
+    @IsNumber()
+    @Min(0)
+    giftPrice?: number;
+
+    // ✅ پلکانهٔ حجمی (اختیاری — فروش عمده)
+    @ApiPropertyOptional({
+        description: 'تخفیف حجمی — مثلاً [{minQty: 5, price: 120000}, {minQty: 10, price: 110000}]',
+        required: false,
+        type: [Object],
+    })
+    @IsOptional()
+    @IsArray()
+    volumeTiers?: { minQty: number; price: number }[];
+
 
     @ApiProperty({ example: 'میلگرد ۱۴ فایکو - بروزرسانی', description: 'عنوان آگهی', required: false })
     @IsOptional()

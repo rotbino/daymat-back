@@ -19,7 +19,7 @@ datasource db {
 
 // ---------------------- User (کاربر) ----------------------
 // کاربر حقیقی سیستم. هر شخص با شماره موبایل ثبت‌نام می‌کند.
-// می‌تواند چند Business داشته باشد و در چند بازار عضو شود.
+// می‌تواند چند Catalog داشته باشد و در چند بازار عضو شود.
 model User {
   id              String    @id @default(auto()) @map("_id") @db.ObjectId
   phone           String    @unique                         // شماره موبایل
@@ -35,7 +35,7 @@ model User {
   lastLoginAt     DateTime?                                 // آخرین زمان ورود
 
   // روابط
-  businesses      Business[]      @relation("BusinessOwner")
+  cataloges      Catalog[]      @relation("CatalogOwner")
   teamMemberships TeamMember[]
   ads             Ad[]            @relation("AdCreator")
   buyLeads        BuyLead[]
@@ -47,14 +47,14 @@ model User {
   @@index([role])
 }
 
-// ---------------------- Business (کسب‌وکار) ----------------------
-// کسب‌وکار ثبت‌شده توسط کاربر. هر Business می‌تواند در چند بازار عضو شود
+// ---------------------- Catalog (کاتالوگ) ----------------------
+// کاتالوگ ثبت‌شده توسط کاربر. هر Catalog می‌تواند در چند بازار عضو شود
 // و آگهی ثبت کند. اعتبار (Credit) و امتیاز اعتماد به این مدل متصل است.
-model Business {
+model Catalog {
   id                 String    @id @default(auto()) @map("_id") @db.ObjectId
   ownerUserId        String    @db.ObjectId                       // شناسه کاربر مالک
-  owner              User      @relation("BusinessOwner", fields: [ownerUserId], references: [id])
-  name               String                                       // نام کسب‌وکار
+  owner              User      @relation("CatalogOwner", fields: [ownerUserId], references: [id])
+  name               String                                       // نام کاتالوگ
   type               String                                       // نوع: producer (تولیدکننده) | wholesaler (عمده‌فروش) | importer (واردکننده) | exporter (صادرکننده) | distributor (پخش‌کننده) | retailer (خرده‌فروش) | contractor (پیمانکار) | service_provider (ارائه‌دهنده خدمات) | other (سایر)
   description        String?                                      // توضیحات
   city               String                                       // شهر
@@ -64,7 +64,7 @@ model Business {
   website            String?                                      // وب‌سایت
   logoUrl            String?                                      // لوگو
   nationalId         String?                                      // شناسه ملی
-  businessLicense    String?                                      // شماره پروانه کسب
+  catalogLicense    String?                                      // شماره پروانه کسب
   verificationTier   String    @default("none")                  // سطح تأیید: none (تأیید نشده) | blue (تأیید سطح ۱ - کد ملی) | green (تأیید سطح ۲ - پروانه کسب)
   verificationStatus String    @default("pending")               // وضعیت تأیید مدارک: pending (در انتظار بررسی) | approved (تأیید شده) | rejected (رد شده)
   trustScore         Float     @default(0)                       // امتیاز اعتماد (۰ تا ۱۰۰) بر اساس رفتار و سابقه
@@ -87,12 +87,12 @@ model Business {
 }
 
 // ---------------------- TeamMember (عضو تیم) ----------------------
-// کاربری که به یک کسب‌وکار متصل شده و نقش مشخصی دارد.
+// کاربری که به یک کاتالوگ متصل شده و نقش مشخصی دارد.
 // مانند مدیر فروش یا آپدیت‌کننده قیمت.
 model TeamMember {
   id           String   @id @default(auto()) @map("_id") @db.ObjectId
-  businessId   String   @db.ObjectId
-  business     Business @relation(fields: [businessId], references: [id])
+  catalogId   String   @db.ObjectId
+  catalog     Catalog @relation(fields: [catalogId], references: [id])
   userId       String   @db.ObjectId
   user         User     @relation(fields: [userId], references: [id])
   role         String   @default("viewer")                      // نقش: owner (مالک) | system_admin (مدیر) | editor (ویرایشگر) | viewer (بیننده) | support (پشتیبان)
@@ -102,8 +102,8 @@ model TeamMember {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  @@unique([businessId, userId])
-  @@index([businessId])
+  @@unique([catalogId, userId])
+  @@index([catalogId])
   @@index([userId])
 }
 
@@ -210,7 +210,7 @@ model Arm {
 
   rankingAlgorithm    String    @default("simple")                   // الگوریتم رتبه‌بندی: simple (ساده - بر اساس تازگی و نردبان) | standard (استاندارد) | advanced (پیشرفته - با اعتماد و رفتار کاربر)
   validityDefaultDays Int       @default(7)                          // اعتبار پیش‌فرض آگهی (به روز)
-  maxAdsFree          Int       @default(5)                          // سهمیه آگهی رایگان برای هر کسب‌وکار در این بازار
+  maxAdsFree          Int       @default(5)                          // سهمیه آگهی رایگان برای هر کاتالوگ در این بازار
   bumpCostCredits     Int       @default(10)                         // هزینه نردبان (ارتقا) به اعتبار در این بازار
 
   metadata            Json?
@@ -243,8 +243,8 @@ model ArmConfig {
   primaryColor             String?
   secondaryColor           String?
   fontFamily               String?
-  showVerifiedBadge        Boolean  @default(true)                    // نمایش نشان تأیید برای کسب‌وکارهای تأییدشده
-  showCompanyName          Boolean  @default(true)                    // نمایش نام کسب‌وکار در تابلوی آگهی‌ها
+  showVerifiedBadge        Boolean  @default(true)                    // نمایش نشان تأیید برای کاتالوگهای تأییدشده
+  showCompanyName          Boolean  @default(true)                    // نمایش نام کاتالوگ در تابلوی آگهی‌ها
 
   // تنظیمات فیلتر
   defaultFilters           Json?
@@ -257,9 +257,9 @@ model ArmConfig {
   showLocationFilter       Boolean  @default(true)                    // نمایش فیلتر موقعیت جغرافیایی در تابلوی این بازار
 
   // الزامات ثبت‌نام
-  requireBusinessName      Boolean  @default(true)                    // آیا برای پیوستن به این بازار، نام کسب‌وکار الزامی است؟
+  requireCatalogName      Boolean  @default(true)                    // آیا برای پیوستن به این بازار، نام کاتالوگ الزامی است؟
   requireCity              Boolean  @default(true)                    // آیا برای پیوستن به این بازار، شهر الزامی است؟
-  requireType              Boolean  @default(true)                    // آیا برای پیوستن به این بازار، نوع کسب‌وکار الزامی است؟
+  requireType              Boolean  @default(true)                    // آیا برای پیوستن به این بازار، نوع کاتالوگ الزامی است؟
   allowAnonymousPublishing Boolean  @default(true)                    // آیا فروشنده می‌تواند آگهی را به صورت ناشناس منتشر کند؟
 
   // تنظیمات مالی
@@ -327,8 +327,8 @@ model CustomCategory {
 }
 
 // ---------------------- ArmMembership (پیوستن به بازار) ----------------------
-// پیوستن به بازار توسط کاربر (یا کسب‌وکار) .
-// برای MVP، عضویت به User متصل است (نه Business).
+// پیوستن به بازار توسط کاربر (یا کاتالوگ) .
+// برای MVP، عضویت به User متصل است (نه Catalog).
 model ArmMembership {
   id         String   @id @default(auto()) @map("_id") @db.ObjectId
   armId      String   @db.ObjectId
@@ -338,9 +338,9 @@ model ArmMembership {
   userId     String   @db.ObjectId
   user       User     @relation(fields: [userId], references: [id])
 
-  // برای فاز ۲: اگر کاربر Business هم داشته باشد، اینجا ثبت می‌شود
-  businessId String?  @db.ObjectId
-  business   Business? @relation(fields: [businessId], references: [id])
+  // برای فاز ۲: اگر کاربر Catalog هم داشته باشد، اینجا ثبت می‌شود
+  catalogId String?  @db.ObjectId
+  catalog   Catalog? @relation(fields: [catalogId], references: [id])
 
   role       String   @default("viewer")                            // نقش در این بازار: viewer (بیننده) | seller (فروشنده) | buyer (خریدار) | admin (مدیر بازار)
   status     String   @default("active")                            // وضعیت: active | paused | banned
@@ -351,7 +351,7 @@ model ArmMembership {
 
   @@unique([armId, userId])
   @@index([userId])
-  @@index([businessId])
+  @@index([catalogId])
 }
 
 // ============================================================
@@ -365,8 +365,8 @@ model Ad {
   id                    String    @id @default(auto()) @map("_id") @db.ObjectId
   armId                 String    @db.ObjectId
   arm                   Arm       @relation(fields: [armId], references: [id])
-  businessId            String    @db.ObjectId
-  business              Business  @relation(fields: [businessId], references: [id])
+  catalogId            String    @db.ObjectId
+  catalog              Catalog  @relation(fields: [catalogId], references: [id])
   createdByUserId       String    @db.ObjectId
   createdBy             User      @relation("AdCreator", fields: [createdByUserId], references: [id])
 
@@ -421,7 +421,7 @@ model Ad {
   @@index([armId, status])
   @@index([armId, categoryId])
   @@index([armId, city])
-  @@index([businessId])
+  @@index([catalogId])
 }
 
 // ---------------------- BuyLead (دِیمَت خرید) ----------------------
@@ -431,8 +431,8 @@ model BuyLead {
   id              String   @id @default(auto()) @map("_id") @db.ObjectId
   armId           String   @db.ObjectId
   arm             Arm      @relation(fields: [armId], references: [id])
-  businessId      String?  @db.ObjectId
-  business        Business? @relation(fields: [businessId], references: [id])
+  catalogId      String?  @db.ObjectId
+  catalog        Catalog? @relation(fields: [catalogId], references: [id])
   createdByUserId String?  @db.ObjectId
   user            User?    @relation(fields: [createdByUserId], references: [id])
   categoryId      String?  @db.ObjectId
@@ -495,12 +495,12 @@ model CallEvent {
 // ============================================================
 
 // ---------------------- Credit (کیف اعتبار) ----------------------
-// تراکنش‌های کیف اعتبار کسب‌وکار.
+// تراکنش‌های کیف اعتبار کاتالوگ.
 // مثبت = بستانکار، منفی = بدهکار.
 model Credit {
   id                String   @id @default(auto()) @map("_id") @db.ObjectId
-  businessId        String   @db.ObjectId
-  business          Business @relation(fields: [businessId], references: [id])
+  catalogId        String   @db.ObjectId
+  catalog          Catalog @relation(fields: [catalogId], references: [id])
   armId             String?  @db.ObjectId
   arm               Arm?     @relation(fields: [armId], references: [id])
 
@@ -512,17 +512,17 @@ model Credit {
   expiresAt         DateTime?                                         // تاریخ انقضا (برای هدیه)
   createdAt         DateTime @default(now())
 
-  @@index([businessId, createdAt])
+  @@index([catalogId, createdAt])
   @@index([armId, createdAt])
 }
 
 // ---------------------- Verification (تأیید هویت) ----------------------
-// مدارک و تأییدیه‌های کسب‌وکار.
+// مدارک و تأییدیه‌های کاتالوگ.
 // سطح blue: کد ملی، سطح green: پروانه کسب.
 model Verification {
   id                String   @id @default(auto()) @map("_id") @db.ObjectId
-  businessId        String   @db.ObjectId
-  business          Business @relation(fields: [businessId], references: [id])
+  catalogId        String   @db.ObjectId
+  catalog          Catalog @relation(fields: [catalogId], references: [id])
 
   tier              String                                            // سطح تأیید: blue (کد ملی + کارت ملی) | green (پروانه کسب + اطلاعات شرکت)
   status            String   @default("pending")                      // وضعیت: pending (در انتظار بررسی) | approved (تأیید شده) | rejected (رد شده) | expired (منقضی)
@@ -535,16 +535,16 @@ model Verification {
   expiresAt         DateTime?
   metadata          Json?
 
-  @@index([businessId, status])
+  @@index([catalogId, status])
 }
 
 // ---------------------- TrustMetric (امتیاز اعتماد) ----------------------
-// امتیاز اعتماد کسب‌وکار در هر بازار.
+// امتیاز اعتماد کاتالوگ در هر بازار.
 // اگر armId null باشد، امتیاز سراسری است.
 model TrustMetric {
   id                  String   @id @default(auto()) @map("_id") @db.ObjectId
-  businessId          String   @db.ObjectId
-  business            Business @relation(fields: [businessId], references: [id])
+  catalogId          String   @db.ObjectId
+  catalog            Catalog @relation(fields: [catalogId], references: [id])
   armId               String?  @db.ObjectId                           // اگر null باشد، امتیاز سراسری است. اگر مقدار داشته باشد، امتیاز مربوط به آن بازار است.
   arm                 Arm?     @relation(fields: [armId], references: [id])
 
@@ -553,9 +553,9 @@ model TrustMetric {
   totalViews          Int      @default(0)                             // تعداد بازدیدها
   totalCalls          Int      @default(0)                             // تعداد تماس‌ها
   totalDealsConfirmed Int      @default(0)                             // تعداد معاملات تأییدشده توسط طرفین
-  totalDisputes       Int      @default(0)                             // تعداد اختلافات ثبت‌شده برای این کسب‌وکار
+  totalDisputes       Int      @default(0)                             // تعداد اختلافات ثبت‌شده برای این کاتالوگ
   lastCalculatedAt    DateTime @default(now())                         // آخرین زمان محاسبه
 
-  @@unique([businessId, armId])
+  @@unique([catalogId, armId])
   @@index([armId, trustScore])
 }

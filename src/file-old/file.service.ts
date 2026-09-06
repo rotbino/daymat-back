@@ -50,7 +50,7 @@ export class FileService {
             mimetype: string;
             size: number;
         },
-        model: 'User' | 'Business' | 'Ad',
+        model: 'User' | 'Catalog' | 'Ad',
         modelId: string,
         fieldKey?: string,
     ) {

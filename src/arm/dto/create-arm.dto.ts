@@ -32,7 +32,7 @@ export class ArmAppearanceConfigDto {
     @IsBoolean()
     showVerifiedBadge: boolean;
 
-    @ApiProperty({ example: true, description: 'نمایش نام کسب‌وکار' })
+    @ApiProperty({ example: true, description: 'نمایش نام کاتالوگ' })
     @IsBoolean()
     showCompanyName: boolean;
 
@@ -80,15 +80,15 @@ export class ArmFeaturesConfigDto {
     @IsBoolean()
     subscriptionEnabled: boolean;
 
-    @ApiProperty({ example: true, description: 'نیاز به نام کسب‌وکار' })
+    @ApiProperty({ example: true, description: 'نیاز به نام کاتالوگ' })
     @IsBoolean()
-    requireBusinessName: boolean;
+    requireCatalogName: boolean;
 
     @ApiProperty({ example: true, description: 'نیاز به شهر' })
     @IsBoolean()
     requireCity: boolean;
 
-    @ApiProperty({ example: true, description: 'نیاز به نوع کسب‌وکار' })
+    @ApiProperty({ example: true, description: 'نیاز به نوع کاتالوگ' })
     @IsBoolean()
     requireType: boolean;
 
@@ -96,9 +96,9 @@ export class ArmFeaturesConfigDto {
     @IsBoolean()
     autoApproveAds: boolean;
 
-    @ApiProperty({ example: false, description: 'نیاز به مجوز کسب‌وکار' })
+    @ApiProperty({ example: false, description: 'نیاز به مجوز کاتالوگ' })
     @IsBoolean()
-    requireBusinessLicense: boolean;
+    requireCatalogLicense: boolean;
 
     @ApiProperty({ example: 7, description: 'مدت اعتبار پیش‌فرض آگهی (روز)' })
     @IsNumber()

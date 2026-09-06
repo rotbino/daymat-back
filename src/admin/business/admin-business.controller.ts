@@ -14,7 +14,7 @@ export class AdminBusinessController {
     constructor(private adminBusinessService: AdminBusinessService) {}
 
     @Get()
-    @ApiOperation({ summary: 'لیست کسب‌وکارها با فیلتر و آمار' })
+    @ApiOperation({ summary: 'لیست کسب و کارها با فیلتر و آمار' })
     @ApiQuery({ name: 'page', required: false })
     @ApiQuery({ name: 'limit', required: false })
     @ApiQuery({ name: 'search', required: false })
@@ -34,7 +34,7 @@ export class AdminBusinessController {
     }
 
     @Get(':id')
-    @ApiOperation({ summary: 'جزئیات کسب‌وکار (شامل مدارک تیک)' })
+    @ApiOperation({ summary: 'جزئیات کسب و کار (شامل مدارک تیک)' })
     async getBusinessDetail(@Param('id') id: string) {
         return this.adminBusinessService.getBusinessDetail(id);
     }

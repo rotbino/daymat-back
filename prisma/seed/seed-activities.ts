@@ -52,7 +52,7 @@ async function main() {
         const branchLabel = item.DRP_BRANCH_LABEL;
         const subBranchLabel = item.DRP_SUB_BRANCH_LABEL;
         const title = item.TXT_TITLE_BUSINESS;
-        const code = item.business_number;
+        const code = item.catalog_number;
 
         const root = rootMap.get(departmentKey);
         if (!root) continue;
@@ -110,7 +110,7 @@ async function main() {
                     code: code,
                     isActive: true,
                     metadata: {
-                        business_number: code,
+                        catalog_number: code,
                         tags: item.DRP_BUSINESS_TAGS_LABEL,
                         custodian: item.DRP_CUSTODIAN_ISSUE_AUTHORITY_LABEL,
                         category_id: item.CATEGORY_ID,

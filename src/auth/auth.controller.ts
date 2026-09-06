@@ -1,7 +1,7 @@
 // src/auth/auth.controller.ts
 
-import {Controller, Post, Body, UseInterceptors, Put, UseGuards, Get} from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
+import {Controller, Post, Body, UseInterceptors, Put, UseGuards, Get, Query} from '@nestjs/common';
+import {ApiTags, ApiOperation, ApiResponse, ApiBody, ApiBearerAuth, ApiQuery} from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import {
     RegisterDto,
@@ -138,5 +138,12 @@ export class AuthController {
         return { message: 'خروج با موفقیت انجام شد' };
     }
 
+    // ✅ NEW — بررسی اعتبار کد دعوت (عمومی، قبل از ثبت‌نام)
+    @Get('check-referral')
+    @ApiOperation({ summary: 'بررسی اعتبار کد رفرال' })
+    @ApiQuery({ name: 'code', required: true })
+    async checkReferral(@Query('code') code: string) {
+        return this.authService.checkReferralCode(code ?? '');
+    }
 
 }

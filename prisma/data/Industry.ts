@@ -590,7 +590,7 @@ export const Industries={
 
                 {
                     "title": "مصرف‌کنندگان و خریداران تجاری",
-                    "slug": "business-buyers",
+                    "slug": "catalog-buyers",
                     "children": [
                         {
                             "title": "رستوران و غذاخوری",
@@ -618,7 +618,7 @@ export const Industries={
                         },
                         {
                             "title": "فروشگاه و کسب‌وکار خریدار مواد غذایی",
-                            "slug": "business-food-buyer"
+                            "slug": "catalog-food-buyer"
                         }
                     ]
                 },
@@ -699,7 +699,7 @@ export const Industries={
         },
         {
             "title": "سایر صنایع و فعالیت‌های تجاری",
-            "slug": "other-business-activities",
+            "slug": "other-catalog-activities",
             "children": [
                 {
                     "title": "صنایع و فعالیت‌های تخصصی",
@@ -707,7 +707,7 @@ export const Industries={
                 },
                 {
                     "title": "فعالیت‌های چندحوزه‌ای",
-                    "slug": "multi-sector-businesses"
+                    "slug": "multi-sector-cataloges"
                 }
             ]
         }

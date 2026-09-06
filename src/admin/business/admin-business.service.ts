@@ -7,7 +7,7 @@ export class AdminBusinessService {
     constructor(private prisma: PrismaService) {}
 
     // ============================================================
-    // لیست کسب‌وکارها با فیلتر و آمار
+    // لیست کسب‌وکارها (نهادها) با فیلتر و آمار
     // ============================================================
     async getBusinesses(query: {
         page?: number;
@@ -47,9 +47,10 @@ export class AdminBusinessService {
 
         if (search) {
             where.OR = [
-                { name: { contains: search, mode: 'insensitive' } },
-                { shortDescription: { contains: search, mode: 'insensitive' } },
-                { phone: { contains: search, mode: 'insensitive' } },
+                { name: { contains: search } },
+                { shortDescription: { contains: search } },
+                { phone: { contains: search } },
+                { industryName: { contains: search } },
             ];
         }
         if (status && status !== 'all') where.status = status;
@@ -66,17 +67,22 @@ export class AdminBusinessService {
         if (provinceCode) where.provinceCode = provinceCode;
         if (cityCode) where.cityCode = cityCode;
         if (industryId) where.industryId = industryId;
+
+        // ✅ فعالیت‌ها روی نهاد هستند (BusinessActivity)
         if (activityId) {
             where.activities = { some: { activityId } };
         }
 
+        // ✅ فیلتر بازار — از مسیر کاتالوگ‌های نهاد و عضویت آن‌ها
         if (armSlug && armSlug !== 'all') {
             const arm = await this.prisma.arm.findUnique({
                 where: { slug: armSlug },
                 select: { id: true },
             });
             if (arm) {
-                where.armMemberships = { some: { armId: arm.id } };
+                where.catalogs = {
+                    some: { armMemberships: { some: { armId: arm.id } } },
+                };
             }
         }
 
@@ -99,6 +105,7 @@ export class AdminBusinessService {
                     name: true,
                     shortDescription: true,
                     type: true,
+                    industryName: true,
                     city: true,
                     province: true,
                     phone: true,
@@ -108,7 +115,8 @@ export class AdminBusinessService {
                     status: true,
                     createdAt: true,
                     updatedAt: true,
-                    _count: { select: { ads: true, armMemberships: true } },
+                    // ✅ شمارنده‌ها روی مدل جدید
+                    _count: { select: { catalogs: true } },
                 },
                 orderBy: orderByMap[sortBy] || { createdAt: 'desc' },
             }),
@@ -149,7 +157,8 @@ export class AdminBusinessService {
     }
 
     // ============================================================
-    // جزئیات کسب‌وکار (شامل مدارک تیک اعتماد)
+    // جزئیات کسب‌وکار — نهاد + کاتالوگ‌های متصل + مدارک تیک + آمار تجمیعی
+    // (ads/files/armMemberships روی Business نیستند — از مسیر کاتالوگ‌ها)
     // ============================================================
     async getBusinessDetail(businessId: string) {
         const business = await this.prisma.business.findUnique({
@@ -157,8 +166,17 @@ export class AdminBusinessService {
             include: {
                 owner: { select: { id: true, phone: true, fullName: true, avatarUrl: true } },
                 activities: { include: { activity: true } },
-                armMemberships: {
-                    include: { arm: { select: { id: true, slug: true, name: true, colorPrimary: true } } },
+                catalogs: {
+                    select: {
+                        id: true,
+                        name: true,
+                        slug: true,
+                        salesType: true,
+                        status: true,
+                        city: true,
+                        logoUrl: true,
+                        _count: { select: { ads: { where: { status: { not: 'deleted' } } } } },
+                    },
                 },
                 verifications: {
                     orderBy: { submittedAt: 'desc' },
@@ -174,74 +192,111 @@ export class AdminBusinessService {
                         expiresAt: true,
                     },
                 },
-                files: true,
-                ads: {
-                    orderBy: { createdAt: 'desc' },
-                    take: 20,
-                    select: {
-                        id: true,
-                        title: true,
-                        productType: true,
-                        unitPrice: true,
-                        status: true,
-                        createdAt: true,
-                        categoryId: true,
-                        arm: { select: { id: true, slug: true, name: true } },
-                    },
-                },
-                credits: {
-                    orderBy: { createdAt: 'desc' },
-                    take: 50,
-                    select: {
-                        id: true,
-                        amount: true,
-                        creditCount: true,
-                        creditType: true,
-                        status: true,
-                        transactionType: true,
-                        description: true,
-                        createdAt: true,
-                        arm: { select: { id: true, name: true, slug: true } },
-                    },
-                },
-                creditRequests: {
-                    orderBy: { createdAt: 'desc' },
-                    take: 50,
-                    select: {
-                        id: true,
-                        amount: true,
-                        status: true,
-                        receiptImage: true,
-                        receiptNote: true,
-                        createdAt: true,
-                        verifiedAt: true,
-                        rejectReason: true,
-                        metadata: true,
-                        arm: { select: { id: true, name: true, slug: true } },
-                    },
-                },
             },
         });
 
         if (!business) throw new NotFoundException({ errorCode: 'BUSINESS_NOT_FOUND', message: 'کسب‌وکار یافت نشد' });
 
+        const catalogIds = business.catalogs.map((c) => c.id);
+
+        // ─── آگهی‌ها — تجمیعی از کاتالوگ‌های نهاد ───
+        const ads = catalogIds.length
+            ? await this.prisma.ad.findMany({
+                where: { catalogId: { in: catalogIds } },
+                orderBy: { createdAt: 'desc' },
+                take: 20,
+                select: {
+                    id: true,
+                    title: true,
+                    productType: true,
+                    unitPrice: true,
+                    status: true,
+                    createdAt: true,
+                    categoryId: true,
+                    arm: { select: { id: true, slug: true, name: true } },
+                    catalog: { select: { id: true, name: true } },
+                },
+            })
+            : [];
+
+        // ─── عضویت‌های بازار — از مسیر کاتالوگ‌ها ───
+        const armMemberships = catalogIds.length
+            ? await this.prisma.armMembership.findMany({
+                where: { catalogId: { in: catalogIds } },
+                include: {
+                    arm: { select: { id: true, slug: true, name: true, colorPrimary: true } },
+                    catalog: { select: { id: true, name: true } },
+                },
+            })
+            : [];
+
+        // ─── اعتبارها — از مسیر کاتالوگ‌ها ───
+        const credits = catalogIds.length
+            ? await this.prisma.credit.findMany({
+                where: { catalogId: { in: catalogIds } },
+                orderBy: { createdAt: 'desc' },
+                take: 50,
+                select: {
+                    id: true,
+                    amount: true,
+                    creditCount: true,
+                    creditType: true,
+                    status: true,
+                    transactionType: true,
+                    description: true,
+                    createdAt: true,
+                    arm: { select: { id: true, name: true, slug: true } },
+                },
+            })
+            : [];
+
+        const creditRequests = catalogIds.length
+            ? await this.prisma.creditRequest.findMany({
+                where: { catalogId: { in: catalogIds } },
+                orderBy: { createdAt: 'desc' },
+                take: 50,
+                select: {
+                    id: true,
+                    amount: true,
+                    status: true,
+                    receiptImage: true,
+                    receiptNote: true,
+                    createdAt: true,
+                    verifiedAt: true,
+                    rejectReason: true,
+                    metadata: true,
+                    arm: { select: { id: true, name: true, slug: true } },
+                },
+            })
+            : [];
+
+        // ─── فایل‌های نهاد — کوئری دستی (File رلیشن مستقیم به Business ندارد) ───
+        const files = await this.prisma.file.findMany({
+            where: { relatedModel: 'Business', relatedId: businessId },
+        });
+
         const latestVerification = business.verifications[0] || null;
 
         const fileUrlMap: Record<string, string> = {};
-        business.files.forEach(f => {
-            fileUrlMap[f.id] = `/file/${f.id}`;
-        });
+        files.forEach((f) => { fileUrlMap[f.id] = `/file/${f.id}`; });
 
         return {
             ...business,
+            owner: business.owner,
+            catalogs: business.catalogs,
+            armMemberships,
+            ads,
+            credits,
+            creditRequests,
             latestVerification,
             fileUrlMap,
-            activities: business.activities.map(a => a.activity),
+            activities: business.activities.map((a) => a.activity),
         };
     }
 
     // ============================================================
-    // تأیید یا رد درخواست تیک اعتماد
+    // تأیید یا رد درخواست تیک اعتماد — روی نهاد
+    // (Verification از این پس businessId دارد — بلافاصله کار می‌کند)
     // ============================================================
     async verifyBusiness(
         businessId: string,

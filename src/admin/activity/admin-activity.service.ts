@@ -110,10 +110,7 @@ export class AdminActivityService {
             throw new ConflictException({ errorCode: 'ACTIVITY_HAS_CHILDREN', message: 'دارای زیرمجموعه است' });
         }
 
-        const businessCount = await this.prisma.businessActivity.count({ where: { activityId: id } });
-        if (businessCount > 0) {
-            throw new ConflictException({ errorCode: 'ACTIVITY_IN_USE', message: `در ${businessCount} کسب‌وکار استفاده شده` });
-        }
+
 
         return this.prisma.activity.update({ where: { id }, data: { isActive: false } });
     }

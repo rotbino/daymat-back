@@ -6,7 +6,6 @@ import configuration from './config/configuration';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { ArmModule } from './arm/arm.module';
-import { BusinessModule } from './business/business.module';
 import { AdModule } from './ad/ad.module';
 import { AdminModule } from './admin/admin.module';
 import { CreditModule } from './credit/credit.module';
@@ -18,6 +17,9 @@ import {ActivityModule} from "./activity/activity.module";
 import {ArmAdminModule} from "./arm-admin/arm-admin.module";
 import {FeedbackModule} from "./feedback/feedback.module";
 import {CatalogModule} from "./catalog/catalog.module";
+import {UnitModule} from "./unit/unit.module";
+import {CommonModule} from "./common/common.module";
+import {BusinessModule} from "./business/business.module";
 
 
 @Global()
@@ -30,19 +32,22 @@ import {CatalogModule} from "./catalog/catalog.module";
     ]),
     PrismaModule,
     AuthModule,
+    CommonModule,        // ✅ اضافه — سرویس انتشار سراسری
     FileModule,
-    BusinessModule,
+    CatalogModule,
     ArmModule,
     AdModule,
     CreditModule,
     LocationModule,
-
+    BusinessModule,
     ActivityModule,
     SettingsModule,
     ArmAdminModule,
     FeedbackModule,
     CatalogModule,
+
     AdminModule,
+    UnitModule,
 
   ],
   providers: [I18nService],

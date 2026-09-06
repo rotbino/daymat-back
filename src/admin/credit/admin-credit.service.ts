@@ -50,7 +50,7 @@ export class AdminCreditService {
         if (endDate) where.createdAt = { ...where.createdAt, lte: new Date(endDate + 'T23:59:59.999Z') };
 
         // paymentMethod از metadata استخراج میشه
-        // برای فیلتر شهر و استان باید از business یا ad استفاده کنیم - فعلاً از metadata
+        // برای فیلتر شهر و استان باید از catalog یا ad استفاده کنیم - فعلاً از metadata
 
         const orderMap: any = {
             createdAt: { createdAt: sortOrder },
@@ -67,7 +67,7 @@ export class AdminCreditService {
                     status: true, description: true, createdAt: true,
                     pricePerCredit: true, metadata: true,
                     user: { select: { id: true, fullName: true, phone: true } },
-                    business: { select: { id: true, name: true, city: true, province: true } },
+                    catalog: { select: { id: true, name: true, city: true, province: true } },
                     arm: { select: { id: true, slug: true, name: true, colorPrimary: true } },
                 },
                 orderBy: orderMap[sortBy] || { createdAt: 'desc' },
@@ -94,7 +94,7 @@ export class AdminCreditService {
         // فیلتر شهر
         if (city) {
             filteredItems = filteredItems.filter(i =>
-                i.business?.city?.toLowerCase().includes(city.toLowerCase())
+                i.catalog?.city?.toLowerCase().includes(city.toLowerCase())
             );
         }
 
@@ -154,7 +154,7 @@ export class AdminCreditService {
             where: { id },
             include: {
                 user: { select: { id: true, fullName: true, phone: true } },
-                business: { select: { id: true, name: true, city: true, province: true, phone: true } },
+                catalog: { select: { id: true, name: true, city: true, province: true, phone: true } },
                 arm: { select: { id: true, slug: true, name: true, colorPrimary: true } },
             },
         });

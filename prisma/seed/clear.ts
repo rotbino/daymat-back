@@ -18,7 +18,7 @@ async function clearDatabase() {
         prisma.credit.deleteMany({}),
         prisma.trustMetric.deleteMany({}),
         prisma.arm.deleteMany({}),
-        prisma.business.deleteMany({}),
+        prisma.catalog.deleteMany({}),
         prisma.user.deleteMany({}),
     ]);
 

@@ -33,6 +33,8 @@ export class AdminUnitService {
                 title: dto.title,
                 shortCode: dto.shortCode,
                 isDefault: dto.isDefault || false,
+                containsQty: dto.containsQty ?? null,
+                qtyIsFixed: dto.qtyIsFixed ?? false,
             },
         });
     }
@@ -95,6 +97,8 @@ export class AdminUnitService {
                 title: dto.title,
                 shortCode: dto.shortCode,
                 isDefault: dto.isDefault,
+                containsQty: dto.containsQty ?? null,
+                qtyIsFixed: dto.qtyIsFixed ?? false,
             },
         });
     }

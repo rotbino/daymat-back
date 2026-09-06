@@ -229,17 +229,8 @@ export class AdminIndustryService {
             });
         }
 
-        // بررسی استفاده در Business
-        const businessCount = await this.prisma.business.count({
-            where: { industryId: id },
-        });
+        // بررسی استفاده در Catalog
 
-        if (businessCount > 0) {
-            throw new ConflictException({
-                errorCode: 'INDUSTRY_IN_USE',
-                message: `این صنف در ${businessCount} کسب‌وکار استفاده شده است و قابل حذف نیست`,
-            });
-        }
 
         // بررسی استفاده در config بازارها
         const armsWithIndustry = await this.prisma.arm.findMany({

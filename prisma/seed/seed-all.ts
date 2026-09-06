@@ -86,11 +86,11 @@ async function cleanDatabase() {
         'categoryUnitMapping',
         'customCategory',
         'armMembership',
-        'businessActivity',
+        'catalogActivity',
         'feedback',
         'verificationCode',
         'teamMember',
-        'business',
+        'catalog',
         'arm',
         'activity',
         'industry',
@@ -115,7 +115,7 @@ async function cleanDatabase() {
 async function printStats() {
     const stats = {
         users: await prisma.user.count(),
-        businesses: await prisma.business.count(),
+        cataloges: await prisma.catalog.count(),
         arms: await prisma.arm.count(),
         categories: await prisma.productCategory.count(),
         locations: await prisma.location.count(),
@@ -128,7 +128,7 @@ async function printStats() {
     console.log('\n📊 آمار نهایی دیتابیس:');
     console.log('─'.repeat(40));
     console.log(`   👤 کاربران: ${stats.users}`);
-    console.log(`   🏢 کسب‌وکارها: ${stats.businesses}`);
+    console.log(`   🏢 کاتالوگها: ${stats.cataloges}`);
     console.log(`   🏗️  بازارها: ${stats.arms}`);
     console.log(`   📦 دسته‌بندی‌ها: ${stats.categories}`);
     console.log(`   📍 موقعیت‌ها: ${stats.locations}`);

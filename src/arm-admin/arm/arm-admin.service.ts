@@ -132,7 +132,7 @@ export class ArmAdminService {
                         phone: true,
                     },
                 },
-                business: {
+                catalog: {
                     select: {
                         id: true,
                         name: true,
@@ -206,7 +206,7 @@ export class ArmAdminService {
             await prisma.credit.create({
                 data: {
                     userId: payment.userId,
-                    businessId: payment.businessId,
+                    catalogId: payment.catalogId,
                     armId: payment.armId ?? null,
                     amount: payment.amount,
                     currency: currency,
@@ -503,7 +503,7 @@ export class ArmAdminService {
                         phone: true,
                     },
                 },
-                business: {
+                catalog: {
                     select: {
                         name: true,
                     },

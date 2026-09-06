@@ -651,7 +651,7 @@
 "@fastify/accept-negotiator@^2.0.0":
   version "2.0.1"
   resolved "https://registry.npmmirror.com/@fastify/accept-negotiator/-/accept-negotiator-2.0.1.tgz#77afd6254ba77f6c22c6f35c4fb0c1b6d005199b"
-  integrity sha512-/c/TW2bO/v9JeEgoD/g1G5GxGeCF1Hafdf79WPmUlgYiBXummY0oX3VVq4yFkKKVBKDNlaDUYoab7g38RpPqCQ==
+  integrity sha512-/TW2bO/v9JeEgoD/g1G5GxGeCF1Hafdf79WPmUlgYiBXummY0oX3VVq4yFkKKVBKDNlaDUYoab7g38RpPqCQ==
 
 "@fastify/ajv-compiler@^4.0.5":
   version "4.0.5"

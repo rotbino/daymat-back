@@ -554,8 +554,8 @@ Key	Parent key	Code	TitleEn									Title
 101530	101526	25131504	Commercial passenger propeller aircraft									هواپیمای ملخی مسافربری تجاری
 101531	101526	25131505	Cargo jet aircraft									هواپیمای جت باری
 101532	101526	25131506	Commercial passenger jet aircraft									هواپیمای جت مسافربری تجاری
-101533	101526	25131507	Private or business propeller aircraft									هواپیمای ملخی شخصی یا تجاری
-101534	101526	25131508	Private or business jet aircraft									هواپیمای جت شخصی یا تجاری
+101533	101526	25131507	Private or catalog propeller aircraft									هواپیمای ملخی شخصی یا تجاری
+101534	101526	25131508	Private or catalog jet aircraft									هواپیمای جت شخصی یا تجاری
 101535	101525	25131600	Civilian and commercial rotary wing aircraft									هواپیمای بال چرخان غیرنظامی و تجاری
 101536	101535	25131601	Passenger transport helicopters									بالگردهای مسافربری
 101537	101535	25131602	Cargo transport helicopters									بالگردهای باری
@@ -1707,7 +1707,7 @@ Key	Parent key	Code	TitleEn									Title
 105134	105131	44122003	Binders									کلاسورها
 105136	105131	44122005	Magazine or book covers									جلد مجله یا کتاب
 105139	105131	44122008	Tab indexes									برچسب‌های شاخص
-105140	105131	44122009	Rotary or business card files									فایل‌های چرخان یا کارت ویزیت
+105140	105131	44122009	Rotary or catalog card files									فایل‌های چرخان یا کارت ویزیت
 105141	105131	44122010	Dividers									جداکننده‌ها
 105142	105131	44122011	Folders									پوشه‌ها
 105143	105117	44111800	Drafting supplies									ملزومات نقشه‌کشی
@@ -3412,7 +3412,7 @@ Key	Parent key	Code	TitleEn									Title
 108668	108666	78141802	Vessel docking services									خدمات پهلوگیری کشتی
 108669	108666	78141803	Vessel stores services									خدمات تدارکات کشتی
 108670	107364	80101500	Business and corporate management consultation services									خدمات مشاوره مدیریت کسب و کار و شرکت
-108671	108670	80101501	New business start up consultation services									خدمات مشاوره راه‌اندازی کسب و کار جدید
+108671	108670	80101501	New catalog start up consultation services									خدمات مشاوره راه‌اندازی کسب و کار جدید
 108672	108670	80101502	Corporate mergers consultation services									خدمات مشاوره ادغام شرکت‌ها
 108673	108670	80101503	Corporate divestiture consultation services									خدمات مشاوره واگذاری شرکت
 108674	108670	80101504	Strategic planning consultation services									خدمات مشاوره برنامه‌ریزی استراتژیک
@@ -3491,7 +3491,7 @@ Key	Parent key	Code	TitleEn									Title
 108750	108748	80141502	Distributive or service trade statistics									آمار تجارت توزیعی یا خدماتی
 108751	108748	80141503	Commodity price forecasting									پیش‌بینی قیمت کالا
 108752	108748	80141504	Preparation of commodity market surveys									تهیه نظرسنجی بازار کالا
-108753	107368	80141600	Sales and business promotion activities									فعالیت‌های فروش و ترویج کسب و کار
+108753	107368	80141600	Sales and catalog promotion activities									فعالیت‌های فروش و ترویج کسب و کار
 108754	108753	80141601	Sales promotion services									خدمات ترویج فروش
 108756	107368	80141700	Distribution									توزیع
 108757	108756	80141701	Direct sales services									خدمات فروش مستقیم
@@ -3705,7 +3705,7 @@ Key	Parent key	Code	TitleEn									Title
 108983	108979	82121504	Letterpress or screen printing									چاپ لترپرس یا سیلک
 108984	108979	82121505	Promotional or advertising printing									چاپ تبلیغاتی
 108985	108979	82121506	Publication printing									چاپ نشریات
-108986	108979	82121507	Stationery or business form printing									چاپ لوازم التحریر یا فرم‌های تجاری
+108986	108979	82121507	Stationery or catalog form printing									چاپ لوازم التحریر یا فرم‌های تجاری
 108987	108979	82121508	Wrap or tag or label or seal or bag printing									چاپ لیبل یا بسته‌بندی
 108988	108979	82121509	Security or financial instruments printing									چاپ اوراق بهادار
 108989	108979	82121510	Textile printing									چاپ پارچه
@@ -3905,8 +3905,8 @@ Key	Parent key	Code	TitleEn									Title
 109188	109186	84131802	Self directed or self initiated retirement plans									برنامه‌های بازنشستگی خودگردان
 109189	107403	84141500	Governmental credit agencies									موسسات اعتباری دولتی
 109190	109189	84141501	Farm credit services									خدمات اعتبار کشاورزی
-109191	109189	84141502	Small business loan agencies									موسسات وام کسب و کار کوچک
-109192	109189	84141503	Minority owned business programs									برنامه‌های کسب و کار اقلیت‌ها
+109191	109189	84141502	Small catalog loan agencies									موسسات وام کسب و کار کوچک
+109192	109189	84141503	Minority owned catalog programs									برنامه‌های کسب و کار اقلیت‌ها
 109193	107403	84141600	Personal credit agencies									موسسات اعتباری شخصی
 109194	109193	84141601	Consumer credit gathering or reporting services									خدمات جمع‌آوری یا گزارش اعتبار مصرف‌کننده
 109195	109193	84141602	Credit card service providers									ارائه‌دهندگان خدمات کارت اعتباری
@@ -7390,7 +7390,7 @@ Key	Parent key	Code	TitleEn									Title
 135822	105123	44111611	Money clips									گیره پول
 135823	102603	39121534	Indicator or pilot lights									لامپ سیگنال
 135830	108846	81111818	Third party warranty service									خدمات گارانتی
-135831	133347	14111807	Multipurpose business book									دفتر تجاری
+135831	133347	14111807	Multipurpose catalog book									دفتر تجاری
 135834	101266	24101512	Power buggies									گاری موتوری
 135836	135652	45112003	Microfiche or microfilm viewer components or accessories									قطعات نمایشگر میکروفیش
 135837	135652	45112004	Microfiche reader printer components or accessories									قطعات چاپگر میکروفیش

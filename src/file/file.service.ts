@@ -5,7 +5,7 @@ import { S3Service } from './s3.service';
 
 @Injectable()
 export class FileService {
-    private readonly maxFileSize = 10 * 1024 * 1024; // ✅ محدودیت آپلود: 10MB
+    private readonly maxFileSize = 10 * 1024 * 1024; // 10MB
 
     constructor(
         private prisma: PrismaService,
@@ -13,12 +13,80 @@ export class FileService {
     ) {}
 
     // ============================================================
+    // ✅ حذف همهٔ فایل‌های قبلیِ یک fieldKey — برای جلوگیری از انباشت
+    //    فقط User و Catalog (سمنتیک تک‌فایلی).
+    //    Ad مستثناست — چند عکس برای هر آگهی عمدی است.
+    //    keepId: رکورد تازه‌ساخته‌شده حذف نشود.
+    //    S3 best-effort؛ رکورد DB همیشه حذف می‌شود.
+    // ============================================================
+    private async deleteExistingFiles(
+        userId: string,
+        model: 'User' | 'Catalog' | 'Ad',
+        modelId: string | null,
+        fieldKey: string,
+        keepId?: string,
+    ): Promise<number> {
+        if (model === 'Ad') return 0; // آگهی چند-فایلی است — دست نمی‌زنیم
+
+        const where: any = { userId, relatedModel: model, fieldKey };
+        // بیزنس: هر کاتالوگ لوگوی خودش — با relatedId جدا کنیم
+        // (کاربر ممکن است چند بیزنس داشته باشد)
+        if (model === 'Catalog' && modelId) {
+            where.relatedId = modelId;
+        }
+
+        const existing = await this.prisma.file.findMany({
+            where,
+            select: { id: true, metadata: true },
+        });
+
+        let deleted = 0;
+        for (const f of existing) {
+            if (keepId && f.id === keepId) continue;
+            try {
+                const meta: any = f.metadata;
+                if (meta?.s3Key) await this.s3Service.deleteFile(meta.s3Key).catch(() => {});
+                if (meta?.thumbnailS3Key) await this.s3Service.deleteFile(meta.thumbnailS3Key).catch(() => {});
+            } catch (e: any) {
+                console.warn('⚠️ S3 cleanup of old file failed (non-blocking):', e.message);
+            }
+            await this.prisma.file.delete({ where: { id: f.id } });
+            deleted++;
+        }
+        if (deleted > 0) console.log(`🗑️ ${deleted} old file(s) removed [${model}/${fieldKey}]`);
+        return deleted;
+    }
+
+    // ============================================================
+    // ✅ همگام‌سازی فیلد تصویر روی رکورد مالک —
+    //    User.avatarUrl / Catalog.logoUrl همیشه تصویر تازه را نشان دهند
+    // ============================================================
+    private async syncOwnerImageField(
+        model: 'User' | 'Catalog' | 'Ad',
+        modelId: string | null,
+        fieldKey: string | undefined,
+        imageUrl: string,
+    ): Promise<void> {
+        try {
+            if (model === 'User' && fieldKey === 'avatar') {
+                await this.prisma.user.update({
+                    where: { id: modelId },
+                    data: { avatarUrl: imageUrl },
+                });
+            } else if (model === 'Catalog' && fieldKey === 'logo' && modelId) {
+                await this.prisma.catalog.update({
+                    where: { id: modelId },
+                    data: { logoUrl: imageUrl },
+                });
+            }
+        } catch (e: any) {
+            console.warn('⚠️ Owner image field sync failed (non-blocking):', e.message);
+        }
+    }
+
+    // ============================================================
     // آپلود فایل با S3
     // ============================================================
-    // src/file/file.service.ts
-
-
-
     async uploadFile(
         userId: string,
         file: {
@@ -27,11 +95,10 @@ export class FileService {
             mimetype: string;
             size: number;
         },
-        model: 'User' | 'Business' | 'Ad',
+        model: 'User' | 'Catalog' | 'Ad',
         modelId: string,
         fieldKey?: string,
     ) {
-        // ✅ ۱. اگر حجم بیشتر از ۱۰MB است → خطا
         if (file.size > this.maxFileSize) {
             throw new BadRequestException({
                 errorCode: 'FILE_TOO_LARGE',
@@ -48,58 +115,39 @@ export class FileService {
         if (isImage) {
             try {
                 const sharp = require('sharp');
-
-                // ✅ ۲. فشرده‌سازی با حداکثر ابعاد
                 const optimizedBuffer = await sharp(file.buffer)
-                    .resize(1280, 1280, {
-                        fit: 'inside',
-                        withoutEnlargement: true
-                    })
+                    .resize(1280, 1280, { fit: 'inside', withoutEnlargement: true })
                     .jpeg({ quality: 85 })
                     .toBuffer();
-
                 finalBuffer = optimizedBuffer;
                 finalMimetype = 'image/jpeg';
                 finalSize = optimizedBuffer.length;
-
                 console.log(`✅ Image compressed: ${(file.size / 1024 / 1024).toFixed(2)}MB → ${(finalSize / 1024).toFixed(1)}KB`);
             } catch (error) {
                 console.warn('⚠️ Compression failed, using original:', error.message);
             }
         }
 
-        // ✅ ۳. آپلود به S3 با فایل فشرده
+        // ۱) آپلود به S3 با فایل فشرده
         const { url, key } = await this.s3Service.uploadFile(
-            {
-                buffer: finalBuffer,
-                originalname: file.originalname,
-                mimetype: finalMimetype,
-            },
+            { buffer: finalBuffer, originalname: file.originalname, mimetype: finalMimetype },
             userId,
             model,
             isValidObjectId ? modelId : undefined,
             fieldKey,
         );
 
-        // ✅ ۴. تامبنیل
+        // ۲) تامبنیل
         let thumbnailUrl: string | null = null;
         if (isImage) {
             try {
                 const sharp = require('sharp');
-                const thumbnailBuffer = await sharp(finalBuffer) // ✅ از فایل فشرده
-                    .resize(400, 400, {
-                        fit: 'inside',
-                        withoutEnlargement: true
-                    })
+                const thumbnailBuffer = await sharp(finalBuffer)
+                    .resize(400, 400, { fit: 'inside', withoutEnlargement: true })
                     .jpeg({ quality: 80 })
                     .toBuffer();
-
                 const thumbResult = await this.s3Service.uploadFile(
-                    {
-                        buffer: thumbnailBuffer,
-                        originalname: `thumb-${file.originalname}`,
-                        mimetype: 'image/jpeg',
-                    },
+                    { buffer: thumbnailBuffer, originalname: `thumb-${file.originalname}`, mimetype: 'image/jpeg' },
                     userId,
                     model,
                     isValidObjectId ? modelId : undefined,
@@ -111,13 +159,13 @@ export class FileService {
             }
         }
 
-        // ✅ ۵. ذخیره در دیتابیس با حجم فشرده
+        // ۳) ذخیره در دیتابیس
         const fileRecord = await this.prisma.file.create({
             data: {
                 userId,
                 name: file.originalname,
                 mimeType: finalMimetype,
-                size: finalSize, // ✅ حجم فشرده‌شده
+                size: finalSize,
                 path: url,
                 thumbnailPath: thumbnailUrl,
                 relatedModel: model,
@@ -125,134 +173,74 @@ export class FileService {
                 fieldKey: fieldKey || null,
                 metadata: {
                     s3Key: key,
-                    originalSize: file.size, // ✅ حجم اصلی برای مقایسه
+                    originalSize: file.size,
                     thumbnailS3Key: thumbnailUrl ? this.s3Service.getKeyFromUrl(thumbnailUrl) : null,
                 },
             },
         });
 
-        return fileRecord;
-    }
-
-    // ============================================================
-    // حذف فایل قبلی
-    // ============================================================
-    private async deleteExistingFile(
-        userId: string,
-        model: string,
-        modelId: string,
-        fieldKey: string,
-    ) {
-        const existingFile = await this.prisma.file.findFirst({
-            where: {
+        // ۴) ✅ حذف قبلی‌ها — بعد از موفقیتِ آپلود جدید
+        //    (اگر آپلود جدید شکست بخورد، عکس قبلی کاربر از دست نمی‌رود)
+        if (fieldKey) {
+            await this.deleteExistingFiles(
                 userId,
-                relatedModel: model,
-                relatedId: modelId,
-                fieldKey: fieldKey,
-            },
-        });
-
-        if (existingFile) {
-            console.log('🗑️ Found existing file:', existingFile.id);
-
-            const metadata = (existingFile as any).metadata;
-            if (metadata?.s3Key) {
-                await this.s3Service.deleteFile(metadata.s3Key);
-                console.log('✅ File deleted from S3');
-            }
-            if (metadata?.thumbnailS3Key) {
-                await this.s3Service.deleteFile(metadata.thumbnailS3Key);
-                console.log('✅ Thumbnail deleted from S3');
-            }
-
-            await this.prisma.file.delete({ where: { id: existingFile.id } });
-            console.log('✅ Old file record deleted from database');
-            return true;
+                model,
+                isValidObjectId ? modelId : null,
+                fieldKey,
+                fileRecord.id,
+            );
         }
-        return false;
+
+        // ۵) ✅ همگام‌سازی User.avatarUrl / Catalog.logoUrl
+        await this.syncOwnerImageField(
+            model,
+            isValidObjectId ? modelId : null,
+            fieldKey,
+            thumbnailUrl || url,
+        );
+
+        return fileRecord;
     }
 
     // ============================================================
     // دریافت فایل
     // ============================================================
     async getFile(fileId: string, thumbnail: boolean = false) {
-        const file = await this.prisma.file.findUnique({
-            where: { id: fileId },
-        });
-
+        const file = await this.prisma.file.findUnique({ where: { id: fileId } });
         if (!file) {
-            throw new NotFoundException({
-                errorCode: 'FILE_NOT_FOUND',
-                message: 'فایل یافت نشد',
-            });
+            throw new NotFoundException({ errorCode: 'FILE_NOT_FOUND', message: 'فایل یافت نشد' });
         }
-
         const filePath = thumbnail && file.thumbnailPath ? file.thumbnailPath : file.path;
-
         if (!filePath) {
-            throw new NotFoundException({
-                errorCode: 'FILE_NOT_FOUND',
-                message: 'فایل در فضای ابری یافت نشد',
-            });
+            throw new NotFoundException({ errorCode: 'FILE_NOT_FOUND', message: 'فایل در فضای ابری یافت نشد' });
         }
-
-        return {
-            url: filePath,
-            mimeType: thumbnail ? 'image/jpeg' : file.mimeType,
-            size: file.size,
-            name: file.name,
-        };
+        return { url: filePath, mimeType: thumbnail ? 'image/jpeg' : file.mimeType, size: file.size, name: file.name };
     }
 
     // ============================================================
     // حذف فایل
     // ============================================================
     async deleteFile(userId: string, fileId: string) {
-        const file = await this.prisma.file.findUnique({
-            where: { id: fileId },
-        });
-
+        const file = await this.prisma.file.findUnique({ where: { id: fileId } });
         if (!file) {
-            throw new NotFoundException({
-                errorCode: 'FILE_NOT_FOUND',
-                message: 'فایل یافت نشد',
-            });
+            throw new NotFoundException({ errorCode: 'FILE_NOT_FOUND', message: 'فایل یافت نشد' });
         }
-
         if (file.userId !== userId) {
-            throw new ForbiddenException({
-                errorCode: 'FORBIDDEN',
-                message: 'شما اجازه حذف این فایل را ندارید',
-            });
+            throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'شما اجازه حذف این فایل را ندارید' });
         }
-
         const metadata = (file as any).metadata;
-        if (metadata?.s3Key) {
-            await this.s3Service.deleteFile(metadata.s3Key);
-        }
-        if (metadata?.thumbnailS3Key) {
-            await this.s3Service.deleteFile(metadata.thumbnailS3Key);
-        }
-
+        if (metadata?.s3Key) await this.s3Service.deleteFile(metadata.s3Key);
+        if (metadata?.thumbnailS3Key) await this.s3Service.deleteFile(metadata.thumbnailS3Key);
         await this.prisma.file.delete({ where: { id: fileId } });
         return { message: 'فایل با موفقیت حذف شد' };
     }
 
-    // ============================================================
-    // پاکسازی فایل‌های سرگردان
-    // ============================================================
     async cleanupOrphanFiles() {
         console.log('🧹 Starting cleanup of orphan files...');
         return { deleted: 0, errors: 0, message: 'Cleanup for S3 is not implemented yet' };
     }
 
-    // ============================================================
-    // به‌روزرسانی relatedId
-    // ============================================================
     async updateFileRelatedId(fileId: string, modelId: string) {
-        return this.prisma.file.update({
-            where: { id: fileId },
-            data: { relatedId: modelId },
-        });
+        return this.prisma.file.update({ where: { id: fileId }, data: { relatedId: modelId } });
     }
 }

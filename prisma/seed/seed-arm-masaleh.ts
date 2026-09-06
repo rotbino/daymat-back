@@ -447,9 +447,9 @@ async function main() {
                     allowManualRoleSelection: true,
                     requireAdminApprovalForMembership: false,
                     requirePhoneVerification: false,
-                    requireBusinessVerification: false,
+                    requireCatalogVerification: false,
                     restrictMembershipByLocation: false,
-                    requireBusinessForMembership: true,
+                    requireCatalogForMembership: true,
                 },
                 economy: {
                     daymatShare: 30,

@@ -12,8 +12,9 @@ import {
 } from './auth.dto';
 import { SystemSettingsService } from '../settings/system-settings.service';
 import * as bcrypt from 'bcryptjs';
-import {SystemRole} from "../common/enums/prisma-enums";
-
+import { SystemRole } from "../common/enums/prisma-enums";
+// ✅ NEW — ابزار رفرال مشترک
+import { generateReferralCode, normalizeReferralCode, isReferralCollision } from '../common/utils/referral';
 
 @Injectable()
 export class AuthService {
@@ -24,14 +25,11 @@ export class AuthService {
     ) {}
 
     // ============================================================
-    // ✅ ثبت‌نام کاربر
+    // ✅ دریافت پروفایل
     // ============================================================
-    // src/auth/auth.service.ts
-
-
-
-// src/auth/auth.service.ts
-
+    // ============================================================
+    // ✅ دریافت پروفایل
+    // ============================================================
     async getProfile(userId: string) {
         const user = await this.prisma.user.findUnique({
             where: { id: userId },
@@ -58,23 +56,28 @@ export class AuthService {
                 birthDate: true,
                 province: true,
                 city: true,
-                countryCode: true,      // ✅ اضافه شود
-                provinceCode: true,     // ✅ اضافه شود
-                cityCode: true,         // ✅ اضافه شود
+                countryCode: true,
+                provinceCode: true,
+                cityCode: true,
                 postalCode: true,
                 address: true,
                 bio: true,
-                businessStartYear: true,
                 website: true,
                 telegram: true,
                 socialLinks: true,
 
+                // ✅ رفرال
+                referralCode: true,
+                referredByUserId: true,
+                referredAt: true,
+
                 _count: {
                     select: {
-                        businesses: true,
+                        businesses: true,      // ✅ نهادهای تجاری (catalogStartYear اینجاست)
                         armMemberships: true,
                         ads: true,
                         credits: true,
+                        referrals: true,       // ✅ تعداد دعوت‌شدگان مستقیم
                     },
                 },
             },
@@ -84,12 +87,11 @@ export class AuthService {
             throw new NotFoundException({ errorCode: 'USER_NOT_FOUND', message: 'کاربر یافت نشد' });
         }
 
-        // فایل‌های کاربر (آواتار)
         const userFiles = await this.prisma.file.findMany({
             where: { relatedModel: 'User', relatedId: userId },
             select: { id: true, fieldKey: true, thumbnailPath: true, path: true },
         });
-        const avatarFile = userFiles.find(f => f.fieldKey === 'avatar') || null;
+        const avatarFile = userFiles.find((f) => f.fieldKey === 'avatar') || null;
 
         return {
             ...user,
@@ -102,11 +104,6 @@ export class AuthService {
     // ============================================================
     // ✅ ورود کاربر
     // ============================================================
-    // src/auth/auth.service.ts
-
-// ============================================================
-// ✅ ورود کاربر
-// ============================================================
     async login(dto: LoginDto, locale?: string) {
         const user = await this.prisma.user.findUnique({
             where: { phone: dto.phone },
@@ -132,7 +129,6 @@ export class AuthService {
             data: { lastLoginAt: new Date() },
         });
 
-        // ✅ استفاده از getProfile برای خروجی یکسان
         const profile = await this.getProfile(user.id);
 
         return {
@@ -147,9 +143,9 @@ export class AuthService {
         };
     }
 
-// ============================================================
-// ✅ ثبت‌نام کاربر
-// ============================================================
+    // ============================================================
+    // ✅ ثبت‌نام کاربر
+    // ============================================================
     async register(dto: RegisterDto, locale?: string) {
         // ۱. بررسی تکراری نبودن شماره
         const existing = await this.prisma.user.findUnique({
@@ -163,58 +159,105 @@ export class AuthService {
             });
         }
 
-        // ۲. خواندن تنظیمات اعتبار از سیستم
+        // ۲. resolve کد دعوت‌کننده (اگر از لینک رفرال‌دار آمده)
+        let referrerId: string | null = null;
+        const refCode = normalizeReferralCode((dto as any).refCode ?? '');
+        if (refCode) {
+            const refUser = await this.prisma.user.findUnique({
+                where: { referralCode: refCode },
+                select: { id: true },
+            });
+            if (refUser) referrerId = refUser.id;
+        }
+
+        // ۳. خواندن تنظیمات اعتبار از سیستم
         const creditSettings = await this.systemSettings.getCreditSettings();
         const signupBonus = creditSettings.signupBonus;
 
         const hashed = await bcrypt.hash(dto.password, 10);
 
-        // ۳. ثبت کاربر و اعتبار هدیه در یک تراکنش
-        const user = await this.prisma.$transaction(async (prisma) => {
-            const newUser = await prisma.user.create({
-                data: {
-                    phone: dto.phone,
-                    fullName: dto.fullName || '',
-                    passwordHash: hashed,
-                    role: SystemRole.system_user,
-                    locale: locale || 'fa',
-                    isPhoneVerified: false,
-                },
-            });
+        // ۴. ثبت کاربر — انتساب دعوت‌کننده داخل همین create، نه با update جدا
+        //    ⚠️ در مونگو فیلدِ غایب با فیلتر null پرزما match نمی‌شود؛
+        //    updateMany بعد از create بی‌صدا no-op می‌شد (باگ تأییدشده)
+        let newUser: any = null;
+        let lastError: any = null;
+        for (let attempt = 0; attempt < 5 && !newUser; attempt++) {
+            try {
+                newUser = await this.prisma.$transaction(async (prisma) => {
+                    const created = await prisma.user.create({
+                        data: {
+                            phone: dto.phone,
+                            fullName: dto.fullName || '',
+                            passwordHash: hashed,
+                            role: SystemRole.system_user,
+                            locale: locale || 'fa',
+                            isPhoneVerified: false,
+                            referralCode: generateReferralCode(),
+                            // ✅ first-touch — در همان لحظهٔ تولد سند
+                            ...(referrerId ? {
+                                referredByUserId: referrerId,
+                                referredAt: new Date(),
+                            } : {}),
+                        },
+                    });
 
-            await prisma.credit.create({
-                data: {
-                    userId: newUser.id,
-                    amount: 0,
-                    currency: 'IRR',
-                    creditCount:50,// signupBonus,
-                    pricePerCredit: 0,
-                    creditType: 'bonus',
-                    transactionType: 'signup_bonus',
-                    description: `اعتبار هدیه ثبت‌نام (${signupBonus} اعتبار)`,
-                    metadata: {
-                        source: 'system_settings',
-                        granted_at: new Date().toISOString(),
-                    },
-                },
-            });
+                    await prisma.credit.create({
+                        data: {
+                            userId: created.id,
+                            amount: 0,
+                            currency: 'IRR',
+                            creditCount: 50, // signupBonus,
+                            pricePerCredit: 0,
+                            creditType: 'bonus',
+                            transactionType: 'signup_bonus',
+                            description: `اعتبار هدیه ثبت‌نام (${signupBonus} اعتبار)`,
+                            metadata: {
+                                source: 'system_settings',
+                                granted_at: new Date().toISOString(),
+                            },
+                        },
+                    });
 
-            return newUser;
-        });
+                    return created;
+                });
+            } catch (e: any) {
+                if (isReferralCollision(e)) { lastError = e; continue; }
+                throw e;
+            }
+        }
+        if (!newUser) throw lastError;
 
-        // ✅ استفاده از getProfile برای بازگشت پروفایل یکسان
-        const profile = await this.getProfile(user.id);
+        const profile = await this.getProfile(newUser.id);
 
         return {
             message: 'ثبت‌نام با موفقیت انجام شد',
             user: profile,
             access_token: this.jwtService.sign({
-                sub: user.id,
-                phone: user.phone,
-                role: user.role,
-                locale: user.locale,
-                isPhoneVerified: user.isPhoneVerified,
+                sub: newUser.id,
+                phone: newUser.phone,
+                role: newUser.role,
+                locale: newUser.locale,
+                isPhoneVerified: newUser.isPhoneVerified,
             }),
+        };
+    }
+
+    // ============================================================
+    // ✅ NEW — بررسی اعتبار کد رفرال (عمومی — برای نمایش «دعوت‌کننده» در فرم)
+    // ============================================================
+    async checkReferralCode(rawCode: string) {
+        const code = normalizeReferralCode(rawCode);
+        if (!code) return { valid: false };
+
+        const user = await this.prisma.user.findUnique({
+            where: { referralCode: code },
+            select: { fullName: true },
+        });
+
+        return {
+            valid: !!user,
+            // فقط نام کوچک — حریم خصوصی
+            inviterName: user?.fullName?.split(' ')[0] ?? null,
         };
     }
 
@@ -228,22 +271,19 @@ export class AuthService {
                 select: { id: true },
             });
             return { exists: !!user };
-        } catch (error) {
+        } catch (error: any) {
             console.error('Check phone error:', error);
             return { exists: false, error: error.message };
         }
     }
 
     // ============================================================
-    // ✅ به‌روزرسانی پروفایل (فقط نام و آواتار)
+    // ✅ به‌روزرسانی پروفایل
     // ============================================================
-    // src/auth/auth.service.ts
-
-// ============================================================
-// ✅ به‌روزرسانی پروفایل (فقط نام)
-// ============================================================
+    // ============================================================
+    // ✅ به‌روزرسانی پروفایل
+    // ============================================================
     async updateProfile(userId: string, dto: UpdateProfileDto) {
-
         const user = await this.prisma.user.findUnique({
             where: { id: userId },
         });
@@ -256,7 +296,6 @@ export class AuthService {
             fullName: dto.fullName,
         };
 
-        // افزودن فیلدهای جدید در صورت وجود
         if (dto.email !== undefined) updateData.email = dto.email;
         if (dto.gender !== undefined) updateData.gender = dto.gender;
         if (dto.birthDate !== undefined) {
@@ -271,7 +310,7 @@ export class AuthService {
         if (dto.postalCode !== undefined) updateData.postalCode = dto.postalCode;
         if (dto.address !== undefined) updateData.address = dto.address;
         if (dto.bio !== undefined) updateData.bio = dto.bio;
-        if (dto.businessStartYear !== undefined) updateData.businessStartYear = dto.businessStartYear;
+        if ((dto as any).catalogStartYear !== undefined) updateData.catalogStartYear = (dto as any).catalogStartYear;
         if (dto.website !== undefined) updateData.website = dto.website;
         if (dto.telegram !== undefined) updateData.telegram = dto.telegram;
         if (dto.socialLinks !== undefined) updateData.socialLinks = dto.socialLinks;
@@ -281,7 +320,6 @@ export class AuthService {
             data: updateData,
         });
 
-        // بازگرداندن پروفایل کامل (مثل getProfile)
         return this.getProfile(userId);
     }
 
@@ -346,23 +384,19 @@ export class AuthService {
             });
         }
 
-        // تولید کد ۶ رقمی
         const code = Math.floor(100000 + Math.random() * 900000).toString();
 
-        // ذخیره کد در دیتابیس
         await this.prisma.verificationCode.create({
             data: {
                 userId: user.id,
                 code: code,
                 type: 'password_reset',
-                expiresAt: new Date(Date.now() + 5 * 60 * 1000), // ۵ دقیقه
+                expiresAt: new Date(Date.now() + 5 * 60 * 1000),
             },
         });
 
         // TODO: ارسال پیامک
         // await this.smsService.send(user.phone, `کد تایید شما: ${code}`);
-
-
 
         return {
             message: 'کد تایید به شماره موبایل شما ارسال شد',
@@ -374,7 +408,6 @@ export class AuthService {
     // ✅ تایید کد و تنظیم رمز جدید (فراموشی رمز)
     // ============================================================
     async verifyCodeAndSetPassword(dto: VerifyCodeAndSetPasswordDto) {
-        // ۱. پیدا کردن کاربر
         const user = await this.prisma.user.findUnique({
             where: { phone: dto.phone },
         });
@@ -386,7 +419,6 @@ export class AuthService {
             });
         }
 
-        // ۲. بررسی کد تایید
         const verification = await this.prisma.verificationCode.findFirst({
             where: {
                 userId: user.id,
@@ -404,10 +436,8 @@ export class AuthService {
             });
         }
 
-        // ۳. هش کردن رمز جدید
         const hashedPassword = await bcrypt.hash(dto.newPassword, 10);
 
-        // ۴. به‌روزرسانی رمز عبور و علامت‌گذاری کد به عنوان استفاده شده
         await this.prisma.$transaction([
             this.prisma.user.update({
                 where: { id: user.id },
@@ -422,7 +452,6 @@ export class AuthService {
             }),
         ]);
 
-        // ۵. حذف کدهای منقضی شده
         await this.prisma.verificationCode.deleteMany({
             where: {
                 userId: user.id,
@@ -434,7 +463,6 @@ export class AuthService {
             message: 'رمز عبور با موفقیت تغییر یافت. اکنون می‌توانید وارد شوید.',
         };
     }
-
 
     // ============================================================
     // ✅ دریافت تاریخچه اعتبار کاربر

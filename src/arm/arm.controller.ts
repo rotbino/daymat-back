@@ -9,7 +9,7 @@ import {
     Param,
     Query,
     UseGuards,
-    ForbiddenException,
+    ForbiddenException, Patch,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { ArmService } from './arm.service';
@@ -89,13 +89,13 @@ export class ArmController {
     async join(
         @Param('slug') slug: string,
         @CurrentUser() user: any,
-        @Body() body?: { roleType?: 'seller' | 'buyer'; businessId?: string }, // ✅ ? اضافه شد
+        @Body() body?: { roleType?: 'seller' | 'buyer'; catalogId?: string }, // ✅ ? اضافه شد
     ) {
         return this.armService.join(
             user.id,
             slug,
             body?.roleType,    // ✅ optional chaining
-            body?.businessId   // ✅ optional chaining
+            body?.catalogId   // ✅ optional chaining
         );
     }
 
@@ -223,5 +223,35 @@ export class ArmController {
             where: { isActive: true },
             orderBy: { path: 'asc' },
         });
+    }
+
+    // ─── arm.controller.ts ───
+    @Patch(':slug/catalog-publish')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'روشن/خاموش کردن انتشار کاتالوگ در بازار (بدون حذف عضویت)' })
+    async toggleCatalogPublish(
+        @Param('slug') slug: string,
+        @CurrentUser() user: any,
+        @Body() dto: { catalogId: string; published: boolean },
+    ) {
+        return this.armService.toggleCatalogPublish(user.id, slug, dto.catalogId, dto.published);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // 1.5 بازارهای فعال پیشنهادی (عمومی)
+    // ⚠️ باید قبل از @Get(':slug') باشد وگرنه 'suggested' به‌عنوان slug تفسیر می‌شود
+    // ═══════════════════════════════════════════════════════════
+    @Get('suggested')
+    @UseGuards(OptionalJwtAuthGuard)   // مهمان هم استفاده می‌کند؛ لاگین یعنی userId برای استثنای عضوها
+    @ApiOperation({ summary: 'بازارهای فعال عمومی — برای لندینگ و پیشنهاد پیوستن به کاتالوگ' })
+    @ApiQuery({ name: 'catalogId', required: false })
+    @ApiQuery({ name: 'limit', required: false })
+    async suggested(
+        @CurrentUser() user?: any,
+        @Query('catalogId') catalogId?: string,
+        @Query('limit') limit?: string,
+    ) {
+        return this.armService.suggestedArms(catalogId, user?.id, Number(limit) || 6);
     }
 }
