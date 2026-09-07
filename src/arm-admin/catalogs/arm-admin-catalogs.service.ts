@@ -378,6 +378,32 @@ export class ArmAdminCatalogsService {
                 },
             });
 
+        // ✅ قبل از stamp، تمام آگهی‌های فعال این کاتالوگ رو publishToMarket=true کن
+        // این یعنی وقتی کاتالوگ به بازار اضافه می‌شه، همه آگهی‌هاش خودکار منتشر می‌شن
+        await this.prisma.ad.updateMany({
+            where: {
+                catalogId,
+                status: 'active',
+                publishToMarket: false,  // ← فقط اونایی که هنوز false هستن
+            },
+            data: {
+                publishToMarket: true,
+            },
+        });
+
+        // ✅ همچنین آگهی‌های منقضی‌شده رو تمدید کن (اگه اعتبارشون تموم شده)
+        // این کار فقط برای آگهی‌هایی که status=active ولی expiresAt گذشته
+        await this.prisma.ad.updateMany({
+            where: {
+                catalogId,
+                status: 'active',
+                expiresAt: { lt: new Date() },
+            },
+            data: {
+                expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),  // ۲۴ ساعت اعتبار
+            },
+        });
+
         const stamp = await this.catalogPublish.stampCatalogAds(arm, catalogId, undefined, ownerUserId);
         return {
             membership,
