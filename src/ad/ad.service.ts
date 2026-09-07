@@ -338,10 +338,10 @@ export class AdService {
     // ═══════════════════════════════════════
     // 3. تابلوی قیمت (ویترین زنده)
     // ═══════════════════════════════════════
-    async getVitrine(armSlug: string, query: AdListQueryDto) {
+    async getVitrine(armSlug: string, query: AdListQueryDto, userId?: string) {
         const arm = await this.prisma.arm.findUnique({
             where: { slug: armSlug },
-            select: { id: true, config: true, categoryTree: true },
+            select: { id: true, config: true, categoryTree: true, status: true },
         });
 
         if (!arm) {
@@ -349,6 +349,28 @@ export class AdService {
         }
 
         const config = arm.config as any || {};
+        const priceTableConfig = config?.modules?.priceTable || {};
+
+        // ✅ چک کن آیا کاربر حق دیدن قیمت‌ها رو داره
+        let canViewPrices = true;
+        if (priceTableConfig.requireMembershipToViewPrices === true) {
+            if (!userId) {
+                canViewPrices = false; // مهمان
+            } else {
+                // چک کن آیا کاربر buyer یا seller فعال در این بازار هست
+                const membership = await this.prisma.armMembership.findFirst({
+                    where: {
+                        armId: arm.id,
+                        userId,
+                        status: 'active',
+                        businessStatus: 'active',
+                        businessId: { not: null },
+                    },
+                });
+                canViewPrices = !!membership;
+            }
+        }
+
         const flatCategory = flattenCategoryTree(arm.categoryTree);
         const categoryMap = new Map(flatCategory.map((s: any) => [s.categoryId, s]));
 
@@ -364,7 +386,7 @@ export class AdService {
         };
 
         // فیلتر نوع فروش ویترین (visibleSalesTypes روی config بازار)
-        const visibleSalesTypes = config?.modules?.priceTable?.visibleSalesTypes;
+        const visibleSalesTypes = priceTableConfig.visibleSalesTypes;
         if (Array.isArray(visibleSalesTypes) && visibleSalesTypes.length) {
             where.catalog = { salesType: { in: visibleSalesTypes } };
         }
@@ -447,7 +469,6 @@ export class AdService {
                             type: true,
                             city: true,
                             phone: true,
-                            // ✅ تیک اعتماد از نهاد
                             business: { select: { verificationTier: true } },
                         },
                     },
@@ -465,6 +486,14 @@ export class AdService {
             const selection = categoryMap.get(ad.categoryId) as any | undefined;
             return {
                 ...ad,
+                // ✅ اگه کاربر حق دیدن قیمت‌ها رو نداره، قیمت‌ها رو null کن
+                ...( !canViewPrices ? {
+                    unitPrice: null,
+                    singleUnitPrice: null,
+                    consumerPrice: null,
+                    giftPrice: null,
+                    volumeTiers: null,
+                } : {}),
                 verificationTier: (ad.catalog as any)?.business?.verificationTier ?? null, // ✅ شکل قدیمی برای فرانت
                 categoryTitle: selection?.customLabel || selection?.title || ad.categoryId || '',
                 unitBaseTitle: selection?.baseUnitTitle || ad.unitBaseTitle || null,
@@ -473,6 +502,7 @@ export class AdService {
 
         return {
             ads: adsWithCustomLabel,
+            canViewPrices,  // ✅ فرانت از این استفاده می‌کنه تا پیام مناسب نشون بده
             pagination: {
                 page,
                 limit,
@@ -946,12 +976,34 @@ export class AdService {
         }
 
         // ─── مسیر بازاری ───
-        const membership = await this.prisma.armMembership.findFirst({
-            where: { armId: ad.armId, userId, status: 'active' },
-        });
-        if (!membership) throw new ForbiddenException({ errorCode: 'NOT_MEMBER', message: 'شما به این بازار نپیوسته اید.' });
-
         const config = (ad.arm?.config as any) || {};
+        const priceTableConfig = config?.modules?.priceTable || {};
+
+        // ✅ چک کن آیا تماس نیاز به عضویت دارد
+        if (priceTableConfig.requireMembershipToCall === true) {
+            const membership = await this.prisma.armMembership.findFirst({
+                where: {
+                    armId: ad.armId,
+                    userId,
+                    status: 'active',
+                    businessStatus: 'active',
+                    businessId: { not: null },
+                },
+            });
+            if (!membership) {
+                throw new ForbiddenException({
+                    errorCode: 'NOT_MEMBER',
+                    message: 'برای تماس با فروشنده، باید عضو این بازار باشید',
+                });
+            }
+        } else {
+            // اگه عضویت اجباری نیست، فقط چک کن آیا کاربر اصلا عضو هست (برای daily limit)
+            const membership = await this.prisma.armMembership.findFirst({
+                where: { armId: ad.armId, userId, status: 'active' },
+            });
+            if (!membership) throw new ForbiddenException({ errorCode: 'NOT_MEMBER', message: 'شما به این بازار نپیوسته اید.' });
+        }
+
         const dailyCallLimit = config.features?.dailyCallLimit || 20;
         const today = new Date();
         today.setHours(0, 0, 0, 0);

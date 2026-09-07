@@ -54,9 +54,14 @@ export class AdController {
     // 2. تابلوی قیمت (ویترین زنده)
     // ============================================================
     @Get('arm/:slug')
+    @UseGuards(OptionalJwtAuthGuard)  // ✅ مهمان هم می‌تونه ببینه، ولی اگه لاگین کرده userId رو می‌گیریم
     @ApiOperation({ summary: 'تابلوی قیمت (ویترین زنده)' })
-    async getVitrine(@Param('slug') slug: string, @Query() query: AdListQueryDto) {
-        return this.adService.getVitrine(slug, query);
+    async getVitrine(
+        @Param('slug') slug: string,
+        @Query() query: AdListQueryDto,
+        @CurrentUser() user?: any,
+    ) {
+        return this.adService.getVitrine(slug, query, user?.id);
     }
 
     // ============================================================
