@@ -142,13 +142,23 @@ export class ArmAdminCatalogsController {
     }
 
     @Delete('buyers/:membershipId')
-    @ApiOperation({ summary: 'حذف خریدار از بازار' })
+    @ApiOperation({ summary: 'حذف نقش خریداری (arm_owner: فقط businessId پاک می‌شود)' })
     async removeBuyer(
         @Param('slug') slug: string,
         @Param('membershipId') membershipId: string,
         @CurrentUser() user: any,
     ) {
         return this.catalogsService.removeBuyer(slug, membershipId, user.id);
+    }
+
+    @Patch('buyers/:membershipId/pause')
+    @ApiOperation({ summary: 'تعلیق موقت خریدار (pause/resume)' })
+    async setBuyerPaused(
+        @Param('slug') slug: string,
+        @Param('membershipId') membershipId: string,
+        @Body() body: { paused: boolean },
+    ) {
+        return this.catalogsService.setBuyerPaused(slug, membershipId, body.paused);
     }
 
     // ═══ رفرال ═══

@@ -605,16 +605,28 @@ async addBuyer(slug: string, businessId: string) {
 // ============================================================
 // ۴) توقف / ادامهٔ عضو — برای هر دو نوع (اثر روی تابلو فقط برای فروشنده)
 // ============================================================
+// ✅ Pause = تعلیق موقت عضویت
+//    - seller: آگهی‌ها از تابلو غیب می‌شن (unstamp) ولی در کاتالوگ می‌مونن
+//    - buyer: حق دیدن قیمت‌ها رو از دست می‌ده
+//    - membership کلاً status=paused می‌شه
+// ============================================================
 async setCatalogPaused(slug: string, catalogId: string, paused: boolean) {
     const arm = await this.resolveArm(slug);
     const membership = await this.getMembershipByCatalog(arm.id, catalogId);
 
     if (paused) {
+        // ✅ pause: آگهی‌ها رو از تابلو بردار
         await this.catalogPublish.unstampCatalogAds(catalogId, arm.id);
-        return this.prisma.armMembership.update({ where: { id: membership.id }, data: { status: 'paused' } });
+        return this.prisma.armMembership.update({
+            where: { id: membership.id },
+            data: { status: 'paused' },
+        });
     }
+
+    // ✅ resume: اگه publishState=published بود، دوباره آگهی‌ها رو stamp کن
     const updated = await this.prisma.armMembership.update({
-        where: { id: membership.id }, data: { status: 'active' },
+        where: { id: membership.id },
+        data: { status: 'active' },
     });
     if (membership.publishState === 'published') {
         const stamp = await this.catalogPublish.stampCatalogAds(arm, catalogId);
@@ -624,21 +636,54 @@ async setCatalogPaused(slug: string, catalogId: string, paused: boolean) {
 }
 
 // ============================================================
-// ۵) حذف کامل عضو از بازار (فروشنده — با کاتالوگ)
+// ۵) حذف نقش فروشندگی — پاک کردن catalogId از membership
+// ============================================================
+// ✅ اگه arm_owner هست: فقط catalogId/roleType/publishState رو پاک کن (membership می‌مونه)
+//    اگه arm_member هست: کل membership رو به status=removed ببر
 // ============================================================
 async removeCatalog(slug: string, catalogId: string, adminUserId: string) {
     const arm = await this.resolveArm(slug);
     const membership = await this.getMembershipByCatalog(arm.id, catalogId);
 
+    // آگهی‌ها رو از تابلو بردار
     await this.catalogPublish.unstampCatalogAds(catalogId, arm.id);
+
+    if (membership.role === 'arm_owner') {
+        // ✅ arm_owner: فقط نقش فروشندگی رو پاک کن، membership می‌مونه
+        // اگه businessId داره (buyer هم هست) → roleType=buyer کن
+        // وگرنه → roleType=null کن
+        const newRoleType = membership.businessId ? 'buyer' : null;
+        return this.prisma.armMembership.update({
+            where: { id: membership.id },
+            data: {
+                catalogId: null,
+                publishState: null,
+                roleType: newRoleType,
+                reviewedByUserId: adminUserId,
+                reviewedAt: new Date(),
+            },
+        });
+    }
+
+    // arm_member: کل membership رو removed کن
     return this.prisma.armMembership.update({
         where: { id: membership.id },
-        data: { status: 'removed', publishState: null, reviewedByUserId: adminUserId, reviewedAt: new Date() },
+        data: {
+            status: 'removed',
+            publishState: null,
+            catalogId: null,
+            roleType: null,
+            reviewedByUserId: adminUserId,
+            reviewedAt: new Date(),
+        },
     });
 }
 
 // ============================================================
-// ۵.۵) حذف خریدار از بازار
+// ۵.۵) حذف نقش خریداری — پاک کردن businessId از membership
+// ============================================================
+// ✅ اگه arm_owner هست: فقط businessId رو پاک کن (اگه catalogId نداره)
+//    اگه arm_member هست: کل membership رو به status=removed ببر
 // ============================================================
 async removeBuyer(slug: string, membershipId: string, adminUserId: string) {
     const arm = await this.resolveArm(slug);
@@ -649,18 +694,62 @@ async removeBuyer(slug: string, membershipId: string, adminUserId: string) {
     if (!membership) {
         throw new NotFoundException({ errorCode: 'MEMBER_NOT_FOUND', message: 'عضو یافت نشد' });
     }
+
     if (membership.role === 'arm_owner') {
-        throw new BadRequestException({ errorCode: 'CANNOT_REMOVE_OWNER', message: 'مالک بازار قابل حذف نیست' });
+        // ✅ arm_owner: فقط اگه catalogId نداره، businessId رو پاک کن
+        // اگه catalogId داره (seller-buyer هست)، فقط roleType رو به seller تغییر بده
+        if (membership.catalogId) {
+            return this.prisma.armMembership.update({
+                where: { id: membership.id },
+                data: {
+                    businessId: null,
+                    roleType: 'seller',
+                    reviewedByUserId: adminUserId,
+                    reviewedAt: new Date(),
+                },
+            });
+        }
+        // فقط buyer هست → businessId و roleType رو پاک کن
+        return this.prisma.armMembership.update({
+            where: { id: membership.id },
+            data: {
+                businessId: null,
+                roleType: null,
+                reviewedByUserId: adminUserId,
+                reviewedAt: new Date(),
+            },
+        });
     }
 
+    // arm_member: کل membership رو removed کن
     return this.prisma.armMembership.update({
         where: { id: membership.id },
         data: {
             status: 'removed',
             publishState: null,
+            businessId: null,
+            roleType: null,
             reviewedByUserId: adminUserId,
             reviewedAt: new Date(),
         },
+    });
+}
+
+// ============================================================
+// ۵.۷) Pause/Resume buyer — تعلیق موقت عضویت خریدار
+// ============================================================
+async setBuyerPaused(slug: string, membershipId: string, paused: boolean) {
+    const arm = await this.resolveArm(slug);
+    const membership = await this.prisma.armMembership.findFirst({
+        where: { id: membershipId, armId: arm.id },
+    });
+    if (!membership) {
+        throw new NotFoundException({ errorCode: 'MEMBER_NOT_FOUND', message: 'عضو یافت نشد' });
+    }
+
+    return this.prisma.armMembership.update({
+        where: { id: membership.id },
+        data: { status: paused ? 'paused' : 'active' },
     });
 }
 

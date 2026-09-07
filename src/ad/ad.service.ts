@@ -820,18 +820,50 @@ export class AdService {
             throw new BadRequestException({ errorCode: 'ARM_NOT_ACTIVE', message: 'بازار فعال نیست' });
         }
 
+        // ✅ چک کن membership این کاتالوگ در این بازار
         const membership = await this.prisma.armMembership.findFirst({
             where: {
                 armId: arm.id,
                 catalogId: ad.catalogId,
-                status: 'active',
-                publishState: 'published',
             },
         });
+
         if (!membership) {
             throw new BadRequestException({
                 errorCode: 'NOT_MEMBER',
                 message: 'کاتالوگ شما در این بازار منتشر نیست — اول عضو بازار شوید',
+            });
+        }
+
+        // ✅ پیام مناسب بر اساس وضعیت membership
+        if (membership.status === 'paused') {
+            throw new BadRequestException({
+                errorCode: 'MEMBERSHIP_PAUSED',
+                message: 'عضویت شما در این بازار تعلیق شده — با مدیر بازار تماس بگیرید',
+            });
+        }
+        if (membership.status === 'pending') {
+            throw new BadRequestException({
+                errorCode: 'MEMBERSHIP_PENDING',
+                message: 'عضویت شما در این بازار در انتظار تأیید است',
+            });
+        }
+        if (membership.status === 'banned' || membership.status === 'rejected') {
+            throw new BadRequestException({
+                errorCode: 'MEMBERSHIP_BANNED',
+                message: 'عضویت شما در این بازار رد شده است',
+            });
+        }
+        if (membership.status === 'removed') {
+            throw new BadRequestException({
+                errorCode: 'MEMBERSHIP_REMOVED',
+                message: 'عضویت شما در این بازار حذف شده است',
+            });
+        }
+        if (membership.publishState !== 'published') {
+            throw new BadRequestException({
+                errorCode: 'NOT_PUBLISHED',
+                message: 'کاتالوگ شما در این بازار منتشر نیست',
             });
         }
 
