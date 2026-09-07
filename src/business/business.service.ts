@@ -19,12 +19,49 @@ import { CreateBusinessDto, UpdateBusinessDto, RequestBusinessVerificationDto } 
 export class BusinessService {
     constructor(private prisma: PrismaService) {}
 
+    // ✅ اگه صنف در جدول Industry وجود نداشته باشه، بسازش
+    private async ensureIndustryExists(industryName: string): Promise<void> {
+        if (!industryName?.trim()) return;
+        const name = industryName.trim();
+        const slug = name
+            .replace(/\s+/g, '-')
+            .replace(/[^\u0600-\u06FF\u0750-\u077F\w\-]/g, '')
+            .toLowerCase();
+
+        const existing = await this.prisma.industry.findFirst({
+            where: { title: name },
+            select: { id: true },
+        });
+        if (!existing) {
+            await this.prisma.industry.create({
+                data: {
+                    title: name,
+                    slug,
+                    level: 0,
+                    path: slug,
+                    isActive: true,
+                    usageCount: 1,
+                },
+            }).catch(() => {}); // ignore duplicate slug errors
+        } else {
+            await this.prisma.industry.update({
+                where: { id: existing.id },
+                data: { usageCount: { increment: 1 } },
+            }).catch(() => {});
+        }
+    }
+
     async create(userId: string, dto: CreateBusinessDto) {
         if (!dto.name?.trim()) {
             throw new BadRequestException({
                 errorCode: 'NAME_REQUIRED',
                 message: 'نام کسب‌وکار الزامی است',
             });
+        }
+
+        // ✅ اگه صنف وارد شده، در جدول Industry هم ذخیره کن
+        if (dto.industryName?.trim()) {
+            await this.ensureIndustryExists(dto.industryName);
         }
 
         return this.prisma.business.create({
@@ -93,6 +130,11 @@ export class BusinessService {
         }
         if (biz.ownerUserId !== userId) {
             throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'فقط مالک کسب‌وکار' });
+        }
+
+        // ✅ اگه صنف تغییر کرده، در جدول Industry هم ذخیره کن
+        if (dto.industryName !== undefined && dto.industryName?.trim()) {
+            await this.ensureIndustryExists(dto.industryName);
         }
 
         return this.prisma.business.update({
