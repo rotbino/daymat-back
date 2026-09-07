@@ -378,8 +378,18 @@ export class AdService {
         const limit = query.limit || 20;
         const skip = (page - 1) * limit;
 
+        // ✅ استفاده از AdPublication به‌جای Ad.armId
+        // مشکل قبلی: Ad.armId فقط snapshot از آخرین بازار بود،
+        // وقتی آگهی در چند بازار بود و یکی pause/resume می‌شد، snapshot خراب می‌شد.
+        // حالا: از AdPublication استفاده می‌کنیم که منبع حقیقت است.
         const where: any = {
-            armId: arm.id,
+            // فیلتر اصلی: آگهی باید در این بازار منتشر شده باشد
+            publications: {
+                some: {
+                    armId: arm.id,
+                    status: 'published',
+                },
+            },
             status: 'active',
             publishToMarket: true,
             expiresAt: { gt: new Date() },
@@ -401,12 +411,31 @@ export class AdService {
             const categoryNode = findNodeInTree(arm.categoryTree as any[], query.categoryId);
             if (categoryNode) {
                 if (categoryNode.children && categoryNode.children.length > 0) {
-                    where.categoryPath = { has: query.categoryId };
+                    // ✅ فیلتر دسته از AdPublication این بازار
+                    where.publications = {
+                        some: {
+                            armId: arm.id,
+                            status: 'published',
+                            categoryPath: { has: query.categoryId },
+                        },
+                    };
                 } else {
-                    where.categoryId = query.categoryId;
+                    where.publications = {
+                        some: {
+                            armId: arm.id,
+                            status: 'published',
+                            categoryId: query.categoryId,
+                        },
+                    };
                 }
             } else {
-                where.categoryId = query.categoryId;
+                where.publications = {
+                    some: {
+                        armId: arm.id,
+                        status: 'published',
+                        categoryId: query.categoryId,
+                    },
+                };
             }
         }
         if (query.cityCode) where.cityCode = query.cityCode;
@@ -477,15 +506,28 @@ export class AdService {
                         select: { path: true, thumbnailPath: true },
                         take: 1,
                     },
+                    // ✅ publication مخصوص این بازار (برای category)
+                    publications: {
+                        where: { armId: arm.id },
+                        select: { categoryId: true, categoryPath: true, status: true },
+                        take: 1,
+                    },
                 },
             }),
             this.prisma.ad.count({ where }),
         ]);
 
+        // ✅ category را از publication این بازار بگیر، نه از Ad snapshot
         const adsWithCustomLabel = ads.map((ad: any) => {
-            const selection = categoryMap.get(ad.categoryId) as any | undefined;
+            const pub = ad.publications?.[0];
+            const pubCategoryId = pub?.categoryId || null;
+            const selection = categoryMap.get(pubCategoryId) as any | undefined;
             return {
                 ...ad,
+                // ✅ category از publication این بازار
+                categoryId: pubCategoryId,
+                categoryPath: pub?.categoryPath || [],
+                publications: undefined,  // پاک کردن از response
                 // ✅ اگه کاربر حق دیدن قیمت‌ها رو نداره، قیمت‌ها رو null کن
                 ...( !canViewPrices ? {
                     unitPrice: null,
