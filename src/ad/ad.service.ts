@@ -379,15 +379,14 @@ export class AdService {
         const skip = (page - 1) * limit;
 
         // ✅ استفاده از AdPublication به‌جای Ad.armId
-        // مشکل قبلی: Ad.armId فقط snapshot از آخرین بازار بود،
-        // وقتی آگهی در چند بازار بود و یکی pause/resume می‌شد، snapshot خراب می‌شد.
-        // حالا: از AdPublication استفاده می‌کنیم که منبع حقیقت است.
         const where: any = {
             // فیلتر اصلی: آگهی باید در این بازار منتشر شده باشد
+            // ✅ شامل 'published' و 'needs_category' — هر دو روی تابلو نمایش داده می‌شن
+            //    'needs_category' یعنی منتشر شده ولی دسته‌بندی بازار براش انتخاب نشده
             publications: {
                 some: {
                     armId: arm.id,
-                    status: 'published',
+                    status: { in: ['published', 'needs_category'] },
                 },
             },
             status: 'active',
@@ -415,7 +414,7 @@ export class AdService {
                     where.publications = {
                         some: {
                             armId: arm.id,
-                            status: 'published',
+                            status: { in: ['published', 'needs_category'] },
                             categoryPath: { has: query.categoryId },
                         },
                     };
@@ -423,7 +422,7 @@ export class AdService {
                     where.publications = {
                         some: {
                             armId: arm.id,
-                            status: 'published',
+                            status: { in: ['published', 'needs_category'] },
                             categoryId: query.categoryId,
                         },
                     };
@@ -432,7 +431,7 @@ export class AdService {
                 where.publications = {
                     some: {
                         armId: arm.id,
-                        status: 'published',
+                        status: { in: ['published', 'needs_category'] },
                         categoryId: query.categoryId,
                     },
                 };
