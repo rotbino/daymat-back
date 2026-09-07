@@ -95,8 +95,8 @@ export class CatalogPublishService {
                     key.startsWith('keep:') ? g.path :
                     g.path;
 
-                const status =
-                    targetCategoryId === null ? 'needs_category' : 'published';
+                // ✅ status همیشه published است — categoryId خالی بودن نشان‌دهنده بدون دسته بودن است
+                const status = 'published';
 
                 for (const adId of g.ids) {
                     await tx.adPublication.upsert({
@@ -164,7 +164,7 @@ export class CatalogPublishService {
                     where: {
                         adId,
                         armId: { not: armId },
-                        status: { in: ['published', 'needs_category'] },
+                        status: 'published',
                     },
                     orderBy: { publishedAt: 'desc' },
                 });

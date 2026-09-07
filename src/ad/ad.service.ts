@@ -386,7 +386,7 @@ export class AdService {
             publications: {
                 some: {
                     armId: arm.id,
-                    status: { in: ['published', 'needs_category'] },
+                    status: 'published',
                 },
             },
             status: 'active',
@@ -414,7 +414,7 @@ export class AdService {
                     where.publications = {
                         some: {
                             armId: arm.id,
-                            status: { in: ['published', 'needs_category'] },
+                            status: 'published',
                             categoryPath: { has: query.categoryId },
                         },
                     };
@@ -422,7 +422,7 @@ export class AdService {
                     where.publications = {
                         some: {
                             armId: arm.id,
-                            status: { in: ['published', 'needs_category'] },
+                            status: 'published',
                             categoryId: query.categoryId,
                         },
                     };
@@ -431,7 +431,7 @@ export class AdService {
                 where.publications = {
                     some: {
                         armId: arm.id,
-                        status: { in: ['published', 'needs_category'] },
+                        status: 'published',
                         categoryId: query.categoryId,
                     },
                 };
