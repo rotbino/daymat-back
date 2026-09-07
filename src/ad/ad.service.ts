@@ -378,147 +378,152 @@ export class AdService {
         const limit = query.limit || 20;
         const skip = (page - 1) * limit;
 
-        // ✅ استفاده از AdPublication به‌جای Ad.armId
-        const where: any = {
-            // فیلتر اصلی: آگهی باید در این بازار منتشر شده باشد
-            // ✅ شامل 'published' و 'needs_category' — هر دو روی تابلو نمایش داده می‌شن
-            //    'needs_category' یعنی منتشر شده ولی دسته‌بندی بازار براش انتخاب نشده
-            publications: {
-                some: {
-                    armId: arm.id,
-                    status: 'published',
-                },
-            },
+        // ✅ مرحله ۱: مستقیماً از جدول AdPublication کوئری بزن
+        // این روش قابل‌اعتمادتر از publications: { some: ... } در Prisma + MongoDB است
+        const pubWhere: any = {
+            armId: arm.id,
+            status: 'published',
+        };
+
+        // فیلتر دسته‌بندی روی AdPublication
+        if (query.categoryId) {
+            const categoryNode = findNodeInTree(arm.categoryTree as any[], query.categoryId);
+            if (categoryNode) {
+                if (categoryNode.children && categoryNode.children.length > 0) {
+                    pubWhere.categoryPath = { has: query.categoryId };
+                } else {
+                    pubWhere.categoryId = query.categoryId;
+                }
+            } else {
+                pubWhere.categoryId = query.categoryId;
+            }
+        }
+
+        // ✅ صفحه‌بندی روی AdPublication (نه Ad)
+        const [publications, pubTotal] = await Promise.all([
+            this.prisma.adPublication.findMany({
+                where: pubWhere,
+                orderBy: { publishedAt: 'desc' },
+                skip,
+                take: limit,
+                select: { adId: true, categoryId: true, categoryPath: true },
+            }),
+            this.prisma.adPublication.count({ where: pubWhere }),
+        ]);
+
+        const adIds = publications.map((p) => p.adId);
+        const pubMap = new Map(publications.map((p) => [p.adId, p]));
+
+        if (adIds.length === 0) {
+            return {
+                ads: [],
+                canViewPrices,
+                pagination: { page, limit, total: 0, totalPages: 0 },
+            };
+        }
+
+        // ✅ مرحله ۲: Ad ها رو با ID‌های بدست‌آمده بخون
+        const adWhere: any = {
+            id: { in: adIds },
             status: 'active',
             publishToMarket: true,
             expiresAt: { gt: new Date() },
         };
 
-        // فیلتر نوع فروش ویترین (visibleSalesTypes روی config بازار)
+        // فیلتر نوع فروش ویترین
         const visibleSalesTypes = priceTableConfig.visibleSalesTypes;
         if (Array.isArray(visibleSalesTypes) && visibleSalesTypes.length) {
-            where.catalog = { salesType: { in: visibleSalesTypes } };
+            adWhere.catalog = { salesType: { in: visibleSalesTypes } };
         }
 
         if (query.search) {
-            where.OR = [
+            adWhere.OR = [
                 { title: { contains: query.search, mode: 'insensitive' } },
                 { productType: { contains: query.search, mode: 'insensitive' } },
             ];
         }
-        if (query.categoryId) {
-            const categoryNode = findNodeInTree(arm.categoryTree as any[], query.categoryId);
-            if (categoryNode) {
-                if (categoryNode.children && categoryNode.children.length > 0) {
-                    // ✅ فیلتر دسته از AdPublication این بازار
-                    where.publications = {
-                        some: {
-                            armId: arm.id,
-                            status: 'published',
-                            categoryPath: { has: query.categoryId },
-                        },
-                    };
-                } else {
-                    where.publications = {
-                        some: {
-                            armId: arm.id,
-                            status: 'published',
-                            categoryId: query.categoryId,
-                        },
-                    };
-                }
-            } else {
-                where.publications = {
-                    some: {
-                        armId: arm.id,
-                        status: 'published',
-                        categoryId: query.categoryId,
-                    },
-                };
-            }
-        }
-        if (query.cityCode) where.cityCode = query.cityCode;
-        if (query.provinceCode) where.provinceCode = query.provinceCode;
+        if (query.cityCode) adWhere.cityCode = query.cityCode;
+        if (query.provinceCode) adWhere.provinceCode = query.provinceCode;
         if (query.minPrice !== undefined || query.maxPrice !== undefined) {
-            where.unitPrice = {};
-            if (query.minPrice !== undefined) where.unitPrice.gte = query.minPrice;
-            if (query.maxPrice !== undefined) where.unitPrice.lte = query.maxPrice;
+            adWhere.unitPrice = {};
+            if (query.minPrice !== undefined) adWhere.unitPrice.gte = query.minPrice;
+            if (query.maxPrice !== undefined) adWhere.unitPrice.lte = query.maxPrice;
         }
         if (query.minAvailableQuantity !== undefined || query.maxAvailableQuantity !== undefined) {
-            where.availableQuantity = {};
-            if (query.minAvailableQuantity !== undefined) where.availableQuantity.gte = query.minAvailableQuantity;
-            if (query.maxAvailableQuantity !== undefined) where.availableQuantity.lte = query.maxAvailableQuantity;
+            adWhere.availableQuantity = {};
+            if (query.minAvailableQuantity !== undefined) adWhere.availableQuantity.gte = query.minAvailableQuantity;
+            if (query.maxAvailableQuantity !== undefined) adWhere.availableQuantity.lte = query.maxAvailableQuantity;
         }
-        if (query.minQuantity !== undefined) where.minQuantity = { gte: query.minQuantity };
+        if (query.minQuantity !== undefined) adWhere.minQuantity = { gte: query.minQuantity };
         if (query.bumpFilter === 'bumped') {
-            where.isBumped = true;
-            where.bumpExpiresAt = { gt: new Date() };
+            adWhere.isBumped = true;
+            adWhere.bumpExpiresAt = { gt: new Date() };
         } else if (query.bumpFilter === 'normal') {
-            where.OR = [
+            adWhere.OR = [
                 { isBumped: false },
                 { bumpExpiresAt: { lt: new Date() } },
             ];
         }
 
-        const orderBy: any[] = [{ isBumped: 'desc' }, { updatedAt: 'desc' }];
-
-        const [ads, total] = await Promise.all([
-            this.prisma.ad.findMany({
-                where,
-                orderBy,
-                skip,
-                take: limit,
-                select: {
-                    id: true,
-                    title: true,
-                    productType: true,
-                    unitPrice: true,
-                    singleUnitPrice: true,
-                    consumerPrice: true,
-                    minQuantity: true,
-                    availableQuantity: true,
-                    city: true,
-                    cityCode: true,
-                    provinceCode: true,
-                    isBumped: true,
-                    unitQty: true,
-                    unitIsVariableQty: true,
-                    unitBaseTitle: true,
-                    categoryId: true,
-                    categoryPath: true,
-                    isAnonymous: true,
-                    paymentMethods: true,
-                    updatedAt: true,
-                    createdAt: true,
-                    unit: { select: { shortCode: true, title: true } },
-                    catalog: {
-                        select: {
-                            name: true,
-                            type: true,
-                            city: true,
-                            phone: true,
-                            business: { select: { verificationTier: true } },
-                        },
-                    },
-                    files: {
-                        where: { relatedModel: 'Ad', fieldKey: { startsWith: 'ad-image' } },
-                        select: { path: true, thumbnailPath: true },
-                        take: 1,
-                    },
-                    // ✅ publication مخصوص این بازار (برای category)
-                    publications: {
-                        where: { armId: arm.id },
-                        select: { categoryId: true, categoryPath: true, status: true },
-                        take: 1,
+        const ads = await this.prisma.ad.findMany({
+            where: adWhere,
+            select: {
+                id: true,
+                title: true,
+                productType: true,
+                unitPrice: true,
+                singleUnitPrice: true,
+                consumerPrice: true,
+                minQuantity: true,
+                availableQuantity: true,
+                city: true,
+                cityCode: true,
+                provinceCode: true,
+                isBumped: true,
+                unitQty: true,
+                unitIsVariableQty: true,
+                unitBaseTitle: true,
+                isAnonymous: true,
+                paymentMethods: true,
+                updatedAt: true,
+                createdAt: true,
+                unit: { select: { shortCode: true, title: true } },
+                catalog: {
+                    select: {
+                        name: true,
+                        type: true,
+                        city: true,
+                        phone: true,
+                        business: { select: { verificationTier: true } },
                     },
                 },
-            }),
-            this.prisma.ad.count({ where }),
-        ]);
+                files: {
+                    where: { relatedModel: 'Ad', fieldKey: { startsWith: 'ad-image' } },
+                    select: { path: true, thumbnailPath: true },
+                    take: 1,
+                },
+            },
+        });
+
+        // ✅ ترتیب آگهی‌ها باید همون ترتیب AdPublication باشه (publishedAt desc)
+        // و isBumped اول بیاد
+        const adMap = new Map(ads.map((a: any) => [a.id, a]));
+        const orderedAds = adIds
+            .map((adId) => adMap.get(adId))
+            .filter(Boolean) as any[];
+
+        // ✅ bumped ها اول
+        orderedAds.sort((a: any, b: any) => {
+            if (a.isBumped && !b.isBumped) return -1;
+            if (!a.isBumped && b.isBumped) return 1;
+            return 0;
+        });
+
+        const total = pubTotal;
 
         // ✅ category را از publication این بازار بگیر، نه از Ad snapshot
-        const adsWithCustomLabel = ads.map((ad: any) => {
-            const pub = ad.publications?.[0];
+        const adsWithCustomLabel = orderedAds.map((ad: any) => {
+            const pub = pubMap.get(ad.id);
             const pubCategoryId = pub?.categoryId || null;
             const selection = categoryMap.get(pubCategoryId) as any | undefined;
             return {
@@ -526,7 +531,6 @@ export class AdService {
                 // ✅ category از publication این بازار
                 categoryId: pubCategoryId,
                 categoryPath: pub?.categoryPath || [],
-                publications: undefined,  // پاک کردن از response
                 // ✅ اگه کاربر حق دیدن قیمت‌ها رو نداره، قیمت‌ها رو null کن
                 ...( !canViewPrices ? {
                     unitPrice: null,
@@ -535,8 +539,8 @@ export class AdService {
                     giftPrice: null,
                     volumeTiers: null,
                 } : {}),
-                verificationTier: (ad.catalog as any)?.business?.verificationTier ?? null, // ✅ شکل قدیمی برای فرانت
-                categoryTitle: selection?.customLabel || selection?.title || ad.categoryId || '',
+                verificationTier: (ad.catalog as any)?.business?.verificationTier ?? null,
+                categoryTitle: selection?.customLabel || selection?.title || pubCategoryId || '',
                 unitBaseTitle: selection?.baseUnitTitle || ad.unitBaseTitle || null,
             };
         });
