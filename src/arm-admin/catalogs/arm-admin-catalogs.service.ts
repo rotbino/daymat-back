@@ -214,8 +214,23 @@ export class ArmAdminCatalogsService {
     // ============================================================
     // S2) کاندیدهای فروشنده — کاتالوگ‌هایی که هنوز عضو نیستند
     // ============================================================
-    async getSellerCandidates(requesterId: string, slug: string, q?: string, onlyMyReferrals?: boolean) {
+    async getSellerCandidates(
+        requesterId: string,
+        slug: string,
+        options?: {
+            q?: string;
+            onlyMyReferrals?: boolean;
+            industry?: string;
+            cityCode?: string;
+            provinceCode?: string;
+        },
+    ) {
         const arm = await this.resolveArm(slug);
+        const q = options?.q;
+        const onlyMyReferrals = options?.onlyMyReferrals;
+        const industry = options?.industry;
+        const cityCode = options?.cityCode;
+        const provinceCode = options?.provinceCode;
 
         let referredUserIds: string[] | undefined;
         if (onlyMyReferrals) {
@@ -253,6 +268,11 @@ export class ArmAdminCatalogsService {
                 ...(referredUserIds
                     ? { business: { is: { ownerUserId: { in: referredUserIds } } } }
                     : {}),
+                // ✅ فیلتر صنف
+                ...(industry ? { industryName: { contains: industry } } : {}),
+                // ✅ فیلتر موقعیت
+                ...(cityCode ? { cityCode } : {}),
+                ...(provinceCode ? { provinceCode } : {}),
                 ...(q
                     ? {
                         OR: [
@@ -499,8 +519,23 @@ export class ArmAdminCatalogsService {
     // ============================================================
     // B2) کاندیدهای خریدار — کسب‌وکارهایی که هنوز خریدار این بازار نیستند
     // ============================================================
-    async getBuyerCandidates(requesterId: string, slug: string, q?: string, onlyMyReferrals?: boolean) {
+    async getBuyerCandidates(
+        requesterId: string,
+        slug: string,
+        options?: {
+            q?: string;
+            onlyMyReferrals?: boolean;
+            industry?: string;
+            cityCode?: string;
+            provinceCode?: string;
+        },
+    ) {
         const arm = await this.resolveArm(slug);
+        const q = options?.q;
+        const onlyMyReferrals = options?.onlyMyReferrals;
+        const industry = options?.industry;
+        const cityCode = options?.cityCode;
+        const provinceCode = options?.provinceCode;
 
         let referredUserIds: string[] | undefined;
         if (onlyMyReferrals) {
@@ -535,6 +570,11 @@ export class ArmAdminCatalogsService {
                 status: 'active',
                 ...(excludeBizIds.length ? { id: { notIn: excludeBizIds } } : {}),
                 ...(referredUserIds ? { ownerUserId: { in: referredUserIds } } : {}),
+                // ✅ فیلتر صنف
+                ...(industry ? { industryName: { contains: industry } } : {}),
+                // ✅ فیلتر موقعیت
+                ...(cityCode ? { cityCode } : {}),
+                ...(provinceCode ? { provinceCode } : {}),
                 ...(q ? {
                     OR: [
                         { name: { contains: q } },
@@ -1091,11 +1131,16 @@ async getCatalogs(
 }
 
 async getCandidates(requesterId: string, slug: string, q?: string, onlyMyReferrals?: boolean) {
-    return this.getSellerCandidates(requesterId, slug, q, onlyMyReferrals);
+    return this.getSellerCandidates(requesterId, slug, { q, onlyMyReferrals });
 }
 
 async addCatalog(slug: string, catalogId: string) {
     return this.addSeller(slug, catalogId);
+}
+
+// ✅ backward-compat wrapper
+async getSellerCandidatesLegacy(requesterId: string, slug: string, q?: string, onlyMyReferrals?: boolean) {
+    return this.getSellerCandidates(requesterId, slug, { q, onlyMyReferrals });
 }
 
 // ─── خصوصی ───

@@ -42,13 +42,25 @@ export class ArmAdminCatalogsController {
     @ApiOperation({ summary: 'کاتالوگ‌های کاندید فروشنده' })
     @ApiQuery({ name: 'q', required: false })
     @ApiQuery({ name: 'myReferrals', required: false })
+    @ApiQuery({ name: 'industry', required: false })
+    @ApiQuery({ name: 'cityCode', required: false })
+    @ApiQuery({ name: 'provinceCode', required: false })
     async getSellerCandidates(
         @Param('slug') slug: string,
         @CurrentUser() user: any,
         @Query('q') q?: string,
         @Query('myReferrals') myReferrals?: string,
+        @Query('industry') industry?: string,
+        @Query('cityCode') cityCode?: string,
+        @Query('provinceCode') provinceCode?: string,
     ) {
-        return this.catalogsService.getSellerCandidates(user.id, slug, q?.trim() || undefined, myReferrals === '1');
+        return this.catalogsService.getSellerCandidates(user.id, slug, {
+            q: q?.trim() || undefined,
+            onlyMyReferrals: myReferrals === '1',
+            industry: industry?.trim() || undefined,
+            cityCode: cityCode || undefined,
+            provinceCode: provinceCode || undefined,
+        });
     }
 
     @Post('sellers')
@@ -123,13 +135,25 @@ export class ArmAdminCatalogsController {
     @ApiOperation({ summary: 'کسب‌وکارهای کاندید خریدار' })
     @ApiQuery({ name: 'q', required: false })
     @ApiQuery({ name: 'myReferrals', required: false })
+    @ApiQuery({ name: 'industry', required: false })
+    @ApiQuery({ name: 'cityCode', required: false })
+    @ApiQuery({ name: 'provinceCode', required: false })
     async getBuyerCandidates(
         @Param('slug') slug: string,
         @CurrentUser() user: any,
         @Query('q') q?: string,
         @Query('myReferrals') myReferrals?: string,
+        @Query('industry') industry?: string,
+        @Query('cityCode') cityCode?: string,
+        @Query('provinceCode') provinceCode?: string,
     ) {
-        return this.catalogsService.getBuyerCandidates(user.id, slug, q?.trim() || undefined, myReferrals === '1');
+        return this.catalogsService.getBuyerCandidates(user.id, slug, {
+            q: q?.trim() || undefined,
+            onlyMyReferrals: myReferrals === '1',
+            industry: industry?.trim() || undefined,
+            cityCode: cityCode || undefined,
+            provinceCode: provinceCode || undefined,
+        });
     }
 
     @Post('buyers')
