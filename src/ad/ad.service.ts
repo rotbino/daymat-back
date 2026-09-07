@@ -1278,6 +1278,22 @@ export class AdService {
                         where: { relatedModel: 'Ad' },
                         select: { id: true, path: true, thumbnailPath: true, fieldKey: true },
                     },
+                    // ✅ اضافه شدن publications برای نمایش بازارهایی که آگهی در اون‌ها فعاله
+                    publications: {
+                        where: { status: 'published' },
+                        select: {
+                            armId: true,
+                            status: true,
+                            arm: {
+                                select: {
+                                    id: true,
+                                    slug: true,
+                                    name: true,
+                                    colorPrimary: true,
+                                },
+                            },
+                        },
+                    },
                 },
                 orderBy: { createdAt: 'desc' },
                 skip,
