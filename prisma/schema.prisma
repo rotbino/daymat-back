@@ -390,17 +390,22 @@ model ArmMembership {
   catalog          Catalog? @relation(fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   role             ArmRole  @default(arm_member)
   permissionLevel  Int      @default(1)
-  status           String   @default("active")   // active | pending | paused | banned | rejected | removed
+  // ✅ status = وضعیت سیستمی (دسترسی به پنل ادمین)
+  //    فقط: active | banned | removed
+  //    arm_owner که active هست، همیشه به پنل دسترسی داره
+  //    حتی اگه business نقشش pause بشه، status سیستمی active می‌مونه
+  status           String   @default("active")
+  // ✅ businessStatus = وضعیت تجاری (seller/buyer)
+  //    فقط: active | paused
+  //    اگه paused باشه، آگهی‌ها از تابلو غیب می‌شن (seller)
+  //    یا حق دیدن قیمت‌ها رو از دست می‌ده (buyer)
+  //    ولی دسترسی به پنل ادمین حفظ می‌شه (چون status سیستمی active هست)
+  businessStatus   String   @default("active")
   source           String?  // auto_create | manual | invitation | owner_add
   metadata         Json?
   joinedAt         DateTime @default(now())
   updatedAt        DateTime @updatedAt
   // ✅ roleType نقش تجاری است (seller | buyer | seller-buyer | null)
-  //    - role نقش سیستمی است (arm_owner | arm_member) و هرگز تغییر نمی‌کند
-  //    - فقط businessId پر باشه → buyer (می‌تونه قیمت‌ها رو ببینه در بازار خصوصی)
-  //    - فقط catalogId پر باشه → seller (می‌تونه آگهی بذاره)
-  //    - هم businessId و هم catalogId پر باشه → seller-buyer (هردو)
-  //    - هیچ کدوم پر نباشه → فقط arm_owner یا arm_member بدون نقش تجاری
   roleType         String?  // seller | buyer | seller-buyer
   rejectionReason  String?
   reviewedByUserId String?  @db.ObjectId

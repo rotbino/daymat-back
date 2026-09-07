@@ -96,7 +96,9 @@ export class ArmAdminCatalogsService {
             where: {
                 armId: arm.id,
                 catalogId: { not: null },  // ✅ seller = کسی که catalogId دارد (شامل seller و seller-buyer)
-                ...(ownerStatus !== 'all' ? { status: ownerStatus } : {}),
+                status: { not: 'removed' },  // ✅ فقط اعضای حذف‌نشده
+                ...(ownerStatus === 'active' ? { businessStatus: 'active' } : {}),
+                ...(ownerStatus === 'paused' ? { businessStatus: 'paused' } : {}),
             },
             include: {
                 catalog: {
@@ -152,6 +154,7 @@ export class ArmAdminCatalogsService {
             .map((m) => ({
                 membershipId: m.id,
                 status: m.status,
+                businessStatus: m.businessStatus,  // ✅ وضعیت تجاری (active | paused)
                 publishState: m.publishState,
                 roleType: 'seller',  // ✅ backward-compat برای فرانت
                 joinedAt: m.joinedAt,
@@ -411,6 +414,7 @@ export class ArmAdminCatalogsService {
             where: {
                 armId: arm.id,
                 businessId: { not: null },  // ✅ buyer = کسی که businessId دارد (شامل buyer و seller-buyer)
+                status: { not: 'removed' },  // ✅ فقط اعضای حذف‌نشده
             },
             include: {
                 user: { select: { id: true, fullName: true, phone: true, avatarUrl: true } },
@@ -429,6 +433,7 @@ export class ArmAdminCatalogsService {
             membershipId: m.id,
             userId: m.userId,
             status: m.status,
+            businessStatus: m.businessStatus,  // ✅ وضعیت تجاری (active | paused)
             joinedAt: m.joinedAt,
             user: m.user,
             // ✅ کسب‌وکارِ عضویت — اگر هنوز نهاد ثبت نکرده (کاربر قدیمی)، null و UI می‌گوید
@@ -603,30 +608,30 @@ async addBuyer(slug: string, businessId: string) {
 }
 
 // ============================================================
-// ۴) توقف / ادامهٔ عضو — برای هر دو نوع (اثر روی تابلو فقط برای فروشنده)
+// ۴) توقف / ادامهٔ عضو — فقط businessStatus (نه status سیستمی)
 // ============================================================
-// ✅ Pause = تعلیق موقت عضویت
+// ✅ Pause = تعلیق موقت نقش تجاری
 //    - seller: آگهی‌ها از تابلو غیب می‌شن (unstamp) ولی در کاتالوگ می‌مونن
 //    - buyer: حق دیدن قیمت‌ها رو از دست می‌ده
-//    - membership کلاً status=paused می‌شه
+//    - status سیستمی (active) دست نمی‌خوره — arm_owner به پنل دسترسی داره
 // ============================================================
 async setCatalogPaused(slug: string, catalogId: string, paused: boolean) {
     const arm = await this.resolveArm(slug);
     const membership = await this.getMembershipByCatalog(arm.id, catalogId);
 
     if (paused) {
-        // ✅ pause: آگهی‌ها رو از تابلو بردار
+        // ✅ pause: آگهی‌ها رو از تابلو بردار، businessStatus=paused کن
         await this.catalogPublish.unstampCatalogAds(catalogId, arm.id);
         return this.prisma.armMembership.update({
             where: { id: membership.id },
-            data: { status: 'paused' },
+            data: { businessStatus: 'paused' },
         });
     }
 
-    // ✅ resume: اگه publishState=published بود، دوباره آگهی‌ها رو stamp کن
+    // ✅ resume: businessStatus=active کن، اگه publishState=published بود دوباره stamp کن
     const updated = await this.prisma.armMembership.update({
         where: { id: membership.id },
-        data: { status: 'active' },
+        data: { businessStatus: 'active' },
     });
     if (membership.publishState === 'published') {
         const stamp = await this.catalogPublish.stampCatalogAds(arm, catalogId);
@@ -736,7 +741,7 @@ async removeBuyer(slug: string, membershipId: string, adminUserId: string) {
 }
 
 // ============================================================
-// ۵.۷) Pause/Resume buyer — تعلیق موقت عضویت خریدار
+// ۵.۷) Pause/Resume buyer — فقط businessStatus (نه status سیستمی)
 // ============================================================
 async setBuyerPaused(slug: string, membershipId: string, paused: boolean) {
     const arm = await this.resolveArm(slug);
@@ -749,7 +754,7 @@ async setBuyerPaused(slug: string, membershipId: string, paused: boolean) {
 
     return this.prisma.armMembership.update({
         where: { id: membership.id },
-        data: { status: paused ? 'paused' : 'active' },
+        data: { businessStatus: paused ? 'paused' : 'active' },
     });
 }
 
