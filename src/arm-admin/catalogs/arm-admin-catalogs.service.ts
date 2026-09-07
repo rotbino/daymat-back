@@ -1100,9 +1100,11 @@ async addCatalog(slug: string, catalogId: string) {
 
 // ─── خصوصی ───
 private async getMembershipByCatalog(armId: string, catalogId: string) {
-    // ✅ membership که این catalogId رو داره پیدا کن (فقط seller)
+    // ✅ membership که این catalogId رو داره پیدا کن
+    // نکته: roleType چک نمی‌شه چون اگه catalogId ست باشه، یعنی seller هست
+    // (برخی membershipهای قدیمی ممکنه roleType=null داشته باشن)
     const membership = await this.prisma.armMembership.findFirst({
-        where: { armId, catalogId, roleType: 'seller' },
+        where: { armId, catalogId },
     });
     if (!membership) {
         throw new NotFoundException({ errorCode: 'NOT_MEMBER', message: 'این کاتالوگ عضو این بازار نیست' });
