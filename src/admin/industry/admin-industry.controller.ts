@@ -4,16 +4,28 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@ne
 import { AdminIndustryService } from './admin-industry.service';
 import { CreateIndustryDto, UpdateIndustryDto } from './admin-industry.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../../common/guards/optional-jwt-auth.guard';
 import { ArmManagerGuard } from '../../common/guards/arm-manager.guard';
 import { ArmAdminOrOwnerReadGuard } from '../../common/guards/arm-admin-or-owner-read.guard';
 
-@ApiTags('admin/industries')
-@Controller('admin/industries')
-@ApiBearerAuth('access-token')
+@ApiTags('industries')
+@Controller()
 export class AdminIndustryController {
     constructor(private industryService: AdminIndustryService) {}
 
-    @Get('search')
+    // ✅ публичный endpoint برای autocomplete (همه کاربران)
+    @Get('industries/autocomplete')
+    @UseGuards(OptionalJwtAuthGuard)
+    @ApiOperation({ summary: 'جستجوی خودکار صنف‌ها برای autocomplete' })
+    @ApiQuery({ name: 'q', required: true })
+    async autocomplete(@Query('q') q: string) {
+        if (!q || q.trim().length < 2) {
+            return { items: [] };
+        }
+        return this.industryService.search(q.trim(), 10, 0, false);
+    }
+
+    @Get('admin/industries/search')
     @UseGuards(JwtAuthGuard, ArmAdminOrOwnerReadGuard)
     @ApiOperation({ summary: 'جستجوی صنف‌ها با pagination' })
     @ApiQuery({ name: 'q', required: true })
@@ -33,7 +45,7 @@ export class AdminIndustryController {
     // ============================================================
     // ✅ دریافت فقط برگ‌ها (قابل انتخاب) - هم ادمین و هم مالک
     // ============================================================
-    @Get('leaves')
+    @Get('admin/industries/leaves')
     @UseGuards(JwtAuthGuard, ArmAdminOrOwnerReadGuard)
     @ApiOperation({ summary: 'دریافت لیست صنف‌های برگ (قابل انتخاب)' })
     @ApiResponse({ status: 200, description: 'لیست صنف‌های برگ' })
@@ -45,7 +57,7 @@ export class AdminIndustryController {
     // ============================================================
     // ✅ دریافت درخت کامل - هم ادمین و هم مالک
     // ============================================================
-    @Get('tree')
+    @Get('admin/industries/tree')
     @UseGuards(JwtAuthGuard, ArmAdminOrOwnerReadGuard)
     @ApiOperation({ summary: 'دریافت درخت کامل صنف‌ها' })
     @ApiResponse({ status: 200, description: 'درخت صنف‌ها' })
@@ -56,7 +68,7 @@ export class AdminIndustryController {
     // ============================================================
     // ✅ دریافت همه صنف‌ها (مسطح) - هم ادمین و هم مالک
     // ============================================================
-    @Get()
+    @Get('admin/industries')
     @UseGuards(JwtAuthGuard, ArmAdminOrOwnerReadGuard)
     @ApiOperation({ summary: 'دریافت لیست همه صنف‌ها (مسطح)' })
     @ApiResponse({ status: 200, description: 'لیست همه صنف‌ها' })
@@ -69,7 +81,7 @@ export class AdminIndustryController {
     // ============================================================
     // ✅ دریافت یک صنف - هم ادمین و هم مالک
     // ============================================================
-    @Get(':id')
+    @Get('admin/industries/:id')
     @UseGuards(JwtAuthGuard, ArmAdminOrOwnerReadGuard)
     @ApiOperation({ summary: 'دریافت یک صنف با id' })
     @ApiResponse({ status: 200, description: 'اطلاعات صنف' })
@@ -81,7 +93,7 @@ export class AdminIndustryController {
     // ============================================================
     // ✅ دریافت زیرمجموعه‌ها - هم ادمین و هم مالک
     // ============================================================
-    @Get(':id/children')
+    @Get('admin/industries/:id/children')
     @UseGuards(JwtAuthGuard, ArmAdminOrOwnerReadGuard)
     @ApiOperation({ summary: 'دریافت زیرمجموعه‌های یک صنف' })
     @ApiResponse({ status: 200, description: 'زیرمجموعه‌ها' })
@@ -93,7 +105,7 @@ export class AdminIndustryController {
     // ============================================================
     // ✅ دریافت مسیر - هم ادمین و هم مالک
     // ============================================================
-    @Get(':id/path')
+    @Get('admin/industries/:id/path')
     @UseGuards(JwtAuthGuard, ArmAdminOrOwnerReadGuard)
     @ApiOperation({ summary: 'دریافت کل مسیر یک صنف' })
     @ApiResponse({ status: 200, description: 'مسیر صنف' })
@@ -105,7 +117,7 @@ export class AdminIndustryController {
     // ============================================================
     // ❌ ایجاد صنف جدید - فقط ادمین سیستم
     // ============================================================
-    @Post()
+    @Post('admin/industries')
     @UseGuards(JwtAuthGuard, ArmManagerGuard)
     @ApiOperation({ summary: 'ایجاد صنف جدید (فقط ادمین)' })
     @ApiResponse({ status: 201, description: 'صنف با موفقیت ایجاد شد' })
@@ -118,7 +130,7 @@ export class AdminIndustryController {
     // ============================================================
     // ❌ ویرایش صنف - فقط ادمین سیستم
     // ============================================================
-    @Put(':id')
+    @Put('admin/industries/:id')
     @UseGuards(JwtAuthGuard, ArmManagerGuard)
     @ApiOperation({ summary: 'ویرایش صنف (فقط ادمین)' })
     @ApiResponse({ status: 200, description: 'صنف با موفقیت ویرایش شد' })
@@ -132,7 +144,7 @@ export class AdminIndustryController {
     // ============================================================
     // ❌ حذف صنف - فقط ادمین سیستم
     // ============================================================
-    @Delete(':id')
+    @Delete('admin/industries/:id')
     @UseGuards(JwtAuthGuard, ArmManagerGuard)
     @ApiOperation({ summary: 'حذف صنف (فقط ادمین)' })
     @ApiResponse({ status: 200, description: 'صنف با موفقیت حذف شد' })
