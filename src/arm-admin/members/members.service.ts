@@ -438,9 +438,23 @@ export class MembersService {
             }
         }
 
+        // ✅ status سیستمی فقط برای banned/removed استفاده می‌شه
+        //    pause/resume فقط businessStatus رو تغییر می‌ده
+        const updateData: any = {};
+        if (status === 'banned' || status === 'removed') {
+            updateData.status = status;
+            updateData.businessStatus = 'paused';
+        } else if (status === 'active') {
+            updateData.status = 'active';
+            updateData.businessStatus = 'active';
+        } else {
+            // paused → فقط businessStatus
+            updateData.businessStatus = 'paused';
+        }
+
         return this.prisma.armMembership.update({
             where: { id: membership.id },
-            data: { status },
+            data: updateData,
         });
     }
 
