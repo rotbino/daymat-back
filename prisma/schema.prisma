@@ -144,7 +144,8 @@ model Business {
   trustScore         Float    @default(0)
   businessStartYear  Int?                           // ✅ از User منتقل شد
   status             String   @default("active")
-  industryName       String?
+  industryName       String?  // ✅ backward-compat (متن)
+  industryId         String?  @db.ObjectId  // ✅ FK به جدول Industry
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
   armMemberships     ArmMembership[] @relation("BizArmMembership")
@@ -154,6 +155,7 @@ model Business {
 
   @@index([ownerUserId])
   @@index([type])
+  @@index([industryId])
 }
 model Catalog {
   id                 String    @id @default(auto()) @map("_id") @db.ObjectId

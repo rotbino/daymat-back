@@ -20,8 +20,20 @@ export class BusinessService {
     constructor(private prisma: PrismaService) {}
 
     // ✅ اگه صنف در جدول Industry وجود نداشته باشه، بسازش
-    private async ensureIndustryExists(industryName: string): Promise<void> {
-        if (!industryName?.trim()) return;
+    // اگه industryId داده شده، اون رو استفاده کن
+    // اگه فقط متن داده شده، سرچ کن یا بساز
+    private async ensureIndustryExists(industryId?: string, industryName?: string): Promise<string | null> {
+        // اگه industryId داریم، فقط usageCount رو آپدیت کن
+        if (industryId) {
+            await this.prisma.industry.update({
+                where: { id: industryId },
+                data: { usageCount: { increment: 1 } },
+            }).catch(() => {});
+            return industryId;
+        }
+
+        // اگه فقط متن داریم
+        if (!industryName?.trim()) return null;
         const name = industryName.trim();
         const slug = name
             .replace(/\s+/g, '-')
@@ -32,23 +44,27 @@ export class BusinessService {
             where: { title: name },
             select: { id: true },
         });
-        if (!existing) {
-            await this.prisma.industry.create({
-                data: {
-                    title: name,
-                    slug,
-                    level: 0,
-                    path: slug,
-                    isActive: true,
-                    usageCount: 1,
-                },
-            }).catch(() => {}); // ignore duplicate slug errors
-        } else {
+        if (existing) {
             await this.prisma.industry.update({
                 where: { id: existing.id },
                 data: { usageCount: { increment: 1 } },
             }).catch(() => {});
+            return existing.id;
         }
+
+        // ساخت صنف جدید
+        const created = await this.prisma.industry.create({
+            data: {
+                title: name,
+                slug,
+                level: 0,
+                path: slug,
+                isActive: true,
+                usageCount: 1,
+            },
+        }).catch(() => null);
+
+        return created?.id || null;
     }
 
     async create(userId: string, dto: CreateBusinessDto) {
@@ -60,9 +76,10 @@ export class BusinessService {
         }
 
         // ✅ اگه صنف وارد شده، در جدول Industry هم ذخیره کن
-        if (dto.industryName?.trim()) {
-            await this.ensureIndustryExists(dto.industryName);
-        }
+        const resolvedIndustryId = await this.ensureIndustryExists(
+            (dto as any).industryId,
+            dto.industryName,
+        );
 
         return this.prisma.business.create({
             data: {
@@ -70,6 +87,7 @@ export class BusinessService {
                 name: dto.name.trim().slice(0, 120),
                 type: dto.type || 'wholesaler',
                 industryName: dto.industryName?.trim() || null,
+                industryId: resolvedIndustryId,
                 shortDescription: dto.shortDescription?.trim() || null,
                 description: dto.description?.trim() || null,
                 province: dto.province || null,
@@ -133,8 +151,13 @@ export class BusinessService {
         }
 
         // ✅ اگه صنف تغییر کرده، در جدول Industry هم ذخیره کن
-        if (dto.industryName !== undefined && dto.industryName?.trim()) {
-            await this.ensureIndustryExists(dto.industryName);
+        const industryIdChanged = (dto as any).industryId !== undefined || dto.industryName !== undefined;
+        let resolvedIndustryId: string | null | undefined = undefined;
+        if (industryIdChanged) {
+            resolvedIndustryId = await this.ensureIndustryExists(
+                (dto as any).industryId,
+                dto.industryName,
+            );
         }
 
         return this.prisma.business.update({
@@ -143,6 +166,7 @@ export class BusinessService {
                 ...(dto.name !== undefined ? { name: dto.name.trim().slice(0, 120) } : {}),
                 ...(dto.type !== undefined ? { type: dto.type } : {}),
                 ...(dto.industryName !== undefined ? { industryName: dto.industryName?.trim() || null } : {}),
+                ...(resolvedIndustryId !== undefined ? { industryId: resolvedIndustryId } : {}),
                 ...(dto.shortDescription !== undefined ? { shortDescription: dto.shortDescription?.trim() || null } : {}),
                 ...(dto.description !== undefined ? { description: dto.description?.trim() || null } : {}),
                 ...(dto.province !== undefined ? { province: dto.province || null } : {}),
