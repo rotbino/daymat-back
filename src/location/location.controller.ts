@@ -10,14 +10,7 @@ import { OptionalJwtAuthGuard } from '../common/guards/optional-jwt-auth.guard';
 export class LocationController {
     constructor(private locationService: LocationService) {}
 
-    @Get('tree')
-    @ApiOperation({ summary: 'دریافت درخت کامل موقعیت‌ها' })
-    @ApiResponse({ status: 200, description: 'درخت موقعیت‌ها' })
-    async getFullTree() {
-        return this.locationService.getFullTree();
-    }
-
-    // ✅ جستجوی شهر — عمومی، با cache طولانی
+    // ✅ جستجوی شهر — باید قبل از :armId باشد تا route درست match شود
     @Get('cities/search')
     @UseGuards(OptionalJwtAuthGuard)
     @ApiOperation({ summary: 'جستجوی شهر با نام' })
@@ -28,6 +21,13 @@ export class LocationController {
         @Query('limit') limit = '20',
     ) {
         return this.locationService.searchCities(q.trim(), +limit);
+    }
+
+    @Get('tree')
+    @ApiOperation({ summary: 'دریافت درخت کامل موقعیت‌ها' })
+    @ApiResponse({ status: 200, description: 'درخت موقعیت‌ها' })
+    async getFullTree() {
+        return this.locationService.getFullTree();
     }
 
     @Get(':armId')

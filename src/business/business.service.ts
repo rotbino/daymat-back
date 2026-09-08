@@ -52,7 +52,7 @@ export class BusinessService {
             return existing.id;
         }
 
-        // ساخت صنف جدید
+        // ساخت صنف جدید — confirmed=false تا ادمین بررسی کنه
         const created = await this.prisma.industry.create({
             data: {
                 title: name,
@@ -61,6 +61,7 @@ export class BusinessService {
                 path: slug,
                 isActive: true,
                 usageCount: 1,
+                confirmed: false,  // ✅ توسط کاربر ساخته شده
             },
         }).catch(() => null);
 
@@ -110,6 +111,7 @@ export class BusinessService {
             where: { ownerUserId: userId, status: 'active' },
             select: {
                 id: true, name: true, type: true, industryName: true,
+                industryId: true,  // ✅ اضافه شد
                 shortDescription: true, province: true, city: true, phone: true,
                 logoUrl: true, verificationStatus: true, verificationTier: true,
                 createdAt: true,

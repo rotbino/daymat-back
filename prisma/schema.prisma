@@ -794,6 +794,7 @@ model Industry {
   description String?
   isActive    Boolean    @default(true)
   usageCount  Int        @default(0)   // ✅ جدید — برای سورت پیشنهادها
+  confirmed   Boolean    @default(false) // ✅ false = توسط کاربر ساخته شده، ادمین باید بررسی کنه
   metadata    Json?
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
@@ -801,6 +802,7 @@ model Industry {
   @@index([parentId])
   @@index([path])
   @@index([usageCount])
+  @@index([confirmed])
 }
 
 // ============================================================
