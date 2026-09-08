@@ -1,5 +1,5 @@
 // src/product-reference/product-reference.controller.ts
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Put, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { ProductReferenceService } from './product-reference.service';
 import { CreateProductDto, UpdateProductDto } from './product-reference.dto';
@@ -12,32 +12,33 @@ import { CurrentUser } from '../common/decorators/custom.decorators';
 export class ProductReferenceController {
     constructor(private productService: ProductReferenceService) {}
 
-    // ✅ جستجوی کالا — public
+    // ✅ جستجوی کالا — public (با optional auth)
+    // ✅ pagination: page + limit (پیش‌فرض ۱۰)
+    // ✅ mine: فقط کالاهای خود کاربر
     @Get('search')
     @UseGuards(OptionalJwtAuthGuard)
-    @ApiOperation({ summary: 'جستجوی کالای مرجع برای autocomplete' })
-    @ApiQuery({ name: 'q', required: true })
+    @ApiOperation({ summary: 'جستجوی کالای مرجع با pagination' })
+    @ApiQuery({ name: 'q', required: false })
     @ApiQuery({ name: 'category', required: false })
+    @ApiQuery({ name: 'page', required: false })
     @ApiQuery({ name: 'limit', required: false })
+    @ApiQuery({ name: 'mine', required: false, type: Boolean })
     async search(
-        @Query('q') q: string,
+        @Query('q') q?: string,
         @Query('category') category?: string,
-        @Query('limit') limit = '20',
+        @Query('page') page = '1',
+        @Query('limit') limit = '10',
+        @Query('mine') mine?: string,
+        @CurrentUser() user?: any,
     ) {
-        return this.productService.search(q, category, +limit);
-    }
-
-    // ✅ لیست همه‌ی کالاها — برای DropSelector با search client-side
-    @Get('list')
-    @UseGuards(OptionalJwtAuthGuard)
-    @ApiOperation({ summary: 'لیست همه‌ی کالاها برای DropSelector' })
-    @ApiQuery({ name: 'category', required: false })
-    @ApiQuery({ name: 'confirmed', required: false, type: Boolean })
-    async list(
-        @Query('category') category?: string,
-        @Query('confirmed') confirmed?: string,
-    ) {
-        return this.productService.listForSelector(category, confirmed === 'true');
+        return this.productService.search({
+            q,
+            category,
+            page: +page,
+            limit: +limit,
+            mine: mine === 'true',
+            userId: user?.id,
+        });
     }
 
     // ✅ ایجاد کالای جدید — نیاز به لاگین
@@ -49,12 +50,21 @@ export class ProductReferenceController {
         return this.productService.create(dto, user.id);
     }
 
-    // ✅ به‌روزرسانی کالا
+    // ✅ به‌روزرسانی کالا — فقط سازنده + فقط isNew
+    @Put(':id')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'ویرایش کالای مرجع (فقط سازنده + فقط isNew)' })
+    async update(@Param('id') id: string, @Body() dto: UpdateProductDto, @CurrentUser() user: any) {
+        return this.productService.update(id, dto, user.id);
+    }
+
+    // ✅ admin update (بدون محدودیت isNew) — با PATCH
     @Patch(':id')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'به‌روزرسانی کالای مرجع' })
-    async update(@Param('id') id: string, @Body() dto: UpdateProductDto) {
+    @ApiOperation({ summary: 'ویرایش کالا توسط ادمین' })
+    async adminUpdate(@Param('id') id: string, @Body() dto: UpdateProductDto) {
         return this.productService.update(id, dto);
     }
 }

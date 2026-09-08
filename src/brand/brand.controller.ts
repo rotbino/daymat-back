@@ -12,32 +12,28 @@ import { CurrentUser } from '../common/decorators/custom.decorators';
 export class BrandController {
     constructor(private brandService: BrandService) {}
 
-    // ✅ جستجوی برند — public (با optional auth)
+    // ✅ جستجوی برند — با pagination
+    // ✅ حداقل ۲ حرف برای سرچ
+    // ✅ بدون سرچ: ۱۰ برند پراستفاده
     @Get('search')
     @UseGuards(OptionalJwtAuthGuard)
-    @ApiOperation({ summary: 'جستجوی برند برای autocomplete' })
-    @ApiQuery({ name: 'q', required: true })
+    @ApiOperation({ summary: 'جستجوی برند با pagination' })
+    @ApiQuery({ name: 'q', required: false })
     @ApiQuery({ name: 'category', required: false })
+    @ApiQuery({ name: 'page', required: false })
     @ApiQuery({ name: 'limit', required: false })
     async search(
-        @Query('q') q: string,
+        @Query('q') q?: string,
         @Query('category') category?: string,
-        @Query('limit') limit = '20',
+        @Query('page') page = '1',
+        @Query('limit') limit = '10',
     ) {
-        return this.brandService.search(q, category, +limit);
-    }
-
-    // ✅ لیست همه‌ی برندها — برای DropSelector با search client-side
-    @Get('list')
-    @UseGuards(OptionalJwtAuthGuard)
-    @ApiOperation({ summary: 'لیست همه‌ی برندها برای DropSelector' })
-    @ApiQuery({ name: 'category', required: false })
-    @ApiQuery({ name: 'confirmed', required: false, type: Boolean })
-    async list(
-        @Query('category') category?: string,
-        @Query('confirmed') confirmed?: string,
-    ) {
-        return this.brandService.listForSelector(category, confirmed === 'true');
+        return this.brandService.search({
+            q,
+            category,
+            page: +page,
+            limit: +limit,
+        });
     }
 
     // ✅ ایجاد برند — نیاز به لاگین
@@ -49,7 +45,7 @@ export class BrandController {
         return this.brandService.create(dto, user.id);
     }
 
-    // ✅ به‌روزرسانی برند — فعلا برای ادمین
+    // ✅ به‌روزرسانی برند
     @Patch(':id')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')

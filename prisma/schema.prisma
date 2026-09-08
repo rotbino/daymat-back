@@ -984,6 +984,7 @@ model ProductReference {
   usageCount  Int      @default(0)                     // تعداد استفاده در آگهی‌ها
   confirmed   Boolean  @default(false)                 // false = توسط کاربر ساخته شده
   isByUser    Boolean  @default(false)                 // ✅ true = کاربر ساخته (نه seed/admin)
+  isNew       Boolean  @default(true)                  // ✅ true = جدید و قابل ویرایش توسط سازنده. ادمین که تأیید کرد → false (رسمی)
   metadata    Json?                                    // specs, weight, volume, ...
   createdByUserId String? @db.ObjectId                 // کاربری که اول بار ساخت
   createdAt   DateTime @default(now())
@@ -996,6 +997,7 @@ model ProductReference {
   @@index([usageCount])
   @@index([confirmed])
   @@index([isByUser])
+  @@index([isNew])
   @@index([title])
   @@index([keywords])
 }

@@ -1,5 +1,5 @@
 // src/product-reference/product-reference.service.ts
-import { Injectable, ConflictException } from '@nestjs/common';
+import { Injectable, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProductDto, UpdateProductDto } from './product-reference.dto';
 
@@ -7,9 +7,6 @@ import { CreateProductDto, UpdateProductDto } from './product-reference.dto';
 export class ProductReferenceService {
     constructor(private prisma: PrismaService) {}
 
-    // ============================================================
-    // ساخت slug فارسی‌پسند
-    // ============================================================
     private slugify(title: string): string {
         const base = title.trim()
             .replace(/\s+/g, '-')
@@ -19,76 +16,70 @@ export class ProductReferenceService {
     }
 
     // ============================================================
-    // جستجوی کالا — برای autocomplete
+    // جستجوی کالا — با pagination
     // ✅ سرچ روی title و keywords
-    // ✅ اگه category داده بشه، فقط همون دسته
-    // ✅ سورت بر اساس usageCount
+    // ✅ حداقل ۲ حرف برای سرچ
+    // ✅ صفحه‌بندی: page + limit (پیش‌فرض ۱۰)
+    // ✅ فیلتر mine: فقط کالاهای خود کاربر
     // ============================================================
-    async search(q: string, category?: string, limit = 20) {
-        if (!q || q.trim().length < 2) return { items: [] };
+    async search(options: {
+        q?: string;
+        category?: string;
+        page?: number;
+        limit?: number;
+        mine?: boolean;
+        userId?: string;
+    }) {
+        const { q, category, page = 1, limit = 10, mine = false, userId } = options;
+        const take = Math.min(limit, 50);
+        const skip = (page - 1) * take;
 
-        const query = q.trim();
+        const where: any = { isActive: true };
 
-        const where: any = {
-            isActive: true,
-            $or: [
+        if (mine && userId) {
+            where.createdByUserId = userId;
+        }
+
+        if (q && q.trim().length >= 2) {
+            const query = q.trim();
+            where.$or = [
                 { title: { $regex: query, $options: 'i' } },
                 { keywords: { $regex: query, $options: 'i' } },
-            ],
-        };
+            ];
+        }
         if (category) where.category = category;
 
-        const items = await this.prisma.productReference.findMany({
-            where,
-            select: {
-                id: true,
-                title: true,
-                brandId: true,
-                brand: { select: { id: true, title: true, logoUrl: true } },
-                category: true,
-                imageUrl: true,
-                thumbnailUrl: true,
-                usageCount: true,
-                isByUser: true,
-            },
-            orderBy: { usageCount: 'desc' },
-            take: Math.min(limit, 30),
-        });
+        const [items, total] = await Promise.all([
+            this.prisma.productReference.findMany({
+                where,
+                select: {
+                    id: true,
+                    title: true,
+                    brandId: true,
+                    brand: { select: { id: true, title: true, logoUrl: true } },
+                    category: true,
+                    imageUrl: true,
+                    thumbnailUrl: true,
+                    usageCount: true,
+                    isByUser: true,
+                    isNew: true,
+                    createdByUserId: true,
+                },
+                orderBy: { usageCount: 'desc' },
+                take,
+                skip,
+            }),
+            this.prisma.productReference.count({ where }),
+        ]);
 
-        return { items };
-    }
+        const hasMore = skip + items.length < total;
 
-    // ============================================================
-    // لیست همه‌ی کالاها — برای DropSelector با search client-side
-    // ============================================================
-    async listForSelector(category?: string, confirmedOnly = false) {
-        const where: any = { isActive: true };
-        if (category) where.category = category;
-        if (confirmedOnly) where.confirmed = true;
-
-        const items = await this.prisma.productReference.findMany({
-            where,
-            orderBy: { title: 'asc' },
-            select: {
-                id: true,
-                title: true,
-                brandId: true,
-                brand: { select: { id: true, title: true } },
-                category: true,
-                imageUrl: true,
-                thumbnailUrl: true,
-                isByUser: true,
-            },
-            take: 200,  // محدودیت برای performance
-        });
-
-        return { items };
+        return { items, total, page, hasMore };
     }
 
     // ============================================================
     // ایجاد کالای جدید
-    // ✅ بررسی تکراری نبودن title (case-insensitive)
-    // ✅ isByUser=true برای کالاهای کاربر-ساخته
+    // ✅ isNew=true, isByUser=true
     // ============================================================
     async create(dto: CreateProductDto, userId?: string) {
         const title = dto.title.trim();
@@ -106,8 +97,10 @@ export class ProductReferenceService {
                 isActive: true,
             },
             select: {
-                id: true, title: true, brandId: true, brand: { select: { id: true, title: true } },
-                category: true, imageUrl: true, thumbnailUrl: true, usageCount: true, isByUser: true,
+                id: true, title: true, brandId: true,
+                brand: { select: { id: true, title: true } },
+                category: true, imageUrl: true, thumbnailUrl: true,
+                usageCount: true, isByUser: true, isNew: true, createdByUserId: true,
             },
         });
         if (existing) {
@@ -135,22 +128,50 @@ export class ProductReferenceService {
                 description: dto.description || null,
                 unitHints: dto.unitHints || [],
                 metadata: dto.metadata || null,
-                confirmed: false,  // ✅ کاربر ساخت → نیاز به تأیید ادمین
-                isByUser: true,    // ✅ مارک‌گذاری به‌عنوان کاربر-ساخته
+                confirmed: false,
+                isByUser: true,
+                isNew: true,  // ✅ جدید و قابل ویرایش
                 createdByUserId: userId || null,
             },
             select: {
                 id: true, title: true, brandId: true,
                 brand: { select: { id: true, title: true } },
-                category: true, imageUrl: true, thumbnailUrl: true, usageCount: true, isByUser: true,
+                category: true, imageUrl: true, thumbnailUrl: true,
+                usageCount: true, isByUser: true, isNew: true, createdByUserId: true,
             },
         });
     }
 
     // ============================================================
     // به‌روزرسانی کالا
+    // ✅ فقط سازنده می‌تونه ویرایش کنه
+    // ✅ فقط اگه isNew=true باشه قابل ویرایشه
     // ============================================================
-    async update(id: string, dto: UpdateProductDto) {
+    async update(id: string, dto: UpdateProductDto, userId?: string) {
+        const product = await this.prisma.productReference.findUnique({
+            where: { id },
+            select: { createdByUserId: true, isNew: true },
+        });
+        if (!product) {
+            throw new NotFoundException({ errorCode: 'PRODUCT_NOT_FOUND', message: 'کالا یافت نشد' });
+        }
+
+        // ✅ اگه کاربر لاگین کرده و سازنده نیست → خطا
+        if (userId && product.createdByUserId && product.createdByUserId !== userId) {
+            throw new ForbiddenException({
+                errorCode: 'NOT_OWNER',
+                message: 'فقط سازنده کالا می‌تونه ویرایش کنه',
+            });
+        }
+
+        // ✅ اگه isNew=false (تأییدشده) → فقط ادمین می‌تونه ویرایش کنه
+        if (!product.isNew && userId) {
+            throw new ForbiddenException({
+                errorCode: 'PRODUCT_CONFIRMED',
+                message: 'این کالا تأیید شده و قابل ویرایش نیست',
+            });
+        }
+
         return this.prisma.productReference.update({
             where: { id },
             data: {
@@ -165,15 +186,5 @@ export class ProductReferenceService {
                 ...(dto.metadata !== undefined ? { metadata: dto.metadata } : {}),
             },
         });
-    }
-
-    // ============================================================
-    // افزایش usageCount
-    // ============================================================
-    async incrementUsage(id: string) {
-        await this.prisma.productReference.update({
-            where: { id },
-            data: { usageCount: { increment: 1 } },
-        }).catch(() => {});
     }
 }

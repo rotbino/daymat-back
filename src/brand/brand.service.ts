@@ -20,64 +20,51 @@ export class BrandService {
     }
 
     // ============================================================
-    // جستجوی برند — برای autocomplete
-    // ✅ سرچ روی title و keywords
-    // ✅ اگه category داده بشه، فقط همون دسته
-    // ✅ سورت بر اساس usageCount (پراستفاده اول)
+    // جستجوی برند — با pagination
+    // ✅ حداقل ۲ حرف برای سرچ
+    // ✅ صفحه‌بندی: page + limit (پیش‌فرض ۱۰)
     // ============================================================
-    async search(q: string, category?: string, limit = 20) {
-        if (!q || q.trim().length < 1) return { items: [] };
+    async search(options: {
+        q?: string;
+        category?: string;
+        page?: number;
+        limit?: number;
+    }) {
+        const { q, category, page = 1, limit = 10 } = options;
+        const take = Math.min(limit, 50);
+        const skip = (page - 1) * take;
 
-        const query = q.trim();
+        const where: any = { isActive: true };
 
-        // ✅ MongoDB native query — سرعتی‌تر از Prisma contains
-        const where: any = {
-            isActive: true,
-            $or: [
+        if (q && q.trim().length >= 2) {
+            const query = q.trim();
+            where.$or = [
                 { title: { $regex: query, $options: 'i' } },
                 { keywords: { $regex: query, $options: 'i' } },
-            ],
-        };
+            ];
+        }
         if (category) where.category = category;
 
-        const items = await this.prisma.brand.findMany({
-            where,
-            select: {
-                id: true,
-                title: true,
-                category: true,
-                logoUrl: true,
-                usageCount: true,
-                isByUser: true,
-            },
-            orderBy: { usageCount: 'desc' },
-            take: Math.min(limit, 30),
-        });
+        const [items, total] = await Promise.all([
+            this.prisma.brand.findMany({
+                where,
+                select: {
+                    id: true,
+                    title: true,
+                    category: true,
+                    logoUrl: true,
+                    usageCount: true,
+                    isByUser: true,
+                },
+                orderBy: { usageCount: 'desc' },
+                take,
+                skip,
+            }),
+            this.prisma.brand.count({ where }),
+        ]);
 
-        return { items };
-    }
-
-    // ============================================================
-    // لیست همه‌ی برندها — برای DropSelector با search client-side
-    // ============================================================
-    async listForSelector(category?: string, confirmedOnly = false) {
-        const where: any = { isActive: true };
-        if (category) where.category = category;
-        if (confirmedOnly) where.confirmed = true;
-
-        const items = await this.prisma.brand.findMany({
-            where,
-            orderBy: { title: 'asc' },
-            select: {
-                id: true,
-                title: true,
-                category: true,
-                logoUrl: true,
-                isByUser: true,
-            },
-        });
-
-        return { items };
+        const hasMore = skip + items.length < total;
+        return { items, total, page, hasMore };
     }
 
     // ============================================================

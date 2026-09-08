@@ -667,6 +667,8 @@ export class AdService {
                         imageUrl: true, thumbnailUrl: true,
                         brandId: true,
                         brand: { select: { id: true, title: true } },
+                        isNew: true,
+                        isByUser: true,
                     },
                 },
                 brand: { select: { id: true, title: true, logoUrl: true } },
