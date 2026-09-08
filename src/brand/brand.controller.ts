@@ -27,6 +27,19 @@ export class BrandController {
         return this.brandService.search(q, category, +limit);
     }
 
+    // ✅ لیست همه‌ی برندها — برای DropSelector با search client-side
+    @Get('list')
+    @UseGuards(OptionalJwtAuthGuard)
+    @ApiOperation({ summary: 'لیست همه‌ی برندها برای DropSelector' })
+    @ApiQuery({ name: 'category', required: false })
+    @ApiQuery({ name: 'confirmed', required: false, type: Boolean })
+    async list(
+        @Query('category') category?: string,
+        @Query('confirmed') confirmed?: string,
+    ) {
+        return this.brandService.listForSelector(category, confirmed === 'true');
+    }
+
     // ✅ ایجاد برند — نیاز به لاگین
     @Post()
     @UseGuards(JwtAuthGuard)

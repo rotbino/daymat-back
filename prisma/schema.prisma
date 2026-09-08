@@ -267,12 +267,16 @@ model Location {
   isActive    Boolean    @default(true)
   sortOrder   Int        @default(0)
   metadata    Json?
+  confirmed   Boolean    @default(true)  // ✅ برای locations هم پیش‌فرض true (ادمین تأییدشده)
+  isByUser    Boolean    @default(false) // ✅ true = کاربر ساخته
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
   @@unique([path])
   @@index([parentId])
   @@index([type])
+  @@index([confirmed])
+  @@index([isByUser])
   @@unique([type, countryCode, provinceCode, cityCode])
 }
 
@@ -806,6 +810,7 @@ model Industry {
   isActive    Boolean    @default(true)
   usageCount  Int        @default(0)   // ✅ جدید — برای سورت پیشنهادها
   confirmed   Boolean    @default(false) // ✅ false = توسط کاربر ساخته شده، ادمین باید بررسی کنه
+  isByUser    Boolean    @default(false) // ✅ true = کاربر ساخته (نه seed/admin)
   metadata    Json?
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
@@ -814,6 +819,7 @@ model Industry {
   @@index([path])
   @@index([usageCount])
   @@index([confirmed])
+  @@index([isByUser])
 }
 
 // ============================================================
@@ -936,7 +942,8 @@ model Brand {
   keywords    String[] @default([])                    // کلمات کلیدی برای سرچ بهتر
   isActive    Boolean  @default(true)
   usageCount  Int      @default(0)                     // تعداد استفاده در آگهی‌ها (برای سورت پیشنهادها)
-  confirmed   Boolean  @default(false)                 // false = توسط کاربر ساخته شده
+  confirmed   Boolean  @default(false)                 // false = توسط کاربر ساخته شده، ادمین باید بررسی کنه
+  isByUser    Boolean  @default(false)                 // ✅ true = کاربر ساخته (نه seed/admin)
   metadata    Json?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -947,6 +954,7 @@ model Brand {
   @@index([isActive])
   @@index([usageCount])
   @@index([confirmed])
+  @@index([isByUser])
   @@index([title])
 }
 
@@ -975,6 +983,7 @@ model ProductReference {
   isActive    Boolean  @default(true)
   usageCount  Int      @default(0)                     // تعداد استفاده در آگهی‌ها
   confirmed   Boolean  @default(false)                 // false = توسط کاربر ساخته شده
+  isByUser    Boolean  @default(false)                 // ✅ true = کاربر ساخته (نه seed/admin)
   metadata    Json?                                    // specs, weight, volume, ...
   createdByUserId String? @db.ObjectId                 // کاربری که اول بار ساخت
   createdAt   DateTime @default(now())
@@ -986,6 +995,7 @@ model ProductReference {
   @@index([isActive])
   @@index([usageCount])
   @@index([confirmed])
+  @@index([isByUser])
   @@index([title])
   @@index([keywords])
 }

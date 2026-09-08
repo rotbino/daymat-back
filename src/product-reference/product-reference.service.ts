@@ -29,7 +29,6 @@ export class ProductReferenceService {
 
         const query = q.trim();
 
-        // ✅ MongoDB native query برای سرعتی‌تر
         const where: any = {
             isActive: true,
             $or: [
@@ -50,6 +49,7 @@ export class ProductReferenceService {
                 imageUrl: true,
                 thumbnailUrl: true,
                 usageCount: true,
+                isByUser: true,
             },
             orderBy: { usageCount: 'desc' },
             take: Math.min(limit, 30),
@@ -59,8 +59,36 @@ export class ProductReferenceService {
     }
 
     // ============================================================
+    // لیست همه‌ی کالاها — برای DropSelector با search client-side
+    // ============================================================
+    async listForSelector(category?: string, confirmedOnly = false) {
+        const where: any = { isActive: true };
+        if (category) where.category = category;
+        if (confirmedOnly) where.confirmed = true;
+
+        const items = await this.prisma.productReference.findMany({
+            where,
+            orderBy: { title: 'asc' },
+            select: {
+                id: true,
+                title: true,
+                brandId: true,
+                brand: { select: { id: true, title: true } },
+                category: true,
+                imageUrl: true,
+                thumbnailUrl: true,
+                isByUser: true,
+            },
+            take: 200,  // محدودیت برای performance
+        });
+
+        return { items };
+    }
+
+    // ============================================================
     // ایجاد کالای جدید
     // ✅ بررسی تکراری نبودن title (case-insensitive)
+    // ✅ isByUser=true برای کالاهای کاربر-ساخته
     // ============================================================
     async create(dto: CreateProductDto, userId?: string) {
         const title = dto.title.trim();
@@ -79,22 +107,19 @@ export class ProductReferenceService {
             },
             select: {
                 id: true, title: true, brandId: true, brand: { select: { id: true, title: true } },
-                category: true, imageUrl: true, thumbnailUrl: true, usageCount: true,
+                category: true, imageUrl: true, thumbnailUrl: true, usageCount: true, isByUser: true,
             },
         });
         if (existing) {
-            // ✅ اگه تکراریه، همون رو برگردون
             return { ...existing, _existed: true };
         }
 
-        // ✅ ساخت slug یکتا
         let slug = this.slugify(title);
         let suffix = 1;
         while (await this.prisma.productReference.findUnique({ where: { slug }, select: { id: true } })) {
             slug = `${this.slugify(title)}-${suffix++}`;
         }
 
-        // ✅ keywords خودکار: کلمات عنوان + keywords کاربر
         const autoKeywords = title.split(/\s+/).filter(w => w.length >= 2);
         const keywords = Array.from(new Set([...autoKeywords, ...(dto.keywords || [])]));
 
@@ -111,12 +136,13 @@ export class ProductReferenceService {
                 unitHints: dto.unitHints || [],
                 metadata: dto.metadata || null,
                 confirmed: false,  // ✅ کاربر ساخت → نیاز به تأیید ادمین
+                isByUser: true,    // ✅ مارک‌گذاری به‌عنوان کاربر-ساخته
                 createdByUserId: userId || null,
             },
             select: {
                 id: true, title: true, brandId: true,
                 brand: { select: { id: true, title: true } },
-                category: true, imageUrl: true, thumbnailUrl: true, usageCount: true,
+                category: true, imageUrl: true, thumbnailUrl: true, usageCount: true, isByUser: true,
             },
         });
     }

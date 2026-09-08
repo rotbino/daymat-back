@@ -23,12 +23,87 @@ export class AdminIndustryService {
                 take: limit,
                 skip: offset,
                 orderBy: { title: 'asc' },
-                select: { id: true, title: true },   // فقط شناسه و عنوان برگردد
+                select: {
+                    id: true,
+                    title: true,
+                    isByUser: true,   // ✅ برای نمایش در DropSelector
+                },
             }),
             this.prisma.industry.count({ where }),
         ]);
 
         return { data, total };
+    }
+
+    // ============================================================
+    // لیست همه‌ی اصناف (مسطح) — برای DropSelector با search client-side
+    // ============================================================
+    async listForSelector(confirmedOnly = false) {
+        const where: any = { isActive: true };
+        if (confirmedOnly) where.confirmed = true;
+
+        const items = await this.prisma.industry.findMany({
+            where,
+            orderBy: { title: 'asc' },
+            select: {
+                id: true,
+                title: true,
+                isByUser: true,
+            },
+        });
+
+        return { items };
+    }
+
+    // ============================================================
+    // ایجاد صنف توسط کاربر (از فرانت) — isByUser=true
+    // ============================================================
+    async createByUser(title: string): Promise<{ id: string; title: string; isByUser: boolean }> {
+        const name = title.trim();
+        if (!name) {
+            throw new BadRequestException({
+                errorCode: 'TITLE_REQUIRED',
+                message: 'عنوان صنف الزامی است',
+            });
+        }
+
+        // ✅ بررسی تکراری نبودن (case-insensitive)
+        const existing = await this.prisma.industry.findFirst({
+            where: { title: { equals: name, mode: 'insensitive' }, isActive: true },
+            select: { id: true, title: true, isByUser: true },
+        });
+        if (existing) {
+            // ✅ اگه تکراریه، همون رو برگردون
+            return { ...existing, _existed: true } as any;
+        }
+
+        const slug = name
+            .replace(/\s+/g, '-')
+            .replace(/[^\u0600-\u06FF\u0750-\u077F\w\-]/g, '')
+            .toLowerCase();
+
+        // ✅ slug یکتا
+        let finalSlug = slug || `industry-${Date.now()}`;
+        let suffix = 1;
+        while (await this.prisma.industry.findUnique({ where: { slug: finalSlug }, select: { id: true } })) {
+            finalSlug = `${slug}-${suffix++}`;
+        }
+
+        const created = await this.prisma.industry.create({
+            data: {
+                title: name,
+                slug: finalSlug,
+                level: 0,
+                path: finalSlug,
+                isActive: true,
+                usageCount: 1,
+                confirmed: false,  // ✅ نیاز به تأیید ادمین
+                isByUser: true,    // ✅ توسط کاربر ساخته شده
+            },
+            select: { id: true, title: true, isByUser: true },
+        });
+
+        return created;
     }
 
     // ============================================================

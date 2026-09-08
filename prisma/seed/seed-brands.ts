@@ -108,6 +108,7 @@ async function main() {
                 category: brand.category,
                 keywords: brand.keywords,
                 confirmed: true,  // ✅ seeded brands are confirmed
+                isByUser: false,  // ✅ seeded brands are NOT by user
                 isActive: true,
             },
         });

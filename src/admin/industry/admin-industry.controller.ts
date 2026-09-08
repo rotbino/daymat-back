@@ -36,17 +36,15 @@ export class AdminIndustryController {
     @ApiQuery({ name: 'confirmed', required: false, type: Boolean, description: 'فقط صنف‌های تأییدشده' })
     async list(@Query('confirmed') confirmed?: string) {
         const onlyConfirmed = confirmed === 'true';
-        const items = await this.industryService.getAll();
-        const filtered = onlyConfirmed
-            ? items.filter((i: any) => i.confirmed !== false)
-            : items;
-        return {
-            items: filtered.map((i: any) => ({
-                id: i.id,
-                title: i.title,
-                industryName: i.title,
-            })),
-        };
+        return this.industryService.listForSelector(onlyConfirmed);
+    }
+
+    // ✅ ایجاد صنف توسط کاربر — public (با optional auth)
+    @Post('industries/create-by-user')
+    @UseGuards(OptionalJwtAuthGuard)
+    @ApiOperation({ summary: 'ایجاد صنف جدید توسط کاربر (auto-create با isByUser=true)' })
+    async createByUser(@Body() body: { title: string }) {
+        return this.industryService.createByUser(body.title);
     }
 
     @Get('admin/industries/search')

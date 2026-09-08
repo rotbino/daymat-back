@@ -62,6 +62,7 @@ export class BusinessService {
                 isActive: true,
                 usageCount: 1,
                 confirmed: false,  // ✅ توسط کاربر ساخته شده
+                isByUser: true,    // ✅ مارک‌گذاری به‌عنوان کاربر-ساخته
             },
         }).catch(() => null);
 

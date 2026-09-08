@@ -31,7 +31,6 @@ export class BrandService {
         const query = q.trim();
 
         // ✅ MongoDB native query — سرعتی‌تر از Prisma contains
-        // جستجو در title و keywords
         const where: any = {
             isActive: true,
             $or: [
@@ -49,6 +48,7 @@ export class BrandService {
                 category: true,
                 logoUrl: true,
                 usageCount: true,
+                isByUser: true,
             },
             orderBy: { usageCount: 'desc' },
             take: Math.min(limit, 30),
@@ -58,9 +58,32 @@ export class BrandService {
     }
 
     // ============================================================
+    // لیست همه‌ی برندها — برای DropSelector با search client-side
+    // ============================================================
+    async listForSelector(category?: string, confirmedOnly = false) {
+        const where: any = { isActive: true };
+        if (category) where.category = category;
+        if (confirmedOnly) where.confirmed = true;
+
+        const items = await this.prisma.brand.findMany({
+            where,
+            orderBy: { title: 'asc' },
+            select: {
+                id: true,
+                title: true,
+                category: true,
+                logoUrl: true,
+                isByUser: true,
+            },
+        });
+
+        return { items };
+    }
+
+    // ============================================================
     // ایجاد برند جدید
     // ✅ بررسی تکراری نبودن title (case-insensitive)
-    // ✅ ساخت slug یکتا
+    // ✅ isByUser=true برای برندهای کاربر-ساخته
     // ============================================================
     async create(dto: CreateBrandDto, userId?: string) {
         const title = dto.title.trim();
@@ -77,14 +100,12 @@ export class BrandService {
                 title: { equals: title, mode: 'insensitive' },
                 isActive: true,
             },
-            select: { id: true, title: true, category: true, logoUrl: true },
+            select: { id: true, title: true, category: true, logoUrl: true, isByUser: true },
         });
         if (existing) {
-            // ✅ اگه برند تکراریه، همون رو برگردون (مثل ensureExists)
             return { ...existing, _existed: true };
         }
 
-        // ✅ ساخت slug یکتا
         let slug = this.slugify(title);
         let suffix = 1;
         while (await this.prisma.brand.findUnique({ where: { slug }, select: { id: true } })) {
@@ -100,8 +121,9 @@ export class BrandService {
                 logoUrl: dto.logoUrl || null,
                 description: dto.description || null,
                 confirmed: false,  // ✅ کاربر ساخت → نیاز به تأیید ادمین
+                isByUser: true,    // ✅ مارک‌گذاری به‌عنوان کاربر-ساخته
             },
-            select: { id: true, title: true, category: true, logoUrl: true },
+            select: { id: true, title: true, category: true, logoUrl: true, isByUser: true },
         });
     }
 

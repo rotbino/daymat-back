@@ -27,6 +27,19 @@ export class ProductReferenceController {
         return this.productService.search(q, category, +limit);
     }
 
+    // ✅ لیست همه‌ی کالاها — برای DropSelector با search client-side
+    @Get('list')
+    @UseGuards(OptionalJwtAuthGuard)
+    @ApiOperation({ summary: 'لیست همه‌ی کالاها برای DropSelector' })
+    @ApiQuery({ name: 'category', required: false })
+    @ApiQuery({ name: 'confirmed', required: false, type: Boolean })
+    async list(
+        @Query('category') category?: string,
+        @Query('confirmed') confirmed?: string,
+    ) {
+        return this.productService.listForSelector(category, confirmed === 'true');
+    }
+
     // ✅ ایجاد کالای جدید — نیاز به لاگین
     @Post()
     @UseGuards(JwtAuthGuard)
