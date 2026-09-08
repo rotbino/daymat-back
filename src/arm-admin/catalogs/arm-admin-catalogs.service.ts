@@ -120,10 +120,12 @@ export class ArmAdminCatalogsService {
                 catalog: {
                     select: {
                         id: true, name: true, slug: true, salesType: true, type: true,
-                        city: true, logoUrl: true, updatedAt: true,
+                        city: true, province: true, cityCode: true, provinceCode: true,
+                        logoUrl: true, updatedAt: true,
                         business: {
                             select: {
                                 id: true, name: true, type: true, industryName: true,
+                                city: true, province: true, cityCode: true, provinceCode: true,
                                 owner: { select: { fullName: true, phone: true } },
                             },
                         },
@@ -180,6 +182,11 @@ export class ArmAdminCatalogsService {
                     businessName: (m.catalog as any)?.business?.name ?? null,
                     businessIndustry: (m.catalog as any)?.business?.industryName ?? null,
                     businessType: (m.catalog as any)?.business?.type ?? null,
+                    // ✅ استان و شهر از business (منبع اصلی) — اگه خالی بود از catalog
+                    province: (m.catalog as any)?.business?.province || (m.catalog as any)?.province || null,
+                    city: (m.catalog as any)?.business?.city || (m.catalog as any)?.city || null,
+                    provinceCode: (m.catalog as any)?.business?.provinceCode || (m.catalog as any)?.provinceCode || null,
+                    cityCode: (m.catalog as any)?.business?.cityCode || (m.catalog as any)?.cityCode || null,
                 },
                 activeOnTable: tableMap.get(m.catalogId!) ?? 0,
                 needsCategory: needsMap.get(m.catalogId!) ?? 0,
@@ -310,10 +317,12 @@ export class ArmAdminCatalogsService {
             },
             select: {
                 id: true, name: true, slug: true, salesType: true, type: true,
-                city: true, logoUrl: true, industryName: true,
+                city: true, province: true, cityCode: true, provinceCode: true,
+                logoUrl: true, industryName: true,
                 business: {
                     select: {
                         id: true, name: true, type: true, industryName: true,
+                        city: true, province: true, cityCode: true, provinceCode: true,
                         owner: { select: { id: true, fullName: true, phone: true } },
                     },
                 },
@@ -330,9 +339,13 @@ export class ArmAdminCatalogsService {
                 slug: b.slug,
                 salesType: b.salesType,
                 type: b.type,
-                city: b.city,
+                // ✅ استان و شهر از business (منبع اصلی) — اگه خالی بود از catalog
+                city: (b.business as any)?.city || b.city || null,
+                province: (b.business as any)?.province || b.province || null,
+                cityCode: (b.business as any)?.cityCode || b.cityCode || null,
+                provinceCode: (b.business as any)?.provinceCode || b.provinceCode || null,
                 logoUrl: b.logoUrl,
-                industryName: b.industryName,
+                industryName: (b.business as any)?.industryName || b.industryName || null,
                 owner: (b.business as any)?.owner ?? null,
                 businessId: (b.business as any)?.id ?? null,
                 businessName: (b.business as any)?.name ?? null,
