@@ -28,6 +28,27 @@ export class AdminIndustryController {
         return { items: result.data || [] };
     }
 
+    // ✅ لیست همه‌ی صنف‌ها (برای DropSelector در پنل ادمین)
+    // فقط صنف‌های تأییدشده (confirmed=true) یا همه‌شون
+    @Get('industries/list')
+    @UseGuards(OptionalJwtAuthGuard)
+    @ApiOperation({ summary: 'لیست همه‌ی صنف‌ها برای DropSelector' })
+    @ApiQuery({ name: 'confirmed', required: false, type: Boolean, description: 'فقط صنف‌های تأییدشده' })
+    async list(@Query('confirmed') confirmed?: string) {
+        const onlyConfirmed = confirmed === 'true';
+        const items = await this.industryService.getAll();
+        const filtered = onlyConfirmed
+            ? items.filter((i: any) => i.confirmed !== false)
+            : items;
+        return {
+            items: filtered.map((i: any) => ({
+                id: i.id,
+                title: i.title,
+                industryName: i.title,
+            })),
+        };
+    }
+
     @Get('admin/industries/search')
     @UseGuards(JwtAuthGuard, ArmAdminOrOwnerReadGuard)
     @ApiOperation({ summary: 'جستجوی صنف‌ها با pagination' })

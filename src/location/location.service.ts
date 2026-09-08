@@ -127,6 +127,68 @@ export class LocationService {
     }
 
     // ============================================================
+    // ✅ لیست همه‌ی استان‌ها — برای DropSelector (client-side search)
+    // ============================================================
+    async getProvinces() {
+        const provinces = await this.prisma.location.findMany({
+            where: {
+                type: 'province',
+                isActive: true,
+            },
+            select: {
+                id: true,
+                title: true,
+                provinceCode: true,
+                slug: true,
+            },
+            orderBy: { title: 'asc' },
+        });
+
+        return {
+            items: provinces.map((p) => ({
+                id: p.id,
+                title: p.title,
+                provinceCode: p.provinceCode,
+                slug: p.slug,
+            })),
+        };
+    }
+
+    // ============================================================
+    // ✅ لیست همه‌ی شهرها — برای DropSelector (client-side search)
+    // اگه provinceCode داده بشه، فقط شهرهای اون استان
+    // ============================================================
+    async getCities(provinceCode?: string) {
+        const where: any = {
+            type: 'city',
+            isActive: true,
+        };
+        if (provinceCode) {
+            where.provinceCode = provinceCode;
+        }
+
+        const cities = await this.prisma.location.findMany({
+            where,
+            select: {
+                id: true,
+                title: true,
+                cityCode: true,
+                provinceCode: true,
+            },
+            orderBy: { title: 'asc' },
+        });
+
+        return {
+            items: cities.map((c) => ({
+                id: c.id,
+                title: c.title,
+                cityCode: c.cityCode,
+                provinceCode: c.provinceCode,
+            })),
+        };
+    }
+
+    // ============================================================
     // 2. دریافت درخت کامل موقعیت‌ها (برای ادمین)
     // ============================================================
     async getFullTree() {

@@ -23,6 +23,23 @@ export class LocationController {
         return this.locationService.searchCities(q.trim(), +limit);
     }
 
+    // ✅ لیست همه‌ی استان‌ها — برای DropSelector (client-side search)
+    @Get('provinces')
+    @UseGuards(OptionalJwtAuthGuard)
+    @ApiOperation({ summary: 'لیست همه‌ی استان‌ها' })
+    async getProvinces() {
+        return this.locationService.getProvinces();
+    }
+
+    // ✅ لیست همه‌ی شهرها (یا شهرهای یک استان) — برای DropSelector
+    @Get('cities')
+    @UseGuards(OptionalJwtAuthGuard)
+    @ApiOperation({ summary: 'لیست همه‌ی شهرها (یا شهرهای یک استان)' })
+    @ApiQuery({ name: 'provinceCode', required: false })
+    async getCities(@Query('provinceCode') provinceCode?: string) {
+        return this.locationService.getCities(provinceCode);
+    }
+
     @Get('tree')
     @ApiOperation({ summary: 'دریافت درخت کامل موقعیت‌ها' })
     @ApiResponse({ status: 200, description: 'درخت موقعیت‌ها' })
