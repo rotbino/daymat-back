@@ -81,7 +81,25 @@ export class CatalogService {
         const catalog = await this.prisma.catalog.findUnique({
             where: { id: catalogId },
             include: {
-                business: { select: { id: true, ownerUserId: true, name: true } },
+                // ✅ فیلدهای کامل business — برای نمایش در CatalogEditModal
+                business: {
+                    select: {
+                        id: true,
+                        ownerUserId: true,
+                        name: true,
+                        industryId: true,        // ✅ برای autocomplete
+                        industryName: true,      // ✅ برای نمایش
+                        phone: true,             // ✅ برای فیلد تماس
+                        logoUrl: true,           // ✅ برای لوگو
+                        province: true,          // ✅ برای نمایش موقعیت
+                        provinceCode: true,
+                        city: true,
+                        cityCode: true,
+                        type: true,
+                        verificationStatus: true,
+                        verificationTier: true,
+                    },
+                },
             },
         });
         if (!catalog) {
@@ -224,7 +242,24 @@ export class CatalogService {
         const catalogs = await this.prisma.catalog.findMany({
             where: { businessId: { in: bizIds }, status: { not: 'closed' } },
             include: {
-                business: { select: { id: true, name: true } },
+                // ✅ فیلدهای business — برای CatalogEditModal (صنف، لوگو، موقعیت، تماس)
+                business: {
+                    select: {
+                        id: true,
+                        name: true,
+                        industryId: true,        // ✅ برای autocomplete در مودال ویرایش
+                        industryName: true,      // ✅ برای نمایش صنف ذخیره‌شده
+                        phone: true,             // ✅ برای فیلد تماس
+                        logoUrl: true,           // ✅ برای لوگو
+                        province: true,
+                        provinceCode: true,
+                        city: true,
+                        cityCode: true,
+                        type: true,
+                        verificationStatus: true,
+                        verificationTier: true,
+                    },
+                },
                 armMemberships: {
                     where: { status: { not: 'deleted' } },
                     include: { arm: { select: { id: true, slug: true, name: true, icon: true, colorPrimary: true } } },

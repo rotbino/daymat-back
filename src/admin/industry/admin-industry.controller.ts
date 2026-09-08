@@ -14,6 +14,7 @@ export class AdminIndustryController {
     constructor(private industryService: AdminIndustryService) {}
 
     // ✅ публичный endpoint برای autocomplete (همه کاربران)
+    // ✅ باید { items } برگردونه (نه { data, total }) — فرانت IndustryAutocomplete منتظر items هست
     @Get('industries/autocomplete')
     @UseGuards(OptionalJwtAuthGuard)
     @ApiOperation({ summary: 'جستجوی خودکار صنف‌ها برای autocomplete' })
@@ -22,7 +23,9 @@ export class AdminIndustryController {
         if (!q || q.trim().length < 2) {
             return { items: [] };
         }
-        return this.industryService.search(q.trim(), 10, 0, false);
+        const result = await this.industryService.search(q.trim(), 10, 0, false);
+        // ✅ تبدیل { data, total } به { items } برای autocomplete
+        return { items: result.data || [] };
     }
 
     @Get('admin/industries/search')
