@@ -933,7 +933,7 @@ model SearchLog {
 // ============================================================
 model Brand {
   id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  title       String                                   // نام برند: «مکنزی»
+  title       String   @unique                          // ✅ نام برند — یکتا (case-sensitive)
   slug        String   @unique                          // mackenzie
   category    String?                                  // دسته‌بندی برند: food, beverage, cleaning, ...
   categoryPath String[] @default([])                   // مسیر دسته برای سلسله‌مراتب (اختیاری)
@@ -955,7 +955,7 @@ model Brand {
   @@index([usageCount])
   @@index([confirmed])
   @@index([isByUser])
-  @@index([title])
+  // ✅ title has @unique, no need for @@index([title])
 }
 
 // ============================================================
@@ -969,7 +969,7 @@ model Brand {
 // ============================================================
 model ProductReference {
   id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  title       String                                   // عنوان: «کنسرو ماهی مکنزی ۲۰۰ گرمی»
+  title       String   @unique                          // ✅ عنوان — یکتا
   slug        String   @unique                          // konservo-mahi-mackenzie-200g
   brandId     String?  @db.ObjectId                     // برند (اختیاری)
   brand       Brand?   @relation("ProductRefBrand", fields: [brandId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -998,6 +998,6 @@ model ProductReference {
   @@index([confirmed])
   @@index([isByUser])
   @@index([isNew])
-  @@index([title])
+  // ✅ title has @unique, no need for @@index([title])
   @@index([keywords])
 }
