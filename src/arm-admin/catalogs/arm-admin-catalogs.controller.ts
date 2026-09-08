@@ -23,18 +23,27 @@ export class ArmAdminCatalogsController {
     @ApiQuery({ name: 'ownerStatus', required: false, enum: ['all', 'active', 'paused'] })
     @ApiQuery({ name: 'sortBy', required: false, enum: ['joinedAt', 'updated', 'table', 'needs', 'name'] })
     @ApiQuery({ name: 'sortOrder', required: false, enum: ['asc', 'desc'] })
+    @ApiQuery({ name: 'industry', required: false })
+    @ApiQuery({ name: 'cityCode', required: false })
+    @ApiQuery({ name: 'provinceCode', required: false })
     async getSellers(
         @Param('slug') slug: string,
         @Query('search') search?: string,
         @Query('ownerStatus') ownerStatus?: string,
         @Query('sortBy') sortBy?: string,
         @Query('sortOrder') sortOrder?: string,
+        @Query('industry') industry?: string,
+        @Query('cityCode') cityCode?: string,
+        @Query('provinceCode') provinceCode?: string,
     ) {
         return this.catalogsService.getSellers(slug, {
             search,
             ownerStatus: (ownerStatus as any) || 'all',
             sortBy,
             sortOrder: (sortOrder as any) || 'desc',
+            industry: industry?.trim() || undefined,
+            cityCode: cityCode || undefined,
+            provinceCode: provinceCode || undefined,
         });
     }
 
@@ -111,23 +120,32 @@ export class ArmAdminCatalogsController {
     // ═══ خریداران ═══
 
     @Get('buyers')
-    @ApiOperation({ summary: 'خریداران بازار (کسب‌وکارهای عضو) — با جستجو/سورت' })
+    @ApiOperation({ summary: 'خریداران بازار (کسب‌وکارهای عضو) — با جستجو/فیلتر/سورت' })
     @ApiQuery({ name: 'search', required: false })
     @ApiQuery({ name: 'ownerStatus', required: false, enum: ['all', 'active', 'paused'] })
     @ApiQuery({ name: 'sortBy', required: false })
     @ApiQuery({ name: 'sortOrder', required: false, enum: ['asc', 'desc'] })
+    @ApiQuery({ name: 'industry', required: false })
+    @ApiQuery({ name: 'cityCode', required: false })
+    @ApiQuery({ name: 'provinceCode', required: false })
     async getBuyers(
         @Param('slug') slug: string,
         @Query('search') search?: string,
         @Query('ownerStatus') ownerStatus?: string,
         @Query('sortBy') sortBy?: string,
         @Query('sortOrder') sortOrder?: string,
+        @Query('industry') industry?: string,
+        @Query('cityCode') cityCode?: string,
+        @Query('provinceCode') provinceCode?: string,
     ) {
         return this.catalogsService.getBuyers(slug, {
             search,
             ownerStatus: (ownerStatus as any) || 'all',
             sortBy,
             sortOrder: (sortOrder as any) || 'desc',
+            industry: industry?.trim() || undefined,
+            cityCode: cityCode || undefined,
+            provinceCode: provinceCode || undefined,
         });
     }
 

@@ -84,6 +84,9 @@ export class ArmAdminCatalogsService {
             ownerStatus?: 'all' | 'active' | 'paused';
             sortBy?: string;
             sortOrder?: 'asc' | 'desc';
+            industry?: string;
+            cityCode?: string;
+            provinceCode?: string;
         },
     ) {
         const arm = await this.resolveArm(slug);
@@ -91,6 +94,15 @@ export class ArmAdminCatalogsService {
         const ownerStatus = options?.ownerStatus ?? 'all';
         const sortBy = options?.sortBy ?? 'joinedAt';
         const sortOrder = options?.sortOrder ?? 'desc';
+        const industry = options?.industry;
+        const cityCode = options?.cityCode;
+        const provinceCode = options?.provinceCode;
+
+        // ✅ فیلتر business — صنف و موقعیت روی Business هست (نه Catalog)
+        const businessFilter: any = {};
+        if (industry) businessFilter.industryName = { contains: industry };
+        if (cityCode) businessFilter.cityCode = cityCode;
+        if (provinceCode) businessFilter.provinceCode = provinceCode;
 
         const memberships = await this.prisma.armMembership.findMany({
             where: {
@@ -99,6 +111,10 @@ export class ArmAdminCatalogsService {
                 status: { not: 'removed' },  // ✅ فقط اعضای حذف‌نشده
                 ...(ownerStatus === 'active' ? { businessStatus: 'active' } : {}),
                 ...(ownerStatus === 'paused' ? { businessStatus: 'paused' } : {}),
+                // ✅ فیلتر صنف و موقعیت از مسیر business
+                ...(Object.keys(businessFilter).length > 0
+                    ? { catalog: { is: { business: { is: businessFilter } } } }
+                    : {}),
             },
             include: {
                 catalog: {
@@ -176,6 +192,7 @@ export class ArmAdminCatalogsService {
                 i.catalog.name.toLowerCase().includes(s) ||
                 (i.catalog.slug ?? '').toLowerCase().includes(s) ||
                 (i.catalog.businessName ?? '').toLowerCase().includes(s) ||
+                (i.catalog.businessIndustry ?? '').toLowerCase().includes(s) ||
                 (i.catalog.owner?.fullName ?? '').toLowerCase().includes(s) ||
                 (i.catalog.owner?.phone ?? '').includes(s),
             );
@@ -261,24 +278,28 @@ export class ArmAdminCatalogsService {
         });
         const excludeCatIds = liveMembers.map((m) => m.catalogId!);
 
+        // ✅ فیلتر business — صنف و موقعیت روی Business هست (نه Catalog)
+        //    چون Catalog ممکنه industryName/cityCode قدیمی یا خالی داشته باشه
+        const businessFilter: any = {};
+        if (referredUserIds) businessFilter.ownerUserId = { in: referredUserIds };
+        if (industry) businessFilter.industryName = { contains: industry };
+        if (cityCode) businessFilter.cityCode = cityCode;
+        if (provinceCode) businessFilter.provinceCode = provinceCode;
+
         const catalogs = await this.prisma.catalog.findMany({
             where: {
                 status: { not: 'closed' },
                 ...(excludeCatIds.length ? { id: { notIn: excludeCatIds } } : {}),
-                ...(referredUserIds
-                    ? { business: { is: { ownerUserId: { in: referredUserIds } } } }
+                // ✅ همه فیلترها از مسیر business — یکجا اعمال می‌شن
+                ...(Object.keys(businessFilter).length > 0
+                    ? { business: { is: businessFilter } }
                     : {}),
-                // ✅ فیلتر صنف
-                ...(industry ? { industryName: { contains: industry } } : {}),
-                // ✅ فیلتر موقعیت
-                ...(cityCode ? { cityCode } : {}),
-                ...(provinceCode ? { provinceCode } : {}),
                 ...(q
                     ? {
                         OR: [
                             { name: { contains: q } },
                             { phone: { contains: q } },
-                            { industryName: { contains: q } },
+                            { business: { is: { industryName: { contains: q } } } },
                             { business: { is: { owner: { is: { OR: [
                                                     { phone: { contains: q } },
                                                     { fullName: { contains: q } },
@@ -448,6 +469,9 @@ export class ArmAdminCatalogsService {
             ownerStatus?: 'all' | 'active' | 'paused';
             sortBy?: string;
             sortOrder?: 'asc' | 'desc';
+            industry?: string;
+            cityCode?: string;
+            provinceCode?: string;
         },
     ) {
         const arm = await this.resolveArm(slug);
@@ -455,12 +479,25 @@ export class ArmAdminCatalogsService {
         const ownerStatus = options?.ownerStatus ?? 'all';
         const sortBy = options?.sortBy ?? 'joinedAt';
         const sortOrder = options?.sortOrder ?? 'desc';
+        const industry = options?.industry;
+        const cityCode = options?.cityCode;
+        const provinceCode = options?.provinceCode;
+
+        // ✅ فیلتر business — صنف و موقعیت روی Business هست
+        const businessFilter: any = {};
+        if (industry) businessFilter.industryName = { contains: industry };
+        if (cityCode) businessFilter.cityCode = cityCode;
+        if (provinceCode) businessFilter.provinceCode = provinceCode;
 
         const memberships = await this.prisma.armMembership.findMany({
             where: {
                 armId: arm.id,
                 businessId: { not: null },  // ✅ buyer = کسی که businessId دارد (شامل buyer و seller-buyer)
                 status: { not: 'removed' },  // ✅ فقط اعضای حذف‌نشده
+                // ✅ فیلتر صنف و موقعیت از مسیر business
+                ...(Object.keys(businessFilter).length > 0
+                    ? { business: { is: businessFilter } }
+                    : {}),
             },
             include: {
                 user: { select: { id: true, fullName: true, phone: true, avatarUrl: true } },
