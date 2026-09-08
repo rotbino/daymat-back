@@ -255,6 +255,8 @@ export class CatalogService {
                         provinceCode: true,
                         city: true,
                         cityCode: true,
+                        address: true,           // ✅ برای ویرایش آدرس
+                        description: true,       // ✅ برای ویرایش توضیحات
                         type: true,
                         verificationStatus: true,
                         verificationTier: true,
