@@ -88,6 +88,45 @@ export class LocationService {
     }
 
     // ============================================================
+    // ✅ جستجوی شهر — برای autocomplete در فرم‌ها
+    // ============================================================
+    async searchCities(q: string, limit: number = 20) {
+        if (!q || q.trim().length < 2) {
+            return { items: [] };
+        }
+
+        const cities = await this.prisma.location.findMany({
+            where: {
+                type: 'city',
+                isActive: true,
+                title: { contains: q },
+            },
+            include: {
+                parent: {
+                    select: {
+                        id: true,
+                        title: true,
+                        provinceCode: true,
+                    },
+                },
+            },
+            take: Math.min(limit, 30),
+            orderBy: { title: 'asc' },
+        });
+
+        return {
+            items: cities.map((c) => ({
+                id: c.id,
+                title: c.title,
+                cityCode: c.cityCode,
+                provinceCode: c.provinceCode || c.parent?.provinceCode,
+                provinceTitle: c.parent?.title,
+                provinceId: c.parent?.id,
+            })),
+        };
+    }
+
+    // ============================================================
     // 2. دریافت درخت کامل موقعیت‌ها (برای ادمین)
     // ============================================================
     async getFullTree() {
