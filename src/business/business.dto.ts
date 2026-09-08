@@ -18,12 +18,31 @@ export class CreateBusinessDto {
 
     @ApiPropertyOptional({
         example: 'distributor',
+        description: '⚠️ legacy (deprecated) — به‌جاش از businessRole و businessSector استفاده کنید',
         enum: ['producer', 'wholesaler', 'importer', 'exporter', 'distributor', 'retailer', 'contractor', 'service_provider', 'other'],
         required: false,
     })
     @IsOptional()
     @IsIn(['producer', 'wholesaler', 'importer', 'exporter', 'distributor', 'retailer', 'contractor', 'service_provider', 'other'])
     type?: string;
+
+    @ApiPropertyOptional({
+        example: 'wholesaler',
+        description: 'نوع دقیق فعالیت (سطح ۲ درخت BUSINESS_TYPE) — فیلد اصلی',
+        required: false,
+    })
+    @IsOptional()
+    @IsString()
+    businessRole?: string;
+
+    @ApiPropertyOptional({
+        example: 'distribution',
+        description: 'دسته‌بندی کسب‌وکار (سطح ۱ درخت BUSINESS_TYPE) — برای فیلتر',
+        required: false,
+    })
+    @IsOptional()
+    @IsString()
+    businessSector?: string;
 
     @ApiPropertyOptional({ example: 'پخش مواد غذایی', required: false })
     @IsOptional()
@@ -114,6 +133,24 @@ export class UpdateBusinessDto {
     @IsOptional()
     @IsIn(['producer', 'wholesaler', 'importer', 'exporter', 'distributor', 'retailer', 'contractor', 'service_provider', 'other'])
     type?: string;
+
+    @ApiPropertyOptional({
+        example: 'wholesaler',
+        description: 'نوع دقیق فعالیت (سطح ۲ درخت BUSINESS_TYPE) — فیلد اصلی',
+        required: false,
+    })
+    @IsOptional()
+    @IsString()
+    businessRole?: string;
+
+    @ApiPropertyOptional({
+        example: 'distribution',
+        description: 'دسته‌بندی کسب‌وکار (سطح ۱ درخت BUSINESS_TYPE) — برای فیلتر',
+        required: false,
+    })
+    @IsOptional()
+    @IsString()
+    businessSector?: string;
 
     @ApiPropertyOptional({ required: false })
     @IsOptional()

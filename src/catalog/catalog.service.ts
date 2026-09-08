@@ -95,7 +95,11 @@ export class CatalogService {
                         provinceCode: true,
                         city: true,
                         cityCode: true,
+                        address: true,
+                        description: true,
                         type: true,
+                        businessRole: true,      // ✅ نوع دقیق فعالیت
+                        businessSector: true,    // ✅ دسته‌بندی
                         verificationStatus: true,
                         verificationTier: true,
                     },
@@ -258,6 +262,8 @@ export class CatalogService {
                         address: true,           // ✅ برای ویرایش آدرس
                         description: true,       // ✅ برای ویرایش توضیحات
                         type: true,
+                        businessRole: true,      // ✅ نوع دقیق فعالیت
+                        businessSector: true,    // ✅ دسته‌بندی
                         verificationStatus: true,
                         verificationTier: true,
                     },

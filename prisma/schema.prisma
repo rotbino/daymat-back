@@ -126,7 +126,9 @@ model Business {
   owner              User     @relation("BizOwner", fields: [ownerUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   name               String
   shortDescription   String?
-  type               String   @default("wholesaler")
+  type               String   @default("wholesaler")    // ⚠️ legacy (deprecated) — نگه‌داشتیم برای backward-compat
+  businessRole       String?                              // ✅ نوع دقیق فعالیت (سطح ۲ درخت) — فیلد اصلی
+  businessSector     String?                              // ✅ دسته‌بندی (سطح ۱ درخت) — برای فیلتر
   description        String?
   countryCode        String?  @default("98")
   province           String?
@@ -155,6 +157,8 @@ model Business {
 
   @@index([ownerUserId])
   @@index([type])
+  @@index([businessSector])
+  @@index([businessRole])
   @@index([industryId])
 }
 model Catalog {

@@ -87,6 +87,8 @@ export class BusinessService {
                 ownerUserId: userId,
                 name: dto.name.trim().slice(0, 120),
                 type: dto.type || 'wholesaler',
+                businessRole: (dto as any).businessRole || null,
+                businessSector: (dto as any).businessSector || null,
                 industryName: dto.industryName?.trim() || null,
                 industryId: resolvedIndustryId,
                 shortDescription: dto.shortDescription?.trim() || null,
@@ -110,7 +112,10 @@ export class BusinessService {
         const items = await this.prisma.business.findMany({
             where: { ownerUserId: userId, status: 'active' },
             select: {
-                id: true, name: true, type: true, industryName: true,
+                id: true, name: true, type: true,
+                businessRole: true,        // ✅ نوع دقیق فعالیت
+                businessSector: true,      // ✅ دسته‌بندی
+                industryName: true,
                 industryId: true,  // ✅ اضافه شد
                 shortDescription: true, province: true, city: true, phone: true,
                 logoUrl: true, verificationStatus: true, verificationTier: true,
@@ -167,6 +172,8 @@ export class BusinessService {
             data: {
                 ...(dto.name !== undefined ? { name: dto.name.trim().slice(0, 120) } : {}),
                 ...(dto.type !== undefined ? { type: dto.type } : {}),
+                ...((dto as any).businessRole !== undefined ? { businessRole: (dto as any).businessRole || null } : {}),
+                ...((dto as any).businessSector !== undefined ? { businessSector: (dto as any).businessSector || null } : {}),
                 ...(dto.industryName !== undefined ? { industryName: dto.industryName?.trim() || null } : {}),
                 ...(resolvedIndustryId !== undefined ? { industryId: resolvedIndustryId } : {}),
                 ...(dto.shortDescription !== undefined ? { shortDescription: dto.shortDescription?.trim() || null } : {}),
