@@ -42,9 +42,9 @@ export class ProductReferenceService {
 
         if (q && q.trim().length >= 2) {
             const query = q.trim();
-            where.$or = [
-                { title: { $regex: query, $options: 'i' } },
-                { keywords: { $regex: query, $options: 'i' } },
+            where.OR = [
+                { title: { contains: query, mode: 'insensitive' } },
+                { keywords: { has: query } },
             ];
         }
         if (category) where.category = category;
