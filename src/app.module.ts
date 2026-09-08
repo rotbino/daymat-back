@@ -20,6 +20,8 @@ import {CatalogModule} from "./catalog/catalog.module";
 import {UnitModule} from "./unit/unit.module";
 import {CommonModule} from "./common/common.module";
 import {BusinessModule} from "./business/business.module";
+import {BrandModule} from "./brand/brand.module";
+import {ProductReferenceModule} from "./product-reference/product-reference.module";
 
 
 @Global()
@@ -40,6 +42,8 @@ import {BusinessModule} from "./business/business.module";
     CreditModule,
     LocationModule,
     BusinessModule,
+    BrandModule,
+    ProductReferenceModule,
     ActivityModule,
     SettingsModule,
     ArmAdminModule,

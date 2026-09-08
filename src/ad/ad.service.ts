@@ -134,6 +134,9 @@ export class AdService {
                 unitId: dto.unitId,
                 title: dto.title || '',
                 productType: dto.productType || null,
+                // ✅ کالای مرجع
+                productReferenceId: (dto as any).productReferenceId || null,
+                brandId: (dto as any).brandId || null,
                 paymentMethods: (dto.paymentMethods as any) || null,
                 specs: (dto.specs as any) || null,
                 customFields: (dto.customFields as any) || {},
@@ -279,6 +282,8 @@ export class AdService {
                 ...(dto.unitId ? { unitId: dto.unitId } : {}),
                 ...(dto.title !== undefined ? { title: dto.title.trim() } : {}),
                 ...(dto.productType !== undefined ? { productType: dto.productType.trim() || null } : {}),
+                ...((dto as any).productReferenceId !== undefined ? { productReferenceId: (dto as any).productReferenceId || null } : {}),
+                ...((dto as any).brandId !== undefined ? { brandId: (dto as any).brandId || null } : {}),
                 ...(dto.description !== undefined ? { description: dto.description || null } : {}),
                 ...(dto.unitPrice !== undefined ? { unitPrice: dto.unitPrice } : {}),
                 ...(dto.singleUnitPrice !== undefined ? { singleUnitPrice: dto.singleUnitPrice || null } : {}),
@@ -655,6 +660,16 @@ export class AdService {
             where: { id },
             include: {
                 unit: { select: { id: true, title: true, shortCode: true } },
+                // ✅ کالای مرجع و برند
+                productRef: {
+                    select: {
+                        id: true, title: true,
+                        imageUrl: true, thumbnailUrl: true,
+                        brandId: true,
+                        brand: { select: { id: true, title: true } },
+                    },
+                },
+                brand: { select: { id: true, title: true, logoUrl: true } },
                 catalog: {
                     include: {
                         business: {

@@ -469,6 +469,11 @@ model Ad {
     title                 String
     productType           String?
     description           String?
+    // ✅ کالای مرجع — اتصال به ProductReference برای مقایسه و یکپارچگی
+    productReferenceId    String?  @db.ObjectId
+    productRef            ProductReference? @relation("AdProductRef", fields: [productReferenceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+    brandId               String?  @db.ObjectId
+    brand                 Brand?   @relation("AdBrand", fields: [brandId], references: [id], onDelete: NoAction, onUpdate: NoAction)
     unitPrice             Float
     singleUnitPrice       Float?
     consumerPrice         Float?
@@ -525,6 +530,8 @@ model Ad {
     @@index([catalogId])
     @@index([expiresAt])
     @@index([categoryPath])
+    @@index([productReferenceId])
+    @@index([brandId])
 }
 
 // ============================================================
@@ -909,4 +916,76 @@ model SearchLog {
   @@index([userId, createdAt])  // تاریخچه شخصی + حذف بر اساس کاربر
   @@index([createdAt])          // پاک‌سازی دوره‌ای
   @@map("search_logs")
+}
+
+// ============================================================
+// برند — Brand
+// ------------------------------------------------------------
+// برندهای کالاها. هر برند یک category داره (مواد غذایی، نوشیدنی، شوینده...)
+// تا موقع سرچ فقط برندهای هم‌صنف بیان.
+// کاربران می‌تونن برند جدید بسازن → confirmed=false تا ادمین بررسی کنه.
+// ============================================================
+model Brand {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  title       String                                   // نام برند: «مکنزی»
+  slug        String   @unique                          // mackenzie
+  category    String?                                  // دسته‌بندی برند: food, beverage, cleaning, ...
+  categoryPath String[] @default([])                   // مسیر دسته برای سلسله‌مراتب (اختیاری)
+  logoUrl     String?
+  description String?
+  keywords    String[] @default([])                    // کلمات کلیدی برای سرچ بهتر
+  isActive    Boolean  @default(true)
+  usageCount  Int      @default(0)                     // تعداد استفاده در آگهی‌ها (برای سورت پیشنهادها)
+  confirmed   Boolean  @default(false)                 // false = توسط کاربر ساخته شده
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  ads         Ad[]     @relation("AdBrand")
+  products    ProductReference[] @relation("ProductRefBrand")
+
+  @@index([category])
+  @@index([isActive])
+  @@index([usageCount])
+  @@index([confirmed])
+  @@index([title])
+}
+
+// ============================================================
+// کالای مرجع — ProductReference
+// ------------------------------------------------------------
+// کاتالوگ مرکزی کالاها. هر کالا یک عنوان + عکس + (اختیاری) برند داره.
+// وقتی کاربر آگهی می‌سازه، عنوان کالا رو سرچ می‌کنه:
+//   - اگه پیدا شد → انتخاب می‌کنه (productReferenceId ست می‌شه)
+//   - اگه نبود → کالای جدید می‌سازه و انتخاب می‌کنه
+// این ID مشترک امکان مقایسه قیمت، تجمیع، و... رو فراهم می‌کنه.
+// ============================================================
+model ProductReference {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  title       String                                   // عنوان: «کنسرو ماهی مکنزی ۲۰۰ گرمی»
+  slug        String   @unique                          // konservo-mahi-mackenzie-200g
+  brandId     String?  @db.ObjectId                     // برند (اختیاری)
+  brand       Brand?   @relation("ProductRefBrand", fields: [brandId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  category    String?                                  // دسته کالا: food/canned, beverage, ...
+  categoryPath String[] @default([])
+  imageUrl    String?                                  // عکس اصلی کالا
+  thumbnailUrl String?                                 // نسخه کوچیک عکس
+  description String?
+  keywords    String[] @default([])                    // کلمات کلیدی: ["تن ماهی", "کنسرو ماهی", "مکنزی"]
+  unitHints   String[] @default([])                    // واحدهای رایج: ["عدد", "کارتن ۲۴تایی"]
+  isActive    Boolean  @default(true)
+  usageCount  Int      @default(0)                     // تعداد استفاده در آگهی‌ها
+  confirmed   Boolean  @default(false)                 // false = توسط کاربر ساخته شده
+  metadata    Json?                                    // specs, weight, volume, ...
+  createdByUserId String? @db.ObjectId                 // کاربری که اول بار ساخت
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  ads         Ad[]     @relation("AdProductRef")
+
+  @@index([brandId])
+  @@index([category])
+  @@index([isActive])
+  @@index([usageCount])
+  @@index([confirmed])
+  @@index([title])
+  @@index([keywords])
 }

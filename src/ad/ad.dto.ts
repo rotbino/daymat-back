@@ -195,6 +195,16 @@ export class CreateAdDto {
     @IsString()
     productType?: string;
 
+    @ApiPropertyOptional({ description: 'شناسه کالای مرجع' })
+    @IsOptional()
+    @IsString()
+    productReferenceId?: string;
+
+    @ApiPropertyOptional({ description: 'شناسه برند' })
+    @IsOptional()
+    @IsString()
+    brandId?: string;
+
     @ApiProperty({ example: 'میلگرد با کیفیت عالی', description: 'توضیحات', required: false })
     @IsOptional()
     @IsString()
@@ -359,6 +369,16 @@ export class UpdateAdDto {
     @IsOptional()
     @IsString()
     productType?: string;
+
+    @ApiPropertyOptional({ description: 'شناسه کالای مرجع' })
+    @IsOptional()
+    @IsString()
+    productReferenceId?: string;
+
+    @ApiPropertyOptional({ description: 'شناسه برند' })
+    @IsOptional()
+    @IsString()
+    brandId?: string;
 
     @ApiProperty({ example: 'توضیحات', description: 'توضیحات', required: false })
     @IsOptional()
