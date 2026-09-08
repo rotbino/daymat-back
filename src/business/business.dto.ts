@@ -31,6 +31,11 @@ export class CreateBusinessDto {
     @MaxLength(60)
     industryName?: string;
 
+    @ApiPropertyOptional({ example: '6a5950314ac0957d6a72dde2', description: 'شناسه صنف (Industry)', required: false })
+    @IsOptional()
+    @IsString()
+    industryId?: string;
+
     @ApiPropertyOptional({ example: 'پخش انواع نوشیدنی', required: false })
     @IsOptional()
     @IsString()
@@ -115,6 +120,11 @@ export class UpdateBusinessDto {
     @IsString()
     @MaxLength(60)
     industryName?: string;
+
+    @ApiPropertyOptional({ example: '6a5950314ac0957d6a72dde2', description: 'شناسه صنف (Industry)', required: false })
+    @IsOptional()
+    @IsString()
+    industryId?: string;
 
     @ApiPropertyOptional({ required: false })
     @IsOptional()
