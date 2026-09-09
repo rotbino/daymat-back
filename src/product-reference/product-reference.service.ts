@@ -190,7 +190,7 @@ export class ProductReferenceService {
 
     // ============================================================
     // حذف کالا — فقط سازنده + فقط isNew
-    // ✅ اگه در آگهی‌ها استفاده شده، آگهی‌های مرتبط هم حذف می‌شن (cascade)
+    // ✅ اگه در آگهی‌ها استفاده شده، آگهی‌های مرتبط رو هم detached کن
     // ============================================================
     async delete(id: string, userId?: string) {
         const product = await this.prisma.productReference.findUnique({
@@ -198,24 +198,37 @@ export class ProductReferenceService {
             select: {
                 createdByUserId: true,
                 isNew: true,
-                ads: { select: { id: true } },
+                title: true,
+                ads: {
+                    select: { id: true, title: true },
+                    take: 5,
+                },
             },
         });
         if (!product) {
-            throw new NotFoundException({ errorCode: 'PRODUCT_NOT_FOUND', message: 'کالا یافت نشد' });
+            throw new NotFoundException({
+                errorCode: 'PRODUCT_NOT_FOUND',
+                message: 'کالای مرجع یافت نشد',
+            });
         }
         if (userId && product.createdByUserId && product.createdByUserId !== userId) {
-            throw new ForbiddenException({ errorCode: 'NOT_OWNER', message: 'فقط سازنده کالا می‌تونه حذف کنه' });
+            throw new ForbiddenException({
+                errorCode: 'NOT_OWNER',
+                message: 'فقط سازنده کالا می‌تونه حذف کنه',
+            });
         }
         if (!product.isNew) {
-            throw new ForbiddenException({ errorCode: 'PRODUCT_CONFIRMED', message: 'این کالا تأیید شده و قابل حذف نیست' });
+            throw new ForbiddenException({
+                errorCode: 'PRODUCT_CONFIRMED',
+                message: 'این کالا تأیید شده و قابل حذف نیست',
+            });
         }
 
-        // ✅ اگه آگهی‌های مرتبط هستن، اول اون‌ها رو حذف کن
+        // ✅ اگه آگهی‌های مرتبط هستن، اول reference رو پاک کن
         if (product.ads.length > 0) {
             await this.prisma.ad.updateMany({
                 where: { productReferenceId: id },
-                data: { productReferenceId: null, status: 'deleted' },
+                data: { productReferenceId: null },
             });
         }
 
