@@ -935,17 +935,18 @@ model SearchLog {
 // ============================================================
 model Brand {
   id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  title       String   @unique                          // ✅ نام برند — یکتا (case-sensitive)
-  slug        String   @unique                          // mackenzie
-  category    String?                                  // دسته‌بندی برند: food, beverage, cleaning, ...
-  categoryPath String[] @default([])                   // مسیر دسته برای سلسله‌مراتب (اختیاری)
+  title       String   @unique
+  slug        String   @unique
+  category    String?
+  categoryPath String[] @default([])
   logoUrl     String?
   description String?
-  keywords    String[] @default([])                    // کلمات کلیدی برای سرچ بهتر
+  keywords    String[] @default([])
   isActive    Boolean  @default(true)
-  usageCount  Int      @default(0)                     // تعداد استفاده در آگهی‌ها (برای سورت پیشنهادها)
-  confirmed   Boolean  @default(false)                 // false = توسط کاربر ساخته شده، ادمین باید بررسی کنه
-  isByUser    Boolean  @default(false)                 // ✅ true = کاربر ساخته (نه seed/admin)
+  usageCount  Int      @default(0)
+  confirmed   Boolean  @default(false)
+  isByUser    Boolean  @default(false)
+  armId       String?  @db.ObjectId  // ✅ بازار مرجع (برای تفکیک آینده)
   metadata    Json?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -957,7 +958,7 @@ model Brand {
   @@index([usageCount])
   @@index([confirmed])
   @@index([isByUser])
-  // ✅ title has @unique, no need for @@index([title])
+  @@index([armId])
 }
 
 // ============================================================
@@ -971,25 +972,26 @@ model Brand {
 // ============================================================
 model ProductReference {
   id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  title       String   @unique                          // ✅ عنوان — یکتا
-  slug        String   @unique                          // konservo-mahi-mackenzie-200g
-  brandId     String?  @db.ObjectId                     // برند (اختیاری)
+  title       String   @unique
+  slug        String   @unique
+  brandId     String?  @db.ObjectId
   brand       Brand?   @relation("ProductRefBrand", fields: [brandId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  category    String?                                  // دسته کالا: food/canned, beverage, ...
+  category    String?
   categoryPath String[] @default([])
-  imageUrl    String?                                  // عکس اصلی کالا
-  thumbnailUrl String?                                 // نسخه کوچیک عکس
-  description String?                                  // ✅ توضیحات کالا (توسط ادمین پر می‌شه)
-  specs       Json?                                    // ✅ ویژگی‌های کالا (weight, volume, ingredients, ...)
-  keywords    String[] @default([])                    // کلمات کلیدی: ["تن ماهی", "کنسرو ماهی", "مکنزی"]
-  unitHints   String[] @default([])                    // واحدهای رایج: ["عدد", "کارتن ۲۴تایی"]
+  imageUrl    String?
+  thumbnailUrl String?
+  description String?
+  specs       Json?
+  keywords    String[] @default([])
+  unitHints   String[] @default([])
   isActive    Boolean  @default(true)
-  usageCount  Int      @default(0)                     // تعداد استفاده در آگهی‌ها
-  confirmed   Boolean  @default(false)                 // false = توسط کاربر ساخته شده
-  isByUser    Boolean  @default(false)                 // ✅ true = کاربر ساخته (نه seed/admin)
-  isNew       Boolean  @default(true)                  // ✅ true = جدید و قابل ویرایش توسط سازنده. ادمین که تأیید کرد → false (رسمی)
-  metadata    Json?                                    // specs, weight, volume, ...
-  createdByUserId String? @db.ObjectId                 // کاربری که اول بار ساخت
+  usageCount  Int      @default(0)
+  confirmed   Boolean  @default(false)
+  isByUser    Boolean  @default(false)
+  isNew       Boolean  @default(true)
+  armId       String?  @db.ObjectId  // ✅ بازار مرجع (برای تفکیک آینده)
+  metadata    Json?
+  createdByUserId String? @db.ObjectId
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   ads         Ad[]     @relation("AdProductRef")
@@ -1001,6 +1003,6 @@ model ProductReference {
   @@index([confirmed])
   @@index([isByUser])
   @@index([isNew])
-  // ✅ title has @unique, no need for @@index([title])
+  @@index([armId])
   @@index([keywords])
 }

@@ -1,5 +1,5 @@
 // src/brand/brand.controller.ts
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Delete, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { BrandService } from './brand.service';
 import { CreateBrandDto, UpdateBrandDto } from './brand.dto';
@@ -52,5 +52,14 @@ export class BrandController {
     @ApiOperation({ summary: 'به‌روزرسانی برند' })
     async update(@Param('id') id: string, @Body() dto: UpdateBrandDto) {
         return this.brandService.update(id, dto);
+    }
+
+    // ✅ حذف برند — فقط تأییدنشده (isNew)
+    @Delete(':id')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'حذف برند (فقط تأییدنشده)' })
+    async delete(@Param('id') id: string) {
+        return this.brandService.delete(id);
     }
 }

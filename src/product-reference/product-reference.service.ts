@@ -189,7 +189,8 @@ export class ProductReferenceService {
     }
 
     // ============================================================
-    // حذف کالا — فقط سازنده + فقط isNew + فقط اگه استفاده نشده
+    // حذف کالا — فقط سازنده + فقط isNew
+    // ✅ اگه در آگهی‌ها استفاده شده، آگهی‌های مرتبط هم حذف می‌شن (cascade)
     // ============================================================
     async delete(id: string, userId?: string) {
         const product = await this.prisma.productReference.findUnique({
@@ -197,7 +198,7 @@ export class ProductReferenceService {
             select: {
                 createdByUserId: true,
                 isNew: true,
-                _count: { select: { ads: true } },
+                ads: { select: { id: true } },
             },
         });
         if (!product) {
@@ -209,9 +210,15 @@ export class ProductReferenceService {
         if (!product.isNew) {
             throw new ForbiddenException({ errorCode: 'PRODUCT_CONFIRMED', message: 'این کالا تأیید شده و قابل حذف نیست' });
         }
-        if (product._count.ads > 0) {
-            throw new ConflictException({ errorCode: 'PRODUCT_IN_USE', message: 'این کالا در آگهی‌ها استفاده شده و قابل حذف نیست' });
+
+        // ✅ اگه آگهی‌های مرتبط هستن، اول اون‌ها رو حذف کن
+        if (product.ads.length > 0) {
+            await this.prisma.ad.updateMany({
+                where: { productReferenceId: id },
+                data: { productReferenceId: null, status: 'deleted' },
+            });
         }
+
         return this.prisma.productReference.delete({ where: { id } });
     }
 }

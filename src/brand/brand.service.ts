@@ -141,4 +141,43 @@ export class BrandService {
             data: { usageCount: { increment: 1 } },
         }).catch(() => {});
     }
+
+    // ============================================================
+    // حذف برند — فقط سازنده + فقط isNew (confirmed=false + isByUser=true)
+    // ✅ اگه در آگهی‌ها/کالاها استفاده شده، reference‌ها رو null کن
+    // ============================================================
+    async delete(id: string, userId?: string) {
+        const brand = await this.prisma.brand.findUnique({
+            where: { id },
+            select: {
+                isByUser: true,
+                confirmed: true,
+                ads: { select: { id: true } },
+                products: { select: { id: true } },
+            },
+        });
+        if (!brand) {
+            throw new NotFoundException({ errorCode: 'BRAND_NOT_FOUND', message: 'برند یافت نشد' });
+        }
+        // ✅ فقط برندهای تأییدنشده (isNew) قابل حذف هستن
+        if (brand.confirmed) {
+            throw new ForbiddenException({ errorCode: 'BRAND_CONFIRMED', message: 'این برند تأیید شده و قابل حذف نیست' });
+        }
+
+        // ✅ reference‌ها رو null کن
+        if (brand.ads.length > 0) {
+            await this.prisma.ad.updateMany({
+                where: { brandId: id },
+                data: { brandId: null },
+            });
+        }
+        if (brand.products.length > 0) {
+            await this.prisma.productReference.updateMany({
+                where: { brandId: id },
+                data: { brandId: null },
+            });
+        }
+
+        return this.prisma.brand.delete({ where: { id } });
+    }
 }
