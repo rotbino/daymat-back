@@ -63,6 +63,7 @@ export class ProductReferenceService {
                     category: true,
                     imageUrl: true,
                     thumbnailUrl: true,
+                    specs: true,  // ✅ برای prefill ویرایش ویژگی‌های کالا
                     usageCount: true,
                     isByUser: true,
                     isNew: true,

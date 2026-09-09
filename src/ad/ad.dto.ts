@@ -126,9 +126,7 @@ class CustomFieldsDto {
     @Type(() => PaymentMethodsDto)
     paymentMethods?: PaymentMethodsDto;
 
-    @ApiProperty({ example: { "رنگ": "سفید", "برند": "هگمتانه" }, description: 'مشخصات فنی کالا', required: false })
-    @IsOptional()
-    specs?: Record<string, string>;
+    // ✅ specs حذف شد — ویژگی‌ها مال کالای مرجع‌ست (ProductReference.specs)
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -316,11 +314,6 @@ export class CreateAdDto {
     @ValidateNested()
     @Type(() => PaymentMethodsDto)
     paymentMethods?: PaymentMethodsDto;
-
-    @ApiProperty({ description: 'مشخصات فنی', required: false })
-    @IsOptional()
-    @IsObject()
-    specs?: SpecsDto;
 
     @ApiProperty({ description: 'فیلدهای سفارشی', required: false })
     @IsOptional()
@@ -510,11 +503,6 @@ export class UpdateAdDto {
     @ValidateNested()
     @Type(() => PaymentMethodsDto)
     paymentMethods?: PaymentMethodsDto;
-
-    @ApiProperty({ description: 'مشخصات فنی', required: false })
-    @IsOptional()
-    @IsObject()
-    specs?: SpecsDto;
 
     @ApiProperty({ description: 'فیلدهای سفارشی (قدیمی)', required: false })
     @IsOptional()

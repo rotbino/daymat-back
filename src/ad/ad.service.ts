@@ -137,7 +137,6 @@ export class AdService {
                 productReferenceId: (dto as any).productReferenceId || null,
                 brandId: (dto as any).brandId || null,
                 paymentMethods: (dto.paymentMethods as any) || null,
-                specs: (dto.specs as any) || null,
                 customFields: (dto.customFields as any) || {},
                 description: dto.description || '',
                 unitPrice: dto.unitPrice,
@@ -303,7 +302,6 @@ export class AdService {
                 ...(dto.unitQty !== undefined ? { unitQty: dto.unitQty ?? null } : {}),
                 ...(dto.unitIsVariableQty !== undefined ? { unitIsVariableQty: dto.unitIsVariableQty } : {}),
                 ...(dto.paymentMethods !== undefined ? { paymentMethods: (dto.paymentMethods as any) || null } : {}),
-                ...(dto.specs !== undefined ? { specs: (dto.specs as any) || null } : {}),
                 ...(dto.customFields !== undefined ? { customFields: (dto.customFields as any) || null } : {}),
                 // ✅ اگه قیمت تغییر کرد، priceUpdatedAt رو آپدیت کن
                 ...(priceChanged ? { priceUpdatedAt: new Date() } : {}),
@@ -684,6 +682,7 @@ export class AdService {
                         imageUrl: true, thumbnailUrl: true,
                         brandId: true,
                         brand: { select: { id: true, title: true } },
+                        specs: true,  // ✅ ویژگی‌های کالا — مال مرجع کالاست
                         isNew: true,
                         isByUser: true,
                     },

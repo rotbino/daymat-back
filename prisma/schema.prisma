@@ -510,7 +510,6 @@ model Ad {
     bumpDurationHours     Int?
     trustScoreAtPost      Float?
     paymentMethods        Json?
-    specs                 Json?
     customFields          Json?
     source                String    @default("manual")
     sourceMetadata        Json?
