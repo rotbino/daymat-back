@@ -1,5 +1,5 @@
 // src/brand/brand.service.ts
-import { Injectable, ConflictException } from '@nestjs/common';
+import {Injectable, ConflictException, NotFoundException, ForbiddenException} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBrandDto, UpdateBrandDto } from './brand.dto';
 
