@@ -3,10 +3,14 @@ import { Injectable, ConflictException, ForbiddenException, NotFoundException } 
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProductDto, UpdateProductDto } from './product-reference.dto';
 import { normalizeForStore, findDuplicateTitle } from '../common/persian-text.util';
+import { CacheHelper } from '../common/services/cache.helper';
+
+/** TTL کش سرچ کالا — کوتاه تا تازگی داده حفظ بشه ولی فشار تایپ سریع (typeahead) از DB برداشته بشه */
+const SEARCH_CACHE_TTL_MS = 30_000;
 
 @Injectable()
 export class ProductReferenceService {
-    constructor(private prisma: PrismaService) {}
+    constructor(private prisma: PrismaService, private cache: CacheHelper) {}
 
     private slugify(title: string): string {
         const base = title.trim()
@@ -34,6 +38,22 @@ export class ProductReferenceService {
         const { q, category, page = 1, limit = 10, mine = false, userId } = options;
         const take = Math.min(limit, 50);
         const skip = (page - 1) * take;
+
+        // ✅ کش — کلید شامل همهٔ پارامترهاست؛ با هر create/update/delete باطل می‌شه
+        return this.cache.wrap(
+            'prod-search',
+            [q, category, page, take, mine, userId],
+            SEARCH_CACHE_TTL_MS,
+            async () => {
+                return this.runSearchQuery({ q, category, page, take, skip, mine, userId });
+            },
+        );
+    }
+
+    private async runSearchQuery(options: {
+        q?: string; category?: string; page: number; take: number; skip: number; mine?: boolean; userId?: string;
+    }) {
+        const { q, category, page, take, skip, mine = false, userId } = options;
 
         const where: any = { isActive: true };
 
@@ -110,7 +130,7 @@ export class ProductReferenceService {
         const autoKeywords = title.split(/\s+/).filter(w => w.length >= 2);
         const keywords = Array.from(new Set([...autoKeywords, ...(dto.keywords || [])]));
 
-        return this.prisma.productReference.create({
+        const created = await this.prisma.productReference.create({
             data: {
                 title,
                 slug,
@@ -136,6 +156,9 @@ export class ProductReferenceService {
                 usageCount: true, isByUser: true, isNew: true, createdByUserId: true,
             },
         });
+        // ✅ باطل‌سازی کش سرچ
+        await this.cache.bust('prod-search');
+        return created;
     }
 
     // ============================================================
@@ -188,7 +211,7 @@ export class ProductReferenceService {
             dto = { ...dto, title: normalized };
         }
 
-        return this.prisma.productReference.update({
+        const updated = await this.prisma.productReference.update({
             where: { id },
             data: {
                 ...(dto.title !== undefined ? { title: dto.title } : {}),
@@ -204,6 +227,9 @@ export class ProductReferenceService {
                 ...(dto.metadata !== undefined ? { metadata: dto.metadata } : {}),
             },
         });
+        // ✅ باطل‌سازی کش سرچ
+        await this.cache.bust('prod-search');
+        return updated;
     }
 
     // ============================================================
@@ -250,6 +276,9 @@ export class ProductReferenceService {
             });
         }
 
-        return this.prisma.productReference.delete({ where: { id } });
+        const deleted = await this.prisma.productReference.delete({ where: { id } });
+        // ✅ باطل‌سازی کش سرچ
+        await this.cache.bust('prod-search');
+        return deleted;
     }
 }

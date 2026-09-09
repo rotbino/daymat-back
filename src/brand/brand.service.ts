@@ -3,10 +3,14 @@ import {Injectable, ConflictException, NotFoundException, ForbiddenException} fr
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBrandDto, UpdateBrandDto } from './brand.dto';
 import { normalizeForStore, findDuplicateTitle } from '../common/persian-text.util';
+import { CacheHelper } from '../common/services/cache.helper';
+
+/** TTL کش سرچ برند */
+const SEARCH_CACHE_TTL_MS = 30_000;
 
 @Injectable()
 export class BrandService {
-    constructor(private prisma: PrismaService) {}
+    constructor(private prisma: PrismaService, private cache: CacheHelper) {}
 
     // ============================================================
     // ساخت slug فارسی‌پسند
@@ -34,6 +38,20 @@ export class BrandService {
         const { q, category, page = 1, limit = 10 } = options;
         const take = Math.min(limit, 50);
         const skip = (page - 1) * take;
+
+        // ✅ کش — با هر create/update/delete باطل می‌شه
+        return this.cache.wrap(
+            'brand-search',
+            [q, category, page, take],
+            SEARCH_CACHE_TTL_MS,
+            async () => this.runSearchQuery({ q, category, page, take, skip }),
+        );
+    }
+
+    private async runSearchQuery(options: {
+        q?: string; category?: string; page: number; take: number; skip: number;
+    }) {
+        const { q, category, page, take, skip } = options;
 
         const where: any = { isActive: true };
 
@@ -94,7 +112,7 @@ export class BrandService {
             slug = `${this.slugify(title)}-${suffix++}`;
         }
 
-        return this.prisma.brand.create({
+        const created = await this.prisma.brand.create({
             data: {
                 title,
                 slug,
@@ -107,6 +125,9 @@ export class BrandService {
             },
             select: { id: true, title: true, category: true, logoUrl: true, isByUser: true },
         });
+        // ✅ باطل‌سازی کش سرچ
+        await this.cache.bust('brand-search');
+        return created;
     }
 
     // ============================================================
@@ -131,7 +152,7 @@ export class BrandService {
             }
             dto = { ...dto, title: normalized };
         }
-        return this.prisma.brand.update({
+        const updated = await this.prisma.brand.update({
             where: { id },
             data: {
                 ...(dto.title !== undefined ? { title: dto.title } : {}),
@@ -143,6 +164,9 @@ export class BrandService {
                 ...(dto.confirmed !== undefined ? { confirmed: dto.confirmed } : {}),
             },
         });
+        // ✅ باطل‌سازی کش سرچ
+        await this.cache.bust('brand-search');
+        return updated;
     }
 
     // ============================================================
@@ -191,6 +215,9 @@ export class BrandService {
             });
         }
 
-        return this.prisma.brand.delete({ where: { id } });
+        const deleted = await this.prisma.brand.delete({ where: { id } });
+        // ✅ باطل‌سازی کش سرچ
+        await this.cache.bust('brand-search');
+        return deleted;
     }
 }

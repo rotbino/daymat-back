@@ -3,10 +3,11 @@ import { Injectable, ConflictException, NotFoundException } from '@nestjs/common
 import { CreateUnitDto, UpdateUnitDto } from './admin-unit.dto';
 import { PrismaService } from "../../prisma/prisma.service";
 import { collectLeafNodes } from '../../common/utils/arm.utils';
+import { CacheHelper } from '../../common/services/cache.helper';
 
 @Injectable()
 export class AdminUnitService {
-    constructor(private prisma: PrismaService) {}
+    constructor(private prisma: PrismaService, private cache: CacheHelper) {}
 
     // ============================================================
     // ایجاد واحد جدید
@@ -28,7 +29,7 @@ export class AdminUnitService {
             });
         }
 
-        return this.prisma.unit.create({
+        const created = await this.prisma.unit.create({
             data: {
                 title: dto.title,
                 shortCode: dto.shortCode,
@@ -37,6 +38,9 @@ export class AdminUnitService {
                 qtyIsFixed: dto.qtyIsFixed ?? false,
             },
         });
+        // ✅ باطل‌سازی کش واحدها
+        await this.cache.bust('units');
+        return created;
     }
 
     // ============================================================
@@ -91,7 +95,7 @@ export class AdminUnitService {
             }
         }
 
-        return this.prisma.unit.update({
+        const updated = await this.prisma.unit.update({
             where: { id },
             data: {
                 title: dto.title,
@@ -101,6 +105,9 @@ export class AdminUnitService {
                 qtyIsFixed: dto.qtyIsFixed ?? false,
             },
         });
+        // ✅ باطل‌سازی کش واحدها
+        await this.cache.bust('units');
+        return updated;
     }
 
     // ============================================================
@@ -156,8 +163,11 @@ export class AdminUnitService {
             });
         }
 
-        return this.prisma.unit.delete({
+        const deleted = await this.prisma.unit.delete({
             where: { id },
         });
+        // ✅ باطل‌سازی کش واحدها
+        await this.cache.bust('units');
+        return deleted;
     }
 }
