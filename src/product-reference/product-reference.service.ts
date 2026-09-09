@@ -45,6 +45,8 @@ export class ProductReferenceService {
             where.OR = [
                 { title: { contains: query, mode: 'insensitive' } },
                 { keywords: { has: query } },
+                // ✅ سرچ روی نام برند هم
+                { brand: { is: { title: { contains: query, mode: 'insensitive' } } } },
             ];
         }
         if (category) where.category = category;
