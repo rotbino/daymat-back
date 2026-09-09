@@ -497,7 +497,8 @@ model Ad {
     validityHours         Int       @default(24)
     createdAt             DateTime  @default(now())
     updatedAt             DateTime  @updatedAt
-    expiresAt             DateTime
+    expiresAt             DateTime?  // ✅ optional — اعتبار قیمت حذف شد
+    priceUpdatedAt        DateTime  @default(now())  // ✅ زمان آخرین بروزرسانی قیمت
     lastBumpedAt          DateTime?
     status                String    @default("active")
     isAnonymous           Boolean   @default(false)
@@ -536,6 +537,7 @@ model Ad {
     @@index([categoryPath])
     @@index([productReferenceId])
     @@index([brandId])
+    @@index([priceUpdatedAt])
 }
 
 // ============================================================
@@ -977,7 +979,8 @@ model ProductReference {
   categoryPath String[] @default([])
   imageUrl    String?                                  // عکس اصلی کالا
   thumbnailUrl String?                                 // نسخه کوچیک عکس
-  description String?
+  description String?                                  // ✅ توضیحات کالا (توسط ادمین پر می‌شه)
+  specs       Json?                                    // ✅ ویژگی‌های کالا (weight, volume, ingredients, ...)
   keywords    String[] @default([])                    // کلمات کلیدی: ["تن ماهی", "کنسرو ماهی", "مکنزی"]
   unitHints   String[] @default([])                    // واحدهای رایج: ["عدد", "کارتن ۲۴تایی"]
   isActive    Boolean  @default(true)

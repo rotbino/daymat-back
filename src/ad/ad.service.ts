@@ -118,7 +118,6 @@ export class AdService {
 
         // ─── ۵) اعتبار قیمت ───
         const validityHours = dto.validityHours ?? 24;
-        const expiresAt = new Date(Date.now() + validityHours * 60 * 60 * 1000);
 
         // ─── ۶) ساخت آگهی — همیشه فقط-کاتالوگی؛ انتشار با مهر بعدی ───
         const ad = await this.prisma.ad.create({
@@ -154,7 +153,8 @@ export class AdService {
                 cityCode: dto.cityCode || null,
                 locationDetail: dto.locationDetail || '',
                 validityHours,
-                expiresAt,
+                expiresAt: null,  // ✅ اعتبار قیمت حذف شد
+                priceUpdatedAt: new Date(),  // ✅ زمان ثبت قیمت
                 isAnonymous: dto.isAnonymous || false,
                 publishToMarket: dto.publishToMarket ?? true,
                 priceHistory: [{ price: dto.unitPrice, updatedAt: new Date().toISOString(), note: 'ثبت اولیه' }],
@@ -271,9 +271,9 @@ export class AdService {
         }
 
         // ─── آپدیت ───
-        const expiresAt = dto.validityHours
-            ? new Date(Date.now() + dto.validityHours * 60 * 60 * 1000)
-            : undefined;
+        // ✅ اگه قیمت تغییر کرد، priceUpdatedAt رو آپدیت کن
+        const priceChanged = dto.unitPrice !== undefined || dto.singleUnitPrice !== undefined ||
+            dto.consumerPrice !== undefined || dto.giftPrice !== undefined;
 
         const adUpdated = await this.prisma.ad.update({
             where: { id },
@@ -294,9 +294,7 @@ export class AdService {
                 ...(dto.cityCode !== undefined ? { cityCode: dto.cityCode || null } : {}),
                 ...(dto.provinceCode !== undefined ? { provinceCode: dto.provinceCode || null } : {}),
                 ...(dto.province !== undefined ? { province: dto.province || null } : {}),
-                ...(dto.validityHours !== undefined
-                    ? { validityHours: dto.validityHours, ...(expiresAt ? { expiresAt } : {}) }
-                    : {}),
+                ...(dto.validityHours !== undefined ? { validityHours: dto.validityHours } : {}),
                 ...(dto.giftPrice !== undefined ? { giftPrice: dto.giftPrice || null } : {}),
                 ...(dto.volumeTiers !== undefined ? { volumeTiers: (dto.volumeTiers as any) || null } : {}),
                 ...(dto.isAnonymous !== undefined ? { isAnonymous: dto.isAnonymous } : {}),
@@ -307,6 +305,8 @@ export class AdService {
                 ...(dto.paymentMethods !== undefined ? { paymentMethods: (dto.paymentMethods as any) || null } : {}),
                 ...(dto.specs !== undefined ? { specs: (dto.specs as any) || null } : {}),
                 ...(dto.customFields !== undefined ? { customFields: (dto.customFields as any) || null } : {}),
+                // ✅ اگه قیمت تغییر کرد، priceUpdatedAt رو آپدیت کن
+                ...(priceChanged ? { priceUpdatedAt: new Date() } : {}),
                 updatedAt: new Date(),
             },
             include: {
@@ -432,7 +432,7 @@ export class AdService {
             id: { in: adIds },
             status: 'active',
             publishToMarket: true,
-            expiresAt: { gt: new Date() },
+            
         };
 
         // فیلتر نوع فروش ویترین
@@ -492,6 +492,20 @@ export class AdService {
                 paymentMethods: true,
                 updatedAt: true,
                 createdAt: true,
+                priceUpdatedAt: true,  // ✅ برای freshness label
+                productReferenceId: true,  // ✅ برای عکس کالای مرجع
+                brandId: true,  // ✅ برای نمایش برند
+                productRef: {  // ✅ عکس کالای مرجع
+                    select: {
+                        id: true,
+                        title: true,
+                        imageUrl: true,
+                        thumbnailUrl: true,
+                    },
+                },
+                brand: {
+                    select: { id: true, title: true },
+                },
                 unit: { select: { shortCode: true, title: true } },
                 catalog: {
                     select: {
@@ -517,11 +531,14 @@ export class AdService {
             .map((adId) => adMap.get(adId))
             .filter(Boolean) as any[];
 
-        // ✅ bumped ها اول
+        // ✅ bumped ها اول، بعد priceUpdatedAt DESC
         orderedAds.sort((a: any, b: any) => {
             if (a.isBumped && !b.isBumped) return -1;
             if (!a.isBumped && b.isBumped) return 1;
-            return 0;
+            // ✅ sort by priceUpdatedAt DESC
+            const aTime = a.priceUpdatedAt ? new Date(a.priceUpdatedAt).getTime() : 0;
+            const bTime = b.priceUpdatedAt ? new Date(b.priceUpdatedAt).getTime() : 0;
+            return bTime - aTime;
         });
 
         const total = pubTotal;
@@ -757,7 +774,7 @@ export class AdService {
         let activationCost = 0;
         if (ad.armId) {
             const activeAdsCount = await this.prisma.ad.count({
-                where: { catalogId: ad.catalogId, status: 'active', expiresAt: { gt: new Date() }, id: { not: id } },
+                where: { catalogId: ad.catalogId, status: 'active',  id: { not: id } },
             });
             if (activeAdsCount >= maxActiveAds) activationCost = bumpCostPerDay;
         }
@@ -795,16 +812,14 @@ export class AdService {
             });
         }
 
-        const expiresAt = new Date();
-        expiresAt.setDate(expiresAt.getDate() + dto.validityHours);
-
         return this.prisma.ad.update({
             where: { id },
             data: {
                 validityHours: dto.validityHours,
-                expiresAt,
+                expiresAt: null,  // ✅ اعتبار قیمت حذف شد
                 status: 'active',
                 updatedAt: new Date(),
+                priceUpdatedAt: new Date(),  // ✅ bump = refresh price time
                 isBumped: dto.isBumped ?? false,
                 bumpExpiresAt,
                 bumpDurationHours: dto.isBumped ? bumpDurationHours : null,
@@ -853,11 +868,8 @@ export class AdService {
     }
 
     async expireAds() {
-        const expired = await this.prisma.ad.updateMany({
-            where: { status: 'active', expiresAt: { lt: new Date() } },
-            data: { status: 'expired', isBumped: false, updatedAt: new Date() },
-        });
-        return { expiredCount: expired.count };
+        // ✅ اعتبار قیمت حذف شد — آگهی‌ها دیگه منقضی نمی‌شن
+        return { expiredCount: 0 };
     }
 
     async expireBumps() {
@@ -1261,7 +1273,7 @@ export class AdService {
         const andConds: any[] = [];
 
         if (statusFilter === 'active') {
-            andConds.push({ status: 'active', expiresAt: { gt: new Date() } });
+            andConds.push({ status: 'active',  });
         } else if (statusFilter === 'pending') {
             andConds.push({ status: { in: ['pending', 'rejected'] } });
         } else if (statusFilter === 'archived') {
@@ -1269,7 +1281,6 @@ export class AdService {
                 OR: [
                     { status: 'inactive' },
                     { status: 'expired' },
-                    { status: 'active', expiresAt: { lt: new Date() } },
                 ],
             });
         }
@@ -1487,7 +1498,6 @@ export class AdService {
         });
 
         const now = new Date();
-        const soon = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
         const items: any[] = [];
         const catalogIds: string[] = [];
@@ -1495,27 +1505,27 @@ export class AdService {
         for (const b of catalogs) {
             catalogIds.push(b.id);
 
-            const expiring = await this.prisma.ad.findMany({
+            // ✅ آگهی‌های با قیمت قدیمی (بیش از ۳۰ روز)
+            const staleThreshold = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+            const staleAds = await this.prisma.ad.findMany({
                 where: {
                     catalogId: b.id,
                     status: 'active',
-                    OR: [{ expiresAt: { lte: soon } }],
+                    priceUpdatedAt: { lt: staleThreshold },
                 },
-                select: { id: true, productType: true, title: true, expiresAt: true },
-                orderBy: { expiresAt: 'asc' },
+                select: { id: true, productType: true, title: true, priceUpdatedAt: true },
+                orderBy: { priceUpdatedAt: 'asc' },
                 take: 20,
             });
 
-            for (const ad of expiring) {
-                const expired = new Date(ad.expiresAt).getTime() <= now.getTime();
+            for (const ad of staleAds) {
+                const daysAgo = Math.floor((now.getTime() - new Date(ad.priceUpdatedAt).getTime()) / (24 * 60 * 60 * 1000));
                 items.push({
-                    id: `exp-${ad.id}`,
-                    type: 'price-expired',
-                    severity: expired ? 'danger' : 'warning',
-                    title: expired
-                        ? `قیمت «${ad.productType || ad.title}» تمام شده`
-                        : `اعتبار قیمت «${ad.productType || ad.title}» تا امشب تمام می‌شود`,
-                    action: { label: expired ? 'تازه‌سازی قیمت' : 'دیدن', href: `/my-catalogs?catalog=${b.id}` },
+                    id: `stale-${ad.id}`,
+                    type: 'price-stale',
+                    severity: 'warning',
+                    title: `قیمت «${ad.productType || ad.title}» ${daysAgo} روز پیش بروزرسانی شده — بهتره تازه کنی`,
+                    action: { label: 'بروزرسانی قیمت', href: `/ad/edit/${ad.id}?catalog=${b.id}` },
                     catalogId: b.id,
                 });
             }
