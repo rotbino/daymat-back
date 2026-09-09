@@ -187,4 +187,31 @@ export class ProductReferenceService {
             },
         });
     }
+
+    // ============================================================
+    // حذف کالا — فقط سازنده + فقط isNew + فقط اگه استفاده نشده
+    // ============================================================
+    async delete(id: string, userId?: string) {
+        const product = await this.prisma.productReference.findUnique({
+            where: { id },
+            select: {
+                createdByUserId: true,
+                isNew: true,
+                _count: { select: { ads: true } },
+            },
+        });
+        if (!product) {
+            throw new NotFoundException({ errorCode: 'PRODUCT_NOT_FOUND', message: 'کالا یافت نشد' });
+        }
+        if (userId && product.createdByUserId && product.createdByUserId !== userId) {
+            throw new ForbiddenException({ errorCode: 'NOT_OWNER', message: 'فقط سازنده کالا می‌تونه حذف کنه' });
+        }
+        if (!product.isNew) {
+            throw new ForbiddenException({ errorCode: 'PRODUCT_CONFIRMED', message: 'این کالا تأیید شده و قابل حذف نیست' });
+        }
+        if (product._count.ads > 0) {
+            throw new ConflictException({ errorCode: 'PRODUCT_IN_USE', message: 'این کالا در آگهی‌ها استفاده شده و قابل حذف نیست' });
+        }
+        return this.prisma.productReference.delete({ where: { id } });
+    }
 }

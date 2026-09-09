@@ -1,5 +1,5 @@
 // src/product-reference/product-reference.controller.ts
-import { Body, Controller, Get, Param, Patch, Put, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Put, Post, Delete, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { ProductReferenceService } from './product-reference.service';
 import { CreateProductDto, UpdateProductDto } from './product-reference.dto';
@@ -66,5 +66,14 @@ export class ProductReferenceController {
     @ApiOperation({ summary: 'ویرایش کالا توسط ادمین' })
     async adminUpdate(@Param('id') id: string, @Body() dto: UpdateProductDto) {
         return this.productService.update(id, dto);
+    }
+
+    // ✅ حذف کالا — فقط سازنده + فقط isNew + فقط اگه استفاده نشده
+    @Delete(':id')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'حذف کالای مرجع (فقط سازنده + فقط isNew)' })
+    async delete(@Param('id') id: string, @CurrentUser() user: any) {
+        return this.productService.delete(id, user.id);
     }
 }
