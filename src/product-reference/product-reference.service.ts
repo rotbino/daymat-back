@@ -2,6 +2,7 @@
 import { Injectable, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProductDto, UpdateProductDto } from './product-reference.dto';
+import { normalizeForStore, findDuplicateTitle } from '../common/persian-text.util';
 
 @Injectable()
 export class ProductReferenceService {
@@ -82,9 +83,10 @@ export class ProductReferenceService {
     // ============================================================
     // ایجاد کالای جدید
     // ✅ isNew=true, isByUser=true
+    // ✅ جلوگیری قطعی از تکرار — نرمال‌سازی فاصله/حروف عربی-فارسی/اعداد
     // ============================================================
     async create(dto: CreateProductDto, userId?: string) {
-        const title = dto.title.trim();
+        const title = normalizeForStore(dto.title || '');
         if (!title) {
             throw new ConflictException({
                 errorCode: 'TITLE_REQUIRED',
@@ -92,19 +94,8 @@ export class ProductReferenceService {
             });
         }
 
-        // ✅ بررسی تکراری نبودن (case-insensitive)
-        const existing = await this.prisma.productReference.findFirst({
-            where: {
-                title: { equals: title, mode: 'insensitive' },
-                isActive: true,
-            },
-            select: {
-                id: true, title: true, brandId: true,
-                brand: { select: { id: true, title: true } },
-                category: true, imageUrl: true, thumbnailUrl: true,
-                usageCount: true, isByUser: true, isNew: true, createdByUserId: true,
-            },
-        });
+        // ✅ بررسی تکراری با نرمال‌سازی کامل (فاصله، ی/ی، ک/ك، اعداد و…)
+        const existing = await findDuplicateTitle(this.prisma.productReference, title);
         if (existing) {
             return { ...existing, _existed: true };
         }
@@ -129,6 +120,8 @@ export class ProductReferenceService {
                 thumbnailUrl: dto.thumbnailUrl || null,
                 description: dto.description || null,
                 unitHints: dto.unitHints || [],
+                // ✅ ویژگی‌های کالا — حالا مال کالاست نه آگهی
+                specs: (dto as any).specs ?? null,
                 metadata: dto.metadata || null,
                 confirmed: false,
                 isByUser: true,
@@ -148,6 +141,7 @@ export class ProductReferenceService {
     // به‌روزرسانی کالا
     // ✅ فقط سازنده می‌تونه ویرایش کنه
     // ✅ فقط اگه isNew=true باشه قابل ویرایشه
+    // ✅ تغییر عنوان نباید کالای تکراری بسازد
     // ============================================================
     async update(id: string, dto: UpdateProductDto, userId?: string) {
         const product = await this.prisma.productReference.findUnique({
@@ -174,10 +168,29 @@ export class ProductReferenceService {
             });
         }
 
+        // ✅ جلوگیری از عنوان تکراری هنگام تغییر عنوان
+        if (dto.title !== undefined) {
+            const normalized = normalizeForStore(dto.title || '');
+            if (!normalized) {
+                throw new ConflictException({
+                    errorCode: 'TITLE_REQUIRED',
+                    message: 'عنوان کالا الزامی است',
+                });
+            }
+            const dup = await findDuplicateTitle(this.prisma.productReference, normalized, id);
+            if (dup) {
+                throw new ConflictException({
+                    errorCode: 'DUPLICATE_TITLE',
+                    message: `کالای «${dup.title}» قبلاً ثبت شده است — تکراری مجاز نیست`,
+                });
+            }
+            dto = { ...dto, title: normalized };
+        }
+
         return this.prisma.productReference.update({
             where: { id },
             data: {
-                ...(dto.title !== undefined ? { title: dto.title.trim() } : {}),
+                ...(dto.title !== undefined ? { title: dto.title } : {}),
                 ...(dto.brandId !== undefined ? { brandId: dto.brandId || null } : {}),
                 ...(dto.category !== undefined ? { category: dto.category } : {}),
                 ...(dto.keywords !== undefined ? { keywords: dto.keywords } : {}),
@@ -185,6 +198,8 @@ export class ProductReferenceService {
                 ...(dto.thumbnailUrl !== undefined ? { thumbnailUrl: dto.thumbnailUrl } : {}),
                 ...(dto.description !== undefined ? { description: dto.description } : {}),
                 ...(dto.unitHints !== undefined ? { unitHints: dto.unitHints } : {}),
+                // ✅ ویژگی‌های کالا
+                ...((dto as any).specs !== undefined ? { specs: (dto as any).specs } : {}),
                 ...(dto.metadata !== undefined ? { metadata: dto.metadata } : {}),
             },
         });

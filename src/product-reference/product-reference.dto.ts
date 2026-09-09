@@ -1,6 +1,6 @@
 // src/product-reference/product-reference.dto.ts
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, MaxLength, IsArray } from 'class-validator';
+import { IsOptional, IsString, MaxLength, IsArray, IsObject } from 'class-validator';
 
 export class SearchProductDto {
     @ApiProperty({ example: 'کنسرو' })
@@ -60,6 +60,11 @@ export class CreateProductDto {
     @IsString({ each: true })
     unitHints?: string[];
 
+    @ApiPropertyOptional({ type: Object, example: { 'وزن': '۲۰۰ گرم', 'جنس': 'فلز' }, description: 'ویژگی‌های کالا — مالِ کالاست نه آگهی' })
+    @IsOptional()
+    @IsObject()
+    specs?: Record<string, string>;
+
     @ApiPropertyOptional({ description: 'specs, weight, volume, ...' })
     @IsOptional()
     metadata?: any;
@@ -108,6 +113,11 @@ export class UpdateProductDto {
     @IsArray()
     @IsString({ each: true })
     unitHints?: string[];
+
+    @ApiPropertyOptional({ type: Object, description: 'ویژگی‌های کالا' })
+    @IsOptional()
+    @IsObject()
+    specs?: Record<string, string>;
 
     @ApiPropertyOptional()
     @IsOptional()

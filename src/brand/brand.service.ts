@@ -2,6 +2,7 @@
 import {Injectable, ConflictException, NotFoundException, ForbiddenException} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBrandDto, UpdateBrandDto } from './brand.dto';
+import { normalizeForStore, findDuplicateTitle } from '../common/persian-text.util';
 
 @Injectable()
 export class BrandService {
@@ -69,11 +70,11 @@ export class BrandService {
 
     // ============================================================
     // ایجاد برند جدید
-    // ✅ بررسی تکراری نبودن title (case-insensitive)
+    // ✅ جلوگیری قطعی از تکرار — نرمال‌سازی فاصله/حروف عربی-فارسی/اعداد
     // ✅ isByUser=true برای برندهای کاربر-ساخته
     // ============================================================
     async create(dto: CreateBrandDto, userId?: string) {
-        const title = dto.title.trim();
+        const title = normalizeForStore(dto.title || '');
         if (!title) {
             throw new ConflictException({
                 errorCode: 'TITLE_REQUIRED',
@@ -81,14 +82,8 @@ export class BrandService {
             });
         }
 
-        // ✅ بررسی تکراری نبودن (case-insensitive)
-        const existing = await this.prisma.brand.findFirst({
-            where: {
-                title: { equals: title, mode: 'insensitive' },
-                isActive: true,
-            },
-            select: { id: true, title: true, category: true, logoUrl: true, isByUser: true },
-        });
+        // ✅ بررسی تکراری با نرمال‌سازی کامل (فاصله، ی/ی، ک/ك، اعداد و…)
+        const existing = await findDuplicateTitle(this.prisma.brand, title);
         if (existing) {
             return { ...existing, _existed: true };
         }
@@ -116,12 +111,30 @@ export class BrandService {
 
     // ============================================================
     // به‌روزرسانی برند
+    // ✅ تغییر عنوان نباید برند تکراری بسازد
     // ============================================================
     async update(id: string, dto: UpdateBrandDto) {
+        if (dto.title !== undefined) {
+            const normalized = normalizeForStore(dto.title || '');
+            if (!normalized) {
+                throw new ConflictException({
+                    errorCode: 'TITLE_REQUIRED',
+                    message: 'عنوان برند الزامی است',
+                });
+            }
+            const dup = await findDuplicateTitle(this.prisma.brand, normalized, id);
+            if (dup) {
+                throw new ConflictException({
+                    errorCode: 'DUPLICATE_TITLE',
+                    message: `برند «${dup.title}» قبلاً ثبت شده است — تکراری مجاز نیست`,
+                });
+            }
+            dto = { ...dto, title: normalized };
+        }
         return this.prisma.brand.update({
             where: { id },
             data: {
-                ...(dto.title !== undefined ? { title: dto.title.trim() } : {}),
+                ...(dto.title !== undefined ? { title: dto.title } : {}),
                 ...(dto.category !== undefined ? { category: dto.category } : {}),
                 ...(dto.keywords !== undefined ? { keywords: dto.keywords } : {}),
                 ...(dto.logoUrl !== undefined ? { logoUrl: dto.logoUrl } : {}),
