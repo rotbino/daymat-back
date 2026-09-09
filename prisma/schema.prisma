@@ -945,7 +945,8 @@ model Brand {
   usageCount  Int      @default(0)
   confirmed   Boolean  @default(false)
   isByUser    Boolean  @default(false)
-  armId       String?  @db.ObjectId  // ✅ بازار مرجع (برای تفکیک آینده)
+  armId       String?  @db.ObjectId  // ✅ بازاری که برند از طریق آن ثبت شده
+  createdByUserId String? @db.ObjectId  // ✅ کاربر ثبت‌کننده (برای نظارت مالک بازار)
   metadata    Json?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -958,6 +959,7 @@ model Brand {
   @@index([confirmed])
   @@index([isByUser])
   @@index([armId])
+  @@index([createdByUserId])
 }
 
 // ============================================================

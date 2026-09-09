@@ -90,6 +90,7 @@ export class BrandService {
     // ایجاد برند جدید
     // ✅ جلوگیری قطعی از تکرار — نرمال‌سازی فاصله/حروف عربی-فارسی/اعداد
     // ✅ isByUser=true برای برندهای کاربر-ساخته
+    // ✅ createdByUserId + armId — برای نظارت مالک بازار روی داده‌های پایهٔ بازارش
     // ============================================================
     async create(dto: CreateBrandDto, userId?: string) {
         const title = normalizeForStore(dto.title || '');
@@ -112,6 +113,16 @@ export class BrandService {
             slug = `${this.slugify(title)}-${suffix++}`;
         }
 
+        // ✅ اتصال به بازارِ مبدأ — اگه اسلاگ بازار رسیده باشد (بی‌صدا نادیده گرفته می‌شود)
+        let armId: string | null = null;
+        if (dto.armSlug) {
+            const arm = await this.prisma.arm.findUnique({
+                where: { slug: dto.armSlug },
+                select: { id: true },
+            }).catch(() => null);
+            armId = arm?.id || null;
+        }
+
         const created = await this.prisma.brand.create({
             data: {
                 title,
@@ -122,6 +133,8 @@ export class BrandService {
                 description: dto.description || null,
                 confirmed: false,  // ✅ کاربر ساخت → نیاز به تأیید ادمین
                 isByUser: true,    // ✅ مارک‌گذاری به‌عنوان کاربر-ساخته
+                armId,             // ✅ بازار مبدأ
+                createdByUserId: userId || null,  // ✅ کاربر ثبت‌کننده
             },
             select: { id: true, title: true, category: true, logoUrl: true, isByUser: true },
         });
@@ -133,8 +146,31 @@ export class BrandService {
     // ============================================================
     // به‌روزرسانی برند
     // ✅ تغییر عنوان نباید برند تکراری بسازد
+    // ✅ فقط ادمین یا سازندهٔ برندِ تأییدنشده اجازهٔ ویرایش دارد
     // ============================================================
-    async update(id: string, dto: UpdateBrandDto) {
+    async update(id: string, dto: UpdateBrandDto, user?: { id: string; role?: string }) {
+        const brand = await this.prisma.brand.findUnique({
+            where: { id },
+            select: { id: true, confirmed: true, createdByUserId: true },
+        });
+        if (!brand) {
+            throw new NotFoundException({ errorCode: 'BRAND_NOT_FOUND', message: 'برند یافت نشد' });
+        }
+        // ✅ گارد نقش — ادمین سیستم یا سازندهٔ برندِ تأییدنشده
+        if (user?.role !== 'system_admin') {
+            if (brand.confirmed) {
+                throw new ForbiddenException({
+                    errorCode: 'BRAND_CONFIRMED',
+                    message: 'این برند تأیید شده است — ویرایش فقط توسط ادمین سیستم',
+                });
+            }
+            if (!brand.createdByUserId || brand.createdByUserId !== user?.id) {
+                throw new ForbiddenException({
+                    errorCode: 'NOT_OWNER',
+                    message: 'فقط سازندهٔ برند یا ادمین سیستم می‌تواند ویرایش کند',
+                });
+            }
+        }
         if (dto.title !== undefined) {
             const normalized = normalizeForStore(dto.title || '');
             if (!normalized) {
@@ -180,15 +216,16 @@ export class BrandService {
     }
 
     // ============================================================
-    // حذف برند — فقط سازنده + فقط isNew (confirmed=false + isByUser=true)
+    // حذف برند — فقط ادمین یا سازندهٔ برندِ تأییدنشده
     // ✅ اگه در آگهی‌ها/کالاها استفاده شده، reference‌ها رو null کن
     // ============================================================
-    async delete(id: string, userId?: string) {
+    async delete(id: string, user?: { id: string; role?: string }) {
         const brand = await this.prisma.brand.findUnique({
             where: { id },
             select: {
                 isByUser: true,
                 confirmed: true,
+                createdByUserId: true,
                 ads: { select: { id: true } },
                 products: { select: { id: true } },
             },
@@ -196,9 +233,17 @@ export class BrandService {
         if (!brand) {
             throw new NotFoundException({ errorCode: 'BRAND_NOT_FOUND', message: 'برند یافت نشد' });
         }
-        // ✅ فقط برندهای تأییدنشده (isNew) قابل حذف هستن
-        if (brand.confirmed) {
-            throw new ForbiddenException({ errorCode: 'BRAND_CONFIRMED', message: 'این برند تأیید شده و قابل حذف نیست' });
+        // ✅ گارد نقش — ادمین سیستم یا سازندهٔ برندِ تأییدنشده
+        if (user?.role !== 'system_admin') {
+            if (brand.confirmed) {
+                throw new ForbiddenException({ errorCode: 'BRAND_CONFIRMED', message: 'این برند تأیید شده و قابل حذف نیست' });
+            }
+            if (!brand.createdByUserId || brand.createdByUserId !== user?.id) {
+                throw new ForbiddenException({
+                    errorCode: 'NOT_OWNER',
+                    message: 'فقط سازندهٔ برند یا ادمین سیستم می‌تواند حذف کند',
+                });
+            }
         }
 
         // ✅ reference‌ها رو null کن

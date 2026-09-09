@@ -127,6 +127,16 @@ export class ProductReferenceService {
             slug = `${this.slugify(title)}-${suffix++}`;
         }
 
+        // ✅ اتصال به بازارِ مبدأ — اگه اسلاگ بازار رسیده باشد (بی‌صدا نادیده گرفته می‌شود)
+        let armId: string | null = null;
+        if (dto.armSlug) {
+            const arm = await this.prisma.arm.findUnique({
+                where: { slug: dto.armSlug },
+                select: { id: true },
+            }).catch(() => null);
+            armId = arm?.id || null;
+        }
+
         const autoKeywords = title.split(/\s+/).filter(w => w.length >= 2);
         const keywords = Array.from(new Set([...autoKeywords, ...(dto.keywords || [])]));
 
@@ -148,6 +158,7 @@ export class ProductReferenceService {
                 isByUser: true,
                 isNew: true,  // ✅ جدید و قابل ویرایش
                 createdByUserId: userId || null,
+                armId,  // ✅ بازار مبدأ — برای نظارت مالک بازار
             },
             select: {
                 id: true, title: true, brandId: true,

@@ -45,21 +45,21 @@ export class BrandController {
         return this.brandService.create(dto, user.id);
     }
 
-    // ✅ به‌روزرسانی برند
+    // ✅ به‌روزرسانی برند — فقط ادمین سیستم یا سازندهٔ برندِ تأییدنشده
     @Patch(':id')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'به‌روزرسانی برند' })
-    async update(@Param('id') id: string, @Body() dto: UpdateBrandDto) {
-        return this.brandService.update(id, dto);
+    @ApiOperation({ summary: 'به‌روزرسانی برند (ادمین یا سازندهٔ برندِ تأییدنشده)' })
+    async update(@CurrentUser() user: any, @Param('id') id: string, @Body() dto: UpdateBrandDto) {
+        return this.brandService.update(id, dto, { id: user.id, role: user.role });
     }
 
-    // ✅ حذف برند — فقط تأییدنشده (isNew)
+    // ✅ حذف برند — فقط ادمین سیستم یا سازندهٔ برندِ تأییدنشده
     @Delete(':id')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'حذف برند (فقط تأییدنشده)' })
-    async delete(@Param('id') id: string) {
-        return this.brandService.delete(id);
+    @ApiOperation({ summary: 'حذف برند (ادمین یا سازندهٔ برندِ تأییدنشده)' })
+    async delete(@CurrentUser() user: any, @Param('id') id: string) {
+        return this.brandService.delete(id, { id: user.id, role: user.role });
     }
 }

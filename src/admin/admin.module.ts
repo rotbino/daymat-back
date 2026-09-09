@@ -24,6 +24,10 @@ import {AdminCatalogController} from "./catalog/admin-catalog.controller";
 import {AdminCatalogService} from "./catalog/admin-catalog.service";
 import {AdminFeedbackController} from "./feedback/admin-feedback.controller";
 import {AdminFeedbackService} from "./feedback/admin-feedback.service";
+import { AdminProductController } from './product/admin-product.controller';
+import { AdminProductService } from './product/admin-product.service';
+import { AdminBrandController } from './brand/admin-brand.controller';
+import { AdminBrandService } from './brand/admin-brand.service';
 
 @Module({
     controllers: [
@@ -39,6 +43,8 @@ import {AdminFeedbackService} from "./feedback/admin-feedback.service";
         AdminPaymentController,
         AdminCatalogController,
         AdminFeedbackController,
+        AdminProductController,
+        AdminBrandController,
 
     ],
     providers: [
@@ -54,6 +60,8 @@ import {AdminFeedbackService} from "./feedback/admin-feedback.service";
         AdminPaymentService,
         AdminCatalogService,
         AdminFeedbackService,
+        AdminProductService,
+        AdminBrandService,
     ],
     exports: [
         AdminUnitService,
@@ -68,6 +76,8 @@ import {AdminFeedbackService} from "./feedback/admin-feedback.service";
         AdminPaymentService,
         AdminCatalogService,
         AdminFeedbackService,
+        AdminProductService,
+        AdminBrandService,
     ],
 })
 export class AdminModule {}

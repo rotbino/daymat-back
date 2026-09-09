@@ -5,6 +5,7 @@ import { ProductReferenceService } from './product-reference.service';
 import { CreateProductDto, UpdateProductDto } from './product-reference.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../common/guards/optional-jwt-auth.guard';
+import { AdminGuard } from '../admin/guards/admin.guard';
 import { CurrentUser } from '../common/decorators/custom.decorators';
 
 @ApiTags('product-reference')
@@ -59,11 +60,11 @@ export class ProductReferenceController {
         return this.productService.update(id, dto, user.id);
     }
 
-    // ✅ admin update (بدون محدودیت isNew) — با PATCH
+    // ✅ admin update (بدون محدودیت isNew) — با PATCH — فقط ادمین سیستم
     @Patch(':id')
-    @UseGuards(JwtAuthGuard)
+    @UseGuards(JwtAuthGuard, AdminGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'ویرایش کالا توسط ادمین' })
+    @ApiOperation({ summary: 'ویرایش کالا توسط ادمین سیستم' })
     async adminUpdate(@Param('id') id: string, @Body() dto: UpdateProductDto) {
         return this.productService.update(id, dto);
     }

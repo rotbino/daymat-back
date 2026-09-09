@@ -23,6 +23,11 @@ export class CreateBrandDto {
     @MaxLength(80)
     title!: string;
 
+    @ApiPropertyOptional({ description: 'اسلاگ بازارِ مبدأ (وقتی از داخل یک بازار ثبت می‌شود — برای نظارت مالک بازار)' })
+    @IsOptional()
+    @IsString()
+    armSlug?: string;
+
     @ApiPropertyOptional({ example: 'food' })
     @IsOptional()
     @IsString()
