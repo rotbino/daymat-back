@@ -21,7 +21,7 @@ export class FileService {
     // ============================================================
     private async deleteExistingFiles(
         userId: string,
-        model: 'User' | 'Catalog' | 'Ad',
+        model: 'User' | 'Catalog' | 'Ad' | 'ProductReference' | 'Brand',
         modelId: string | null,
         fieldKey: string,
         keepId?: string,
@@ -59,10 +59,10 @@ export class FileService {
 
     // ============================================================
     // ✅ همگام‌سازی فیلد تصویر روی رکورد مالک —
-    //    User.avatarUrl / Catalog.logoUrl همیشه تصویر تازه را نشان دهند
+    //    User.avatarUrl / Catalog.logoUrl / ProductReference.imageUrl همیشه تصویر تازه را نشان دهند
     // ============================================================
     private async syncOwnerImageField(
-        model: 'User' | 'Catalog' | 'Ad',
+        model: 'User' | 'Catalog' | 'Ad' | 'ProductReference' | 'Brand',
         modelId: string | null,
         fieldKey: string | undefined,
         imageUrl: string,
@@ -78,6 +78,11 @@ export class FileService {
                     where: { id: modelId },
                     data: { logoUrl: imageUrl },
                 });
+            } else if (model === 'ProductReference' && modelId) {
+                await this.prisma.productReference.update({
+                    where: { id: modelId },
+                    data: { imageUrl, thumbnailUrl: imageUrl },
+                }).catch(() => {});
             }
         } catch (e: any) {
             console.warn('⚠️ Owner image field sync failed (non-blocking):', e.message);
@@ -95,7 +100,7 @@ export class FileService {
             mimetype: string;
             size: number;
         },
-        model: 'User' | 'Catalog' | 'Ad',
+        model: 'User' | 'Catalog' | 'Ad' | 'ProductReference' | 'Brand',
         modelId: string,
         fieldKey?: string,
     ) {
