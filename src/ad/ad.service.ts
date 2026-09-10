@@ -1351,7 +1351,9 @@ export class AdService {
                 where,
                 include: {
                     unit: { select: { id: true, title: true, shortCode: true } },
-                    arm: { select: { id: true, slug: true, name: true, categoryTree: true } },
+                    // ✅ categoryTree حذف شد — JSON سنگین که در لیست مدیریت استفاده نمی‌شد
+                    //    (درخت دسته در مودال دسته‌بندی از useArms می‌آید) → پیلواد لیست ×N سبک‌تر
+                    arm: { select: { id: true, slug: true, name: true } },
                     files: {
                         where: { relatedModel: 'Ad' },
                         select: { id: true, path: true, thumbnailPath: true, fieldKey: true },

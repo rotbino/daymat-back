@@ -303,21 +303,43 @@ export class CatalogService {
             orderBy: { createdAt: 'asc' },
         });
 
-        const result = [];
-        for (const catalog of catalogs) {
-            const logoFile = await this.prisma.file.findFirst({
-                where: { relatedModel: 'Catalog', relatedId: catalog.id, fieldKey: 'logo' },
-                select: { id: true, path: true, thumbnailPath: true, fieldKey: true },
-            });
-            result.push({
+        const catalogIds = catalogs.map((c) => c.id);
+        const bizIdList = [...new Set(catalogs.map((c) => c.businessId).filter(Boolean))];
+
+        // ✅ لوگوها در ۲ کوئری بچ (به‌جای N+1 قبلی) + فال‌بک کامل:
+        //    فایل کاتالوگ → catalog.logoUrl → فایل Business → business.logoUrl
+        //    (ریشهٔ باگ «لوگوی شرکت ست می‌شود ولی در کاتالوگ نمی‌آمد»:
+        //     فایل/فیلد لوگوی Business هرگز خوانده نمی‌شد)
+        const [catLogoFiles, bizLogoFiles] = await Promise.all([
+            catalogIds.length
+                ? this.prisma.file.findMany({
+                      where: { relatedModel: 'Catalog', relatedId: { in: catalogIds }, fieldKey: 'logo' },
+                      select: { id: true, path: true, thumbnailPath: true, relatedId: true },
+                      orderBy: { createdAt: 'desc' },
+                  })
+                : Promise.resolve([]),
+            bizIdList.length
+                ? this.prisma.file.findMany({
+                      where: { relatedModel: 'Business', relatedId: { in: bizIdList }, fieldKey: 'logo' },
+                      select: { id: true, path: true, thumbnailPath: true, relatedId: true },
+                      orderBy: { createdAt: 'desc' },
+                  })
+                : Promise.resolve([]),
+        ]);
+        const catLogoMap = new Map(catLogoFiles.map((f) => [f.relatedId, f]));
+        const bizLogoMap = new Map(bizLogoFiles.map((f) => [f.relatedId, f]));
+
+        return catalogs.map((catalog: any) => {
+            const catLogo = catLogoMap.get(catalog.id) ?? null;
+            const bizLogo = catLogo ? null : (bizLogoMap.get(catalog.businessId) ?? null);
+            return {
                 ...catalog,
-                logoFile: logoFile || null,
-                logoUrl: logoFile?.path || catalog.logoUrl || null,
+                logoFile: catLogo || bizLogo,
+                logoUrl: catLogo?.path || catalog.logoUrl || bizLogo?.path || catalog.business?.logoUrl || null,
                 activeAdsCount: catalog._count.ads,
                 activeMembershipsCount: catalog._count.armMemberships,
-            });
-        }
-        return result;
+            };
+        });
     }
 
     async getActiveCatalog(userId: string) {

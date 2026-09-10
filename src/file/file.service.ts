@@ -23,7 +23,7 @@ export class FileService {
     // ============================================================
     private async deleteExistingFiles(
         userId: string,
-        model: 'User' | 'Catalog' | 'Ad' | 'ProductReference' | 'Brand',
+        model: 'User' | 'Business' | 'Catalog' | 'Ad' | 'ProductReference' | 'Brand',
         modelId: string | null,
         fieldKey: string,
         keepId?: string,
@@ -31,9 +31,9 @@ export class FileService {
         if (model === 'Ad') return 0; // آگهی چند-فایلی است — دست نمی‌زنیم
 
         const where: any = { userId, relatedModel: model, fieldKey };
-        // بیزنس: هر کاتالوگ لوگوی خودش — با relatedId جدا کنیم
-        // (کاربر ممکن است چند بیزنس داشته باشد)
-        if (model === 'Catalog' && modelId) {
+        // Business/Catalog: هر نهاد لوگوی خودش — با relatedId جدا کنیم
+        // (کاربر ممکن است چند بیزنس/کاتالوگ داشته باشد)
+        if ((model === 'Catalog' || model === 'Business') && modelId) {
             where.relatedId = modelId;
         }
 
@@ -64,7 +64,7 @@ export class FileService {
     //    User.avatarUrl / Catalog.logoUrl / ProductReference.imageUrl همیشه تصویر تازه را نشان دهند
     // ============================================================
     private async syncOwnerImageField(
-        model: 'User' | 'Catalog' | 'Ad' | 'ProductReference' | 'Brand',
+        model: 'User' | 'Business' | 'Catalog' | 'Ad' | 'ProductReference' | 'Brand',
         modelId: string | null,
         fieldKey: string | undefined,
         imageUrl: string,
@@ -74,6 +74,13 @@ export class FileService {
                 await this.prisma.user.update({
                     where: { id: modelId },
                     data: { avatarUrl: imageUrl },
+                });
+            } else if (model === 'Business' && fieldKey === 'logo' && modelId) {
+                // ✅ لوگوی کسب‌وکار — ریشهٔ باگ «لوگو ست می‌شود ولی نشان داده نمی‌شد»:
+                //    Business.logoUrl قبلاً هرگز sync نمی‌شد
+                await this.prisma.business.update({
+                    where: { id: modelId },
+                    data: { logoUrl: imageUrl },
                 });
             } else if (model === 'Catalog' && fieldKey === 'logo' && modelId) {
                 await this.prisma.catalog.update({
@@ -92,6 +99,35 @@ export class FileService {
     }
 
     // ============================================================
+    // ✅ باطل‌سازی کش‌های وابسته به تصویر نهادها —
+    //    لوگو/آواتار عوض شد → لیست کاتالوگ‌های مالک، صفحهٔ عمومی کاتالوگ
+    //    و ویترین بازار باید فوراً تازه شوند (نه تا پایان TTL کش)
+    // ============================================================
+    private async bustOwnerCaches(
+        model: 'User' | 'Business' | 'Catalog' | 'Ad' | 'ProductReference' | 'Brand',
+        modelId: string | null,
+        userId: string,
+    ): Promise<void> {
+        try {
+            if (model === 'Business' && modelId) {
+                await this.cache.bust(`my-catalogs:${userId}`);
+            } else if (model === 'Catalog' && modelId) {
+                const cat = await this.prisma.catalog.findUnique({
+                    where: { id: modelId },
+                    select: { slug: true },
+                });
+                await this.cache.bust(`my-catalogs:${userId}`);
+                if (cat?.slug) await this.cache.bust(`catalog-slug:${cat.slug}`);
+            } else if (model === 'Ad' && modelId) {
+                // عکس آگهی در ویترین/صفحهٔ آگهی دیده می‌شود
+                await this.cache.bust(`vitrine`);
+            }
+        } catch (e: any) {
+            console.warn('⚠️ Owner cache bust failed (non-blocking):', e.message);
+        }
+    }
+
+    // ============================================================
     // آپلود فایل با S3
     // ============================================================
     async uploadFile(
@@ -102,7 +138,7 @@ export class FileService {
             mimetype: string;
             size: number;
         },
-        model: 'User' | 'Catalog' | 'Ad' | 'ProductReference' | 'Brand',
+        model: 'User' | 'Business' | 'Catalog' | 'Ad' | 'ProductReference' | 'Brand',
         modelId: string,
         fieldKey?: string,
     ) {
@@ -198,7 +234,7 @@ export class FileService {
             );
         }
 
-        // ۵) ✅ همگام‌سازی User.avatarUrl / Catalog.logoUrl
+        // ۵) ✅ همگام‌سازی User.avatarUrl / Business.logoUrl / Catalog.logoUrl
         await this.syncOwnerImageField(
             model,
             isValidObjectId ? modelId : null,
@@ -210,6 +246,9 @@ export class FileService {
         if (model === 'User' && isValidObjectId) {
             await this.cache.bust(`profile:${modelId}`);
         }
+
+        // ⚠️ کش نهادها: لوگوی Business/Catalog و عکس Ad در لیست‌ها/صفحات کش‌شده دیده می‌شوند
+        await this.bustOwnerCaches(model, isValidObjectId ? modelId : null, userId);
 
         return fileRecord;
     }
@@ -248,6 +287,14 @@ export class FileService {
         // ⚠️ فایل کاربر حذف شد → کش پروفایلش باطل (آواتار در پروفایل می‌آید)
         if (file.relatedModel === 'User' && file.relatedId) {
             await this.cache.bust(`profile:${file.relatedId}`);
+        }
+        // ⚠️ لوگو/عکس نهادها هم در لیست‌های کش‌شده می‌آیند → باطل
+        if (['Business', 'Catalog', 'Ad'].includes(file.relatedModel)) {
+            await this.bustOwnerCaches(
+                file.relatedModel as 'Business' | 'Catalog' | 'Ad',
+                file.relatedId,
+                userId,
+            );
         }
 
         return { message: 'فایل با موفقیت حذف شد' };

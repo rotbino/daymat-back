@@ -177,7 +177,7 @@ export class BusinessService {
             );
         }
 
-        return this.prisma.business.update({
+        const updated = await this.prisma.business.update({
             where: { id },
             data: {
                 ...(dto.name !== undefined ? { name: dto.name.trim().slice(0, 120) } : {}),
@@ -202,6 +202,21 @@ export class BusinessService {
                 updatedAt: new Date(),
             },
         });
+
+        // ⚠️ دیتای Business در لیست my-catalogs (include business) و صفحات عمومی
+        //    کاتالوگ‌هایش کش می‌شود → تغییر مالک = باطل‌سازی فوری
+        await this.cache.bust(`my-catalogs:${userId}`);
+        const ownedCatalogs = await this.prisma.catalog.findMany({
+            where: { businessId: id },
+            select: { slug: true },
+        });
+        await Promise.all(
+            ownedCatalogs
+                .filter((c) => c.slug)
+                .map((c) => this.cache.bust(`catalog-slug:${c.slug!}`)),
+        );
+
+        return updated;
     }
 
     async remove(id: string, userId: string) {

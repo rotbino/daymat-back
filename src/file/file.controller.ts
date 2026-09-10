@@ -41,7 +41,7 @@ export class FileController {
         schema: {
             type: 'object',
             properties: {
-                model: { type: 'string', enum: ['User', 'Catalog', 'Ad', 'ProductReference', 'Brand'] },
+                model: { type: 'string', enum: ['User', 'Business', 'Catalog', 'Ad', 'ProductReference', 'Brand'] },
                 modelId: { type: 'string' },
                 fieldKey: { type: 'string' },
                 file: { type: 'string', format: 'binary' },
@@ -56,7 +56,7 @@ export class FileController {
         const parts = req.parts();
         let fileBuffer: Buffer | null = null;
         let fileInfo: { originalname: string; mimetype: string } | null = null;
-        let model: 'User' | 'Catalog' | 'Ad' | 'ProductReference' | 'Brand' = 'User';
+        let model: 'User' | 'Business' | 'Catalog' | 'Ad' | 'ProductReference' | 'Brand' = 'User';
         let modelId: string = '';
         let fieldKey: string | undefined = undefined;
 
@@ -70,7 +70,7 @@ export class FileController {
                 };
             } else if (part.type === 'field') {
                 if (part.fieldname === 'model') {
-                    model = part.value as 'User' | 'Catalog' | 'Ad' | 'ProductReference' | 'Brand';
+                    model = part.value as 'User' | 'Business' | 'Catalog' | 'Ad' | 'ProductReference' | 'Brand';
                 }
                 if (part.fieldname === 'modelId') {
                     modelId = String(part.value);
