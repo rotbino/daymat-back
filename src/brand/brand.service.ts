@@ -123,21 +123,53 @@ export class BrandService {
             armId = arm?.id || null;
         }
 
-        const created = await this.prisma.brand.create({
-            data: {
-                title,
-                slug,
-                category: dto.category || null,
-                keywords: dto.keywords || [],
-                logoUrl: dto.logoUrl || null,
-                description: dto.description || null,
-                confirmed: false,  // ✅ کاربر ساخت → نیاز به تأیید ادمین
-                isByUser: true,    // ✅ مارک‌گذاری به‌عنوان کاربر-ساخته
-                armId,             // ✅ بازار مبدأ
-                createdByUserId: userId || null,  // ✅ کاربر ثبت‌کننده
-            },
-            select: { id: true, title: true, category: true, logoUrl: true, isByUser: true },
-        });
+        const CREATE_SELECT = { id: true, title: true, category: true, logoUrl: true, isByUser: true } as const;
+
+        const createData = {
+            title,
+            slug,
+            category: dto.category || null,
+            keywords: dto.keywords || [],
+            logoUrl: dto.logoUrl || null,
+            description: dto.description || null,
+            confirmed: false,  // ✅ کاربر ساخت → نیاز به تأیید ادمین
+            isByUser: true,    // ✅ مارک‌گذاری به‌عنوان کاربر-ساخته
+            armId,             // ✅ بازار مبدأ
+            createdByUserId: userId || null,  // ✅ کاربر ثبت‌کننده
+        };
+
+        // ✅ تور ایمنی ایندکس unique — اگه تشخیص fuzzy تکراری را از دست داده باشد،
+        //    به‌جای 500: برند موجود برگردانده می‌شود یا اسلاگ تازه ساخته می‌شود.
+        let created = await this.prisma.brand
+            .create({ data: createData, select: CREATE_SELECT })
+            .catch(async (e: any) => {
+                if (e?.code !== 'P2002') throw e;
+                // ⚠️ روی MongoDB فرمت meta.target رشتهٔ نام ایندکس است (مثل Brand_title_key)
+                const rawTarget = e?.meta?.target;
+                const target = Array.isArray(rawTarget) ? rawTarget.join(' ') : String(rawTarget ?? '');
+                if (target.includes('title')) {
+                    const ex = await this.prisma.brand.findFirst({
+                        where: { title },
+                        select: CREATE_SELECT,
+                    });
+                    if (ex) return { ...ex, _existed: true };
+                }
+                if (target.includes('slug')) {
+                    return this.prisma.brand
+                        .create({
+                            data: { ...createData, slug: `${slug}-${suffix++}-${Date.now() % 10000}` },
+                            select: CREATE_SELECT,
+                        })
+                        .catch(() => null);
+                }
+                throw e;
+            });
+        if (!created) {
+            throw new ConflictException({
+                errorCode: 'CREATE_RACE_FAILED',
+                message: 'ثبت برند در همزمانی ناموفق بود — لطفاً دوباره تلاش کنید',
+            });
+        }
         // ✅ باطل‌سازی کش سرچ
         await this.cache.bust('brand-search');
         return created;

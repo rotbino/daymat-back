@@ -140,33 +140,66 @@ export class ProductReferenceService {
         const autoKeywords = title.split(/\s+/).filter(w => w.length >= 2);
         const keywords = Array.from(new Set([...autoKeywords, ...(dto.keywords || [])]));
 
-        const created = await this.prisma.productReference.create({
-            data: {
-                title,
-                slug,
-                brandId: dto.brandId || null,
-                category: dto.category || null,
-                keywords,
-                imageUrl: dto.imageUrl || null,
-                thumbnailUrl: dto.thumbnailUrl || null,
-                description: dto.description || null,
-                unitHints: dto.unitHints || [],
-                // ✅ ویژگی‌های کالا — حالا مال کالاست نه آگهی
-                specs: (dto as any).specs ?? null,
-                metadata: dto.metadata || null,
-                confirmed: false,
-                isByUser: true,
-                isNew: true,  // ✅ جدید و قابل ویرایش
-                createdByUserId: userId || null,
-                armId,  // ✅ بازار مبدأ — برای نظارت مالک بازار
-            },
-            select: {
-                id: true, title: true, brandId: true,
-                brand: { select: { id: true, title: true } },
-                category: true, imageUrl: true, thumbnailUrl: true,
-                usageCount: true, isByUser: true, isNew: true, createdByUserId: true,
-            },
-        });
+        const CREATE_SELECT = {
+            id: true, title: true, brandId: true,
+            brand: { select: { id: true, title: true } },
+            category: true, imageUrl: true, thumbnailUrl: true,
+            usageCount: true, isByUser: true, isNew: true, createdByUserId: true,
+        } as const;
+
+        const createData = {
+            title,
+            slug,
+            brandId: dto.brandId || null,
+            category: dto.category || null,
+            keywords,
+            imageUrl: dto.imageUrl || null,
+            thumbnailUrl: dto.thumbnailUrl || null,
+            description: dto.description || null,
+            unitHints: dto.unitHints || [],
+            // ✅ ویژگی‌های کالا — حالا مال کالاست نه آگهی
+            specs: (dto as any).specs ?? null,
+            metadata: dto.metadata || null,
+            confirmed: false,
+            isByUser: true,
+            isNew: true,  // ✅ جدید و قابل ویرایش
+            createdByUserId: userId || null,
+            armId,  // ✅ بازار مبدأ — برای نظارت مالک بازار
+        };
+
+        // ✅ تور ایمنی ایندکس unique — اگه تشخیص fuzzy تکراری را از دست داده باشد
+        //    (مثلاً اعداد فارسی در رکورد قدیمی)، به‌جای 500: موجود برگردانده می‌شود
+        //    یا اسلاگ تازه ساخته می‌شود.
+        let created = await this.prisma.productReference
+            .create({ data: createData, select: CREATE_SELECT })
+            .catch(async (e: any) => {
+                if (e?.code !== 'P2002') throw e;
+                // ⚠️ روی MongoDB فرمت meta.target رشتهٔ نام ایندکس است (مثل ProductReference_title_key)
+                const rawTarget = e?.meta?.target;
+                const target = Array.isArray(rawTarget) ? rawTarget.join(' ') : String(rawTarget ?? '');
+                if (target.includes('title')) {
+                    const ex = await this.prisma.productReference.findFirst({
+                        where: { title },
+                        select: CREATE_SELECT,
+                    });
+                    if (ex) return { ...ex, _existed: true };
+                }
+                if (target.includes('slug')) {
+                    return this.prisma.productReference
+                        .create({
+                            data: { ...createData, slug: `${slug}-${suffix++}-${Date.now() % 10000}` },
+                            select: CREATE_SELECT,
+                        })
+                        .catch(() => null);
+                }
+                throw e;
+            });
+        if (!created) {
+            throw new ConflictException({
+                errorCode: 'CREATE_RACE_FAILED',
+                message: 'ثبت کالا در همزمانی ناموفق بود — لطفاً دوباره تلاش کنید',
+            });
+        }
         // ✅ باطل‌سازی کش سرچ
         await this.cache.bust('prod-search');
         return created;
