@@ -22,6 +22,7 @@ import {CommonModule} from "./common/common.module";
 import {BusinessModule} from "./business/business.module";
 import {BrandModule} from "./brand/brand.module";
 import {ProductReferenceModule} from "./product-reference/product-reference.module";
+import {HealthModule} from "./health/health.module";
 
 
 @Global()
@@ -33,6 +34,7 @@ import {ProductReferenceModule} from "./product-reference/product-reference.modu
       { name: 'medium', ttl: 300000, limit: 200 },
     ]),
     PrismaModule,
+    HealthModule,   // ✅ GET /health — چک بک + دیتابیس برای فرانت
     AuthModule,
     CommonModule,        // ✅ اضافه — سرویس انتشار سراسری
     FileModule,
