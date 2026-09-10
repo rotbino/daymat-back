@@ -61,19 +61,38 @@ async function bootstrap() {
 
     // ============================================================
     // CORS
+    // لیست سفید ثابت + CORS_EXTRA_ORIGINS (کاما-جدا) + پترن دامنه‌های پیش‌نمایش سندباکس
     // ============================================================
+    const allowedOrigins: string[] = [
+        'https://www.daymat.ir',
+        'https://daymat.vercel.app',
+        'https://sarnakh.vercel.app',
+        'https://uniqu.vercel.app',
+        'https://uniqu.ir',
+        'http://localhost:3000',
+        'http://localhost:5173',
+        'http://localhost:3011',
+        process.env.FRONTEND_URL, // URL فرانت‌اند
+        ...(process.env.CORS_EXTRA_ORIGINS
+            ? process.env.CORS_EXTRA_ORIGINS.split(',').map((s) => s.trim())
+            : []),
+    ].filter(Boolean) as string[];
+
+    // دامنه‌های داینامیک پیش‌نمایش (سندباکس): https://preview-chat-<id>.space-z.ai
+    const allowedOriginPatterns: RegExp[] = [
+        /^https:\/\/preview-chat-[a-z0-9-]+\.space-z\.ai$/i,
+    ];
+
     app.enableCors({
-        origin: [
-            'https://www.daymat.ir',
-            'https://daymat.vercel.app',
-            'https://sarnakh.vercel.app',
-            'https://uniqu.vercel.app',
-            'https://uniqu.ir',
-            'http://localhost:3000',
-            'http://localhost:5173',
-            'http://localhost:3011',
-            process.env.FRONTEND_URL, // URL فرانت‌اند
-        ].filter(Boolean),
+        origin: (origin, cb) => {
+            // درخواست بدون Origin (curl / تست سرور-به-سرور / پنل ادمین داخل همان دامنه) مجاز است
+            if (!origin) return cb(null, true);
+            if (allowedOrigins.includes(origin) || allowedOriginPatterns.some((p) => p.test(origin))) {
+                return cb(null, true);
+            }
+            // مبدأ ناشناس: بدون هدر CORS (مرورگر بلاک می‌کند؛ کلاینت‌های غیرمرورگری بی‌اثر)
+            return cb(null, false);
+        },
         credentials: true,
         methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
         allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
