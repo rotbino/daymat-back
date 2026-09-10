@@ -15,7 +15,14 @@ import { SettingsModule } from '../settings/settings.module';
             inject: [ConfigService],
             useFactory: (config: ConfigService) => ({
                 secret: config.get('jwtSecret'),
-                signOptions: { expiresIn: config.get('jwtExpiresIn') },
+                // ⚠️ بدون expiresIn — توکن بی‌انقضا (مدل تلگرام).
+                // عمر نشست را tokenVersion در jwt.strategy کنترل می‌کند:
+                // logout/تغییر رمز → tokenVersion++ → همهٔ توکن‌های قبلی 401 می‌گیرند.
+                // jwtExpiresIn از config الان null است؛ اگر فردا خواستید TTL برگردانید
+                // فقط همین‌جا signOptions: { expiresIn: config.get('jwtExpiresIn') } بگذارید.
+                signOptions: config.get('jwtExpiresIn')
+                    ? { expiresIn: config.get('jwtExpiresIn') }
+                    : {},
             }),
         }),
         SettingsModule, // ✅ برای دسترسی به SystemSettingsService

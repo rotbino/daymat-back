@@ -11,6 +11,7 @@ import { CreateArmDto, } from './dto/create-arm.dto';
 import { LocationService } from '../location/location.service';
 import { SystemRole } from "src/common/enums/prisma-enums";
 import { CatalogPublishService } from "../common/services/catalog-publish.service";
+import { CacheHelper } from '../common/services/cache.helper';
 
 @Injectable()
 export class ArmService {
@@ -18,6 +19,7 @@ export class ArmService {
         private prisma: PrismaService,
         private locationService: LocationService,
         private catalogPublish: CatalogPublishService,
+        private cache: CacheHelper,
     ) {}
 
     // ============================================================
@@ -519,7 +521,7 @@ export class ArmService {
             }
 
             // ✅ آپدیت کن — role رو دست نمی‌زنیم
-            return this.prisma.armMembership.update({
+            const updated = await this.prisma.armMembership.update({
                 where: { id: existing.id },
                 data: {
                     status: existing.status === 'active' ? 'active' : finalStatus,
@@ -531,9 +533,13 @@ export class ArmService {
                     source: 'manual',
                 },
             });
+
+            // ⚠️ تعداد عضویت‌ها در پروفایل هست → کش پروفایل باطل
+            await this.cache.bust(`profile:${userId}`);
+            return updated;
         }
 
-        return this.prisma.armMembership.create({
+        const created = await this.prisma.armMembership.create({
             data: {
                 armId: arm.id,
                 userId: userId,
@@ -545,6 +551,10 @@ export class ArmService {
                 source: 'manual',
             },
         });
+
+        // ⚠️ عضویت جدید → شمارش پروفایل عوض می‌شود → کش باطل
+        await this.cache.bust(`profile:${userId}`);
+        return created;
     }
 
     // ============================================================
@@ -581,10 +591,14 @@ export class ArmService {
             await this.catalogPublish.unstampCatalogAds(membership.catalogId, arm.id);
         }
 
-        return this.prisma.armMembership.update({
+        const updated = await this.prisma.armMembership.update({
             where: { id: membership.id },
             data: { status: 'paused' },
         });
+
+        // ⚠️ ترک بازار → شمارش عضویت پروفایل عوض می‌شود → کش باطل
+        await this.cache.bust(`profile:${userId}`);
+        return updated;
     }
 
     // ============================================================

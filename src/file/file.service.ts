@@ -2,6 +2,7 @@
 import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { S3Service } from './s3.service';
+import { CacheHelper } from '../common/services/cache.helper';
 
 @Injectable()
 export class FileService {
@@ -10,6 +11,7 @@ export class FileService {
     constructor(
         private prisma: PrismaService,
         private s3Service: S3Service,
+        private cache: CacheHelper,
     ) {}
 
     // ============================================================
@@ -204,6 +206,11 @@ export class FileService {
             thumbnailUrl || url,
         );
 
+        // ⚠️ کش پروفایل: آواتار/فایل کاربر عوض شد → پروفایل فوراً تازه شود
+        if (model === 'User' && isValidObjectId) {
+            await this.cache.bust(`profile:${modelId}`);
+        }
+
         return fileRecord;
     }
 
@@ -237,6 +244,12 @@ export class FileService {
         if (metadata?.s3Key) await this.s3Service.deleteFile(metadata.s3Key);
         if (metadata?.thumbnailS3Key) await this.s3Service.deleteFile(metadata.thumbnailS3Key);
         await this.prisma.file.delete({ where: { id: fileId } });
+
+        // ⚠️ فایل کاربر حذف شد → کش پروفایلش باطل (آواتار در پروفایل می‌آید)
+        if (file.relatedModel === 'User' && file.relatedId) {
+            await this.cache.bust(`profile:${file.relatedId}`);
+        }
+
         return { message: 'فایل با موفقیت حذف شد' };
     }
 

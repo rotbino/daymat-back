@@ -92,6 +92,9 @@ model User {
   updatedAt       DateTime  @updatedAt
   lastLoginAt     DateTime?
   membershipTier  String    @default("free")
+  // ── لاگ‌اوت واقعی: با هر خروج/تغییر رمز یکی زیاد می‌شود؛
+  //    jwt.strategy نسخهٔ توکن را با این فیلد می‌سنجد → توکن‌های قدیمی فوراً باطل
+  tokenVersion    Int       @default(0)
   isPhoneVerified Boolean   @default(false)
   phoneVerifiedAt DateTime?
   temporaryPassword Boolean @default(true)

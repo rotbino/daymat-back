@@ -9,6 +9,10 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCatalogDto, UpdateCatalogDto } from './catalog.dto';
 import { CatalogRole } from '../common/enums/prisma-enums';
+import { CacheHelper } from '../common/services/cache.helper';
+
+/** عمر کش لیست‌های عمومی کاتالوگ — ۵ دقیقه */
+const PUBLIC_LIST_CACHE_TTL_MS = 5 * 60 * 1000;
 
 /**
  * کاتالوگ — ویترینِ یک نهاد تجاری.
@@ -26,7 +30,10 @@ export class CatalogService {
         'market', 'my-catalogs', 'notifications',
     ];
 
-    constructor(private prisma: PrismaService) {}
+    constructor(
+        private prisma: PrismaService,
+        private cache: CacheHelper,
+    ) {}
 
     // ─── اسلاگ ───
     private normalizeSlug(input: string): string {
@@ -230,6 +237,9 @@ export class CatalogService {
             }
         }
 
+        // ⚠️ دیتای خود کاربر تغییر کرد → کش لیست کاتالوگ‌هایش فوراً باطل
+        await this.bustUserCatalogs(userId);
+
         return catalog;
     }
 
@@ -239,8 +249,19 @@ export class CatalogService {
 
     // ============================================================
     // لیست کاتالوگ‌های کاربر — از مسیر نهادها
+    // ⚠️ دیتای خود کاربر: کش per-user + باطل‌سازی فوری در create/update/remove/updateConfig
     // ============================================================
     async findAllByUser(userId: string) {
+        return this.cache.wrap(`my-catalogs:${userId}`, [], PUBLIC_LIST_CACHE_TTL_MS, () =>
+            this.fetchAllByUser(userId));
+    }
+
+    /** باطل‌سازی کش لیست کاتالوگ‌های یک کاربر */
+    private async bustUserCatalogs(userId: string) {
+        await this.cache.bust(`my-catalogs:${userId}`);
+    }
+
+    private async fetchAllByUser(userId: string) {
         const bizIds = await this.getUserBusinessIds(userId);
 
         const catalogs = await this.prisma.catalog.findMany({
@@ -394,7 +415,7 @@ export class CatalogService {
     // ویرایش کاتالوگ — بدون industryId (صنف متن آزاد)
     // ============================================================
     async update(id: string, userId: string, dto: UpdateCatalogDto) {
-        await this.getOwnedCatalog(id, userId);
+        const owned = await this.getOwnedCatalog(id, userId);
 
         if (dto.logoFileId) {
             const logoFile = await this.prisma.file.findUnique({
@@ -442,6 +463,13 @@ export class CatalogService {
             });
         }
 
+        // ⚠️ دیتای خود کاربر تغییر کرد → کش لیست کاتالوگ‌هایش باطل؛
+        // صفحهٔ عمومی کاتالوگ (findBySlug) هم تازه شود (اسلاگ قبلی و جدید)
+        await this.bustUserCatalogs(userId);
+        const oldSlug = (owned as any)?.slug;
+        if (oldSlug) await this.cache.bust(`catalog-slug:${oldSlug}`);
+        await this.cache.bust(`catalog-slug:${(catalog as any).slug}`);
+
         return catalog;
     }
 
@@ -449,7 +477,7 @@ export class CatalogService {
     // حذف کاتالوگ (soft delete)
     // ============================================================
     async remove(id: string, userId: string) {
-        await this.getOwnedCatalog(id, userId);
+        const owned = await this.getOwnedCatalog(id, userId);
 
         const activeAds = await this.prisma.ad.count({ where: { catalogId: id, status: 'active' } });
         if (activeAds > 0) {
@@ -458,7 +486,14 @@ export class CatalogService {
                 message: 'این کاتالوگ آگهی فعال دارد، ابتدا آنها را حذف کنید',
             });
         }
-        return this.prisma.catalog.update({ where: { id }, data: { status: 'closed', updatedAt: new Date() } });
+        const closed = await this.prisma.catalog.update({ where: { id }, data: { status: 'closed', updatedAt: new Date() } });
+
+        // ⚠️ کش لیست مالک + صفحهٔ عمومی کاتالوگ باطل شود
+        await this.bustUserCatalogs(userId);
+        const slug = (owned as any)?.slug;
+        if (slug) await this.cache.bust(`catalog-slug:${slug}`);
+
+        return closed;
     }
 
     async exists(id: string): Promise<boolean> {
@@ -476,8 +511,14 @@ export class CatalogService {
 
     // ============================================================
     // کاتالوگ عمومی با آدرس (/{slug}) — owner از نهاد
+    // ⚠️ کش عمومی ۵ دقیقه‌ای per slug؛ ویرایش/حذف/کانفیگ مالک فوراً bust می‌کند
     // ============================================================
     async findBySlug(slug: string) {
+        return this.cache.wrap(`catalog-slug:${slug}`, [], PUBLIC_LIST_CACHE_TTL_MS, () =>
+            this.fetchBySlug(slug));
+    }
+
+    private async fetchBySlug(slug: string) {
         const catalog = await this.prisma.catalog.findFirst({
             where: { slug, status: 'active' },
             include: {
@@ -555,25 +596,28 @@ export class CatalogService {
     }
 
     async getFeatured(limit = 12) {
-        const now = new Date();
-        const items = await this.prisma.catalog.findMany({
-            where: {
-                status: 'active',
-                isFeatured: true,
-                OR: [{ featuredUntil: null }, { featuredUntil: { gt: now } }],
-            },
-            select: {
-                id: true, name: true, slug: true, industryName: true,
-                logoUrl: true, city: true,
-                _count: { select: { ads: { where: { status: { not: 'deleted' } } } } },
-            },
-            take: limit,
+        // ✅ کش عمومی ۵ دقیقه‌ای — دیتای دیگران؛ ثبت/ویرایش کاتالوگ کش را نمی‌شکند
+        return this.cache.wrap('catalog-featured', [limit], PUBLIC_LIST_CACHE_TTL_MS, async () => {
+            const now = new Date();
+            const items = await this.prisma.catalog.findMany({
+                where: {
+                    status: 'active',
+                    isFeatured: true,
+                    OR: [{ featuredUntil: null }, { featuredUntil: { gt: now } }],
+                },
+                select: {
+                    id: true, name: true, slug: true, industryName: true,
+                    logoUrl: true, city: true,
+                    _count: { select: { ads: { where: { status: { not: 'deleted' } } } } },
+                },
+                take: limit,
+            });
+            return { items };
         });
-        return { items };
     }
 
     async updateConfig(id: string, userId: string, dto: { units?: any[]; categoryTree?: any[] }) {
-        await this.getOwnedCatalog(id, userId);
+        const owned = await this.getOwnedCatalog(id, userId);
 
         const catalog = await this.prisma.catalog.findUnique({ where: { id }, select: { config: true } });
         const currentConfig = (catalog?.config as any) || {};
@@ -587,6 +631,12 @@ export class CatalogService {
             where: { id },
             data: { config: newConfig as any, updatedAt: new Date() },
         });
+
+        // ⚠️ کانفیگ ویتروین/واحد/درخت دسته عوض شد → کش‌های مالک و صفحهٔ عمومی باطل
+        await this.bustUserCatalogs(userId);
+        const slug = (owned as any)?.slug;
+        if (slug) await this.cache.bust(`catalog-slug:${slug}`);
+
         return { success: true, config: newConfig };
     }
 

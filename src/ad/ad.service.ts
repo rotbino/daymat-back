@@ -14,6 +14,7 @@ import {
 } from '../common/utils/arm.utils';
 import { SearchLogDto } from "./search-log.dto";
 import { CatalogPublishService } from "../common/services/catalog-publish.service";
+import { CacheHelper } from '../common/services/cache.helper';
 
 const FA_NORMALIZE = (s: string) =>
     (s ?? '')
@@ -24,6 +25,10 @@ const FA_NORMALIZE = (s: string) =>
         .trim();
 
 const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** عمر کش لیست‌های عمومی (ویترین/سرچ/کاتالوگ) — تصمیم محصول: ۵ دقیقه کهنگی قابل‌قبول */
+const PUBLIC_LIST_CACHE_TTL_MS = 5 * 60 * 1000;
+const VITRINE_CACHE_TTL_MS = PUBLIC_LIST_CACHE_TTL_MS;
 
 /** include مشترکِ مالکیت کاتالوگ — مالک واقعی از مسیر نهاد */
 const CATALOG_OWNER_SELECT = {
@@ -38,6 +43,7 @@ export class AdService {
         private prisma: PrismaService,
         private catalogPublish: CatalogPublishService,
         private creditService: CreditService,
+        private cache: CacheHelper,
     ) {}
 
     private getConfigValue<T>(config: any, path: string, defaultValue: T): T {
@@ -354,26 +360,57 @@ export class AdService {
         const config = arm.config as any || {};
         const priceTableConfig = config?.modules?.priceTable || {};
 
-        // ✅ چک کن آیا کاربر حق دیدن قیمت‌ها رو داره
-        let canViewPrices = true;
-        if (priceTableConfig.requireMembershipToViewPrices === true) {
-            if (!userId) {
-                canViewPrices = false; // مهمان
-            } else {
-                // چک کن آیا کاربر buyer یا seller فعال در این بازار هست
-                const membership = await this.prisma.armMembership.findFirst({
-                    where: {
-                        armId: arm.id,
-                        userId,
-                        status: 'active',
-                        businessStatus: 'active',
-                        businessId: { not: null },
-                    },
-                });
-                canViewPrices = !!membership;
-            }
-        }
+        // ✅ چک کن آیا کاربر حق دیدن قیمت‌ها رو داره (per-user — بیرون از کش)
+        const canViewPrices = await this.canViewVitrinePrices(arm.id, userId, priceTableConfig);
 
+        // ✅ هستهٔ سنگین لیست — مشترک بین همهٔ کاربران → کش ۵ دقیقه‌ای بدون باطل‌سازی
+        //    (ثبت/ویرایش آگهی دیگران کش را نمی‌شکند؛ حداکثر ۵ دقیقه کهنگی — تصمیم محصول)
+        const core = await this.cache.wrap(
+            'vitrine',
+            [armSlug, JSON.stringify(query)],
+            VITRINE_CACHE_TTL_MS,
+            () => this.fetchVitrineCore(arm, query),
+        );
+
+        // دکور per-user: اگر کاربر حق دیدن قیمت ندارد، قیمت‌ها را null کن (روی کپی)
+        const ads = !canViewPrices
+            ? core.ads.map((ad: any) => ({
+                ...ad,
+                unitPrice: null,
+                singleUnitPrice: null,
+                consumerPrice: null,
+                giftPrice: null,
+                volumeTiers: null,
+            }))
+            : core.ads;
+
+        return {
+            ads,
+            canViewPrices,  // ✅ فرانت از این استفاده می‌کنه تا پیام مناسب نشون بده
+            pagination: core.pagination,
+        };
+    }
+
+    /** حق دیدن قیمت — فقط وقتی بازار قفل قیمت دارد کوئری می‌زند */
+    private async canViewVitrinePrices(armId: string, userId: string | undefined, priceTableConfig: any): Promise<boolean> {
+        if (priceTableConfig.requireMembershipToViewPrices !== true) return true;
+        if (!userId) return false; // مهمان
+        // چک کن آیا کاربر buyer یا seller فعال در این بازار هست
+        const membership = await this.prisma.armMembership.findFirst({
+            where: {
+                armId,
+                userId,
+                status: 'active',
+                businessStatus: 'active',
+                businessId: { not: null },
+            },
+            select: { id: true },
+        });
+        return !!membership;
+    }
+
+    /** هستهٔ مشترک ویتروین — بدون هیچ وابستگی به کاربرِ درخواست‌کننده */
+    private async fetchVitrineCore(arm: { id: string; config: any; categoryTree: any }, query: AdListQueryDto) {
         const flatCategory = flattenCategoryTree(arm.categoryTree);
         const categoryMap = new Map(flatCategory.map((s: any) => [s.categoryId, s]));
 
@@ -420,7 +457,6 @@ export class AdService {
         if (adIds.length === 0) {
             return {
                 ads: [],
-                canViewPrices,
                 pagination: { page, limit, total: 0, totalPages: 0 },
             };
         }
@@ -434,6 +470,7 @@ export class AdService {
         };
 
         // فیلتر نوع فروش ویترین
+        const priceTableConfig = (arm.config as any)?.modules?.priceTable || {};
         const visibleSalesTypes = priceTableConfig.visibleSalesTypes;
         if (Array.isArray(visibleSalesTypes) && visibleSalesTypes.length) {
             adWhere.catalog = { salesType: { in: visibleSalesTypes } };
@@ -542,6 +579,7 @@ export class AdService {
         const total = pubTotal;
 
         // ✅ category را از publication این بازار بگیر، نه از Ad snapshot
+        // (قیمت‌ها همیشه داخل کش کامل می‌مانند؛ nullکردن per-user در getVitrine انجام می‌شود)
         const adsWithCustomLabel = orderedAds.map((ad: any) => {
             const pub = pubMap.get(ad.id);
             const pubCategoryId = pub?.categoryId || null;
@@ -551,14 +589,6 @@ export class AdService {
                 // ✅ category از publication این بازار
                 categoryId: pubCategoryId,
                 categoryPath: pub?.categoryPath || [],
-                // ✅ اگه کاربر حق دیدن قیمت‌ها رو نداره، قیمت‌ها رو null کن
-                ...( !canViewPrices ? {
-                    unitPrice: null,
-                    singleUnitPrice: null,
-                    consumerPrice: null,
-                    giftPrice: null,
-                    volumeTiers: null,
-                } : {}),
                 verificationTier: (ad.catalog as any)?.business?.verificationTier ?? null,
                 categoryTitle: selection?.customLabel || selection?.title || pubCategoryId || '',
                 unitBaseTitle: selection?.baseUnitTitle || ad.unitBaseTitle || null,
@@ -567,7 +597,6 @@ export class AdService {
 
         return {
             ads: adsWithCustomLabel,
-            canViewPrices,  // ✅ فرانت از این استفاده می‌کنه تا پیام مناسب نشون بده
             pagination: {
                 page,
                 limit,
@@ -1262,6 +1291,28 @@ export class AdService {
         search?: string,
         statusFilter?: string,
     ) {
+        // ✅ فقط نمای عمومی (active) کش می‌شود — ۵ دقیقه، بدون باطل‌سازی (دیتای دیگران).
+        //    نمای مدیریت مالک (بدون فیلتر/pending/archived) همیشه مستقیم از DB می‌آید
+        //    تا تغییرات آگهی‌های خودش بلافاصله ببیند.
+        const isPublicView = statusFilter === 'active';
+        if (isPublicView) {
+            return this.cache.wrap(
+                'catalog-ads',
+                [catalogId, page, limit, search ?? '_'],
+                PUBLIC_LIST_CACHE_TTL_MS,
+                () => this.fetchCatalogAds(catalogId, page, limit, search, statusFilter),
+            );
+        }
+        return this.fetchCatalogAds(catalogId, page, limit, search, statusFilter);
+    }
+
+    private async fetchCatalogAds(
+        catalogId: string,
+        page: number = 1,
+        limit: number = 10,
+        search?: string,
+        statusFilter?: string,
+    ) {
         const skip = (page - 1) * limit;
 
         const where: any = {
@@ -1400,6 +1451,17 @@ export class AdService {
         const armId = await this.resolveArmId(armSlug);
         if (!armId) return { suggestions: [] };
 
+        // ✅ کش ۵ دقیقه‌ای per (بازار، عبارت، لیمیت) — aggregate سنگین مونگو تکرار نشود؛
+        //    پیشنهادها دیتای عمومی‌اند و کهنگی ۵ دقیقه‌ای مشکلی ندارد
+        return this.cache.wrap(
+            'ad-suggest',
+            [armId, term, limit],
+            PUBLIC_LIST_CACHE_TTL_MS,
+            () => this.fetchSearchSuggestions(armId, term, limit),
+        );
+    }
+
+    private async fetchSearchSuggestions(armId: string, term: string, limit: number) {
         const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
         try {

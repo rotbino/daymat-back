@@ -132,10 +132,12 @@ export class AuthController {
 
     @Post('logout')
     @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'خروج واقعی — باطل‌سازی همهٔ توکن‌های صادرشده برای کاربر' })
+    @ApiResponse({ status: 200, description: 'خروج موفق؛ توکن‌های قبلی دیگر قابل استفاده نیستند' })
     async logout(@CurrentUser() user: any) {
-        // در اینجا می‌توانید refresh token فعلی را از دیتابیس حذف یا blacklist کنید
-        // در ساده‌ترین حالت، نیازی به کاری نیست چون JWT stateless است
-        return { message: 'خروج با موفقیت انجام شد' };
+        // لاگ‌اوت واقعی: tokenVersion کاربر زیاد می‌شود و توکن‌های قبلی می‌میرند
+        return this.authService.logout(user.id);
     }
 
     // ✅ NEW — بررسی اعتبار کد دعوت (عمومی، قبل از ثبت‌نام)

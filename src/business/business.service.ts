@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBusinessDto, UpdateBusinessDto, RequestBusinessVerificationDto } from './business.dto';
+import { CacheHelper } from '../common/services/cache.helper';
 
 /**
  * نهاد تجاری — هویت واقعی کسب‌وکار.
@@ -17,7 +18,10 @@ import { CreateBusinessDto, UpdateBusinessDto, RequestBusinessVerificationDto } 
  */
 @Injectable()
 export class BusinessService {
-    constructor(private prisma: PrismaService) {}
+    constructor(
+        private prisma: PrismaService,
+        private cache: CacheHelper,
+    ) {}
 
     // ✅ اگه صنف در جدول Industry وجود نداشته باشه، بسازش
     // اگه industryId داده شده، اون رو استفاده کن
@@ -83,7 +87,7 @@ export class BusinessService {
             dto.industryName,
         );
 
-        return this.prisma.business.create({
+        const created = await this.prisma.business.create({
             data: {
                 ownerUserId: userId,
                 name: dto.name.trim().slice(0, 120),
@@ -107,6 +111,11 @@ export class BusinessService {
                 businessStartYear: dto.businessStartYear || null,
             },
         });
+
+        // ⚠️ تعداد نهادها در پروفایل کاربر می‌آید (_count.businesses) → کش پروفایل باطل
+        await this.cache.bust(`profile:${userId}`);
+
+        return created;
     }
 
     async getMy(userId: string) {

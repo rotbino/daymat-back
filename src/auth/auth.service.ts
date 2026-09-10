@@ -13,8 +13,12 @@ import {
 import { SystemSettingsService } from '../settings/system-settings.service';
 import * as bcrypt from 'bcryptjs';
 import { SystemRole } from "../common/enums/prisma-enums";
+import { CacheHelper } from '../common/services/cache.helper';
 // ✅ NEW — ابزار رفرال مشترک
 import { generateReferralCode, normalizeReferralCode, isReferralCollision } from '../common/utils/referral';
+
+/** عمر کش پروفایل — با هر ویرایشِ مسیرهای شناخته‌شده فوراً باطل می‌شود */
+const PROFILE_CACHE_TTL_MS = 5 * 60 * 1000;
 
 @Injectable()
 export class AuthService {
@@ -22,15 +26,27 @@ export class AuthService {
         private prisma: PrismaService,
         private jwtService: JwtService,
         private systemSettings: SystemSettingsService,
+        private cache: CacheHelper,
     ) {}
 
     // ============================================================
-    // ✅ دریافت پروفایل
-    // ============================================================
-    // ============================================================
-    // ✅ دریافت پروفایل
+    // ✅ دریافت پروفایل — کش per-user (۵ دقیقه)
+    //    باطل‌سازی فوری در همهٔ مسیرهای تغییر دیتای کاربر:
+    //    updateProfile، آپلود/حذف فایل کاربر (file.service)،
+    //    ساخت نهاد تجاری (business.service)، عضویت بازار (arm.service)
+    //    — همه با cache.bust('profile:'+userId)
     // ============================================================
     async getProfile(userId: string) {
+        return this.cache.wrap(`profile:${userId}`, [], PROFILE_CACHE_TTL_MS, () =>
+            this.fetchProfile(userId));
+    }
+
+    /** باطل‌سازی کش پروفایل یک کاربر — از سرویس‌های دیگر هم صدا زده می‌شود */
+    async bustProfileCache(userId: string) {
+        await this.cache.bust(`profile:${userId}`);
+    }
+
+    private async fetchProfile(userId: string) {
         const user = await this.prisma.user.findUnique({
             where: { id: userId },
             select: {
@@ -139,8 +155,22 @@ export class AuthService {
                 phone: user.phone,
                 role: user.role,
                 locale: user.locale || locale || 'fa',
+                tv: user.tokenVersion, // ← لاگ‌اوت واقعی: نسخهٔ توکن
             }),
         };
+    }
+
+    // ============================================================
+    // ✅ لاگ‌اوت واقعی — نسخهٔ توکن کاربر یکی زیاد می‌شود؛
+    //    همهٔ access token های صادرشدهٔ قبلی فوراً باطل می‌شوند
+    //    (jwt.strategy نسخهٔ توکن را با DB می‌سنجد)
+    // ============================================================
+    async logout(userId: string) {
+        await this.prisma.user.update({
+            where: { id: userId },
+            data: { tokenVersion: { increment: 1 } },
+        });
+        return { message: 'خروج با موفقیت انجام شد' };
     }
 
     // ============================================================
@@ -238,6 +268,7 @@ export class AuthService {
                 role: newUser.role,
                 locale: newUser.locale,
                 isPhoneVerified: newUser.isPhoneVerified,
+                tv: newUser.tokenVersion, // ← لاگ‌اوت واقعی: نسخهٔ توکن
             }),
         };
     }
@@ -320,6 +351,9 @@ export class AuthService {
             data: updateData,
         });
 
+        // ⚠️ دیتای خود کاربر تغییر کرد → کش پروفایل فوراً باطل
+        await this.bustProfileCache(userId);
+
         return this.getProfile(userId);
     }
 
@@ -348,11 +382,13 @@ export class AuthService {
 
         const hashedPassword = await bcrypt.hash(dto.newPassword, 10);
 
+        // ⚠️ امنیتی: با تغییر رمز، همهٔ نشست‌های فعال هم باطل شوند
         const updatedUser = await this.prisma.user.update({
             where: { id: userId },
             data: {
                 passwordHash: hashedPassword,
                 temporaryPassword: false,
+                tokenVersion: { increment: 1 },
             },
             select: {
                 id: true,
@@ -439,11 +475,13 @@ export class AuthService {
         const hashedPassword = await bcrypt.hash(dto.newPassword, 10);
 
         await this.prisma.$transaction([
+            // ⚠️ امنیتی: با تغییر رمز، همهٔ نشست‌های فعال هم باطل شوند
             this.prisma.user.update({
                 where: { id: user.id },
                 data: {
                     passwordHash: hashedPassword,
                     temporaryPassword: false,
+                    tokenVersion: { increment: 1 },
                 },
             }),
             this.prisma.verificationCode.update({

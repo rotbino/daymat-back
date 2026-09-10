@@ -15,7 +15,10 @@ export default () => {
     const config = {
         port: parseInt(process.env.PORT, 10) || 3011,
         jwtSecret: process.env.JWT_SECRET || 'default-secret-change-me',
-        jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
+        // ⚠️ منسوخ — توکن‌ها بی‌انقضا صادر می‌شوند (مدل تلگرام).
+        // باطل‌سازی فقط با tokenVersion در jwt.strategy انجام می‌شود (لاگ‌اوت/تغییر رمز).
+        // مقدار JWT_EXPIRES_IN در env نادیده گرفته می‌شود و می‌توان از پارامترهای استقرار حذفش کرد.
+        jwtExpiresIn: null as string | null,
         defaultLocale: process.env.DEFAULT_LOCALE || 'fa',
         databaseUrl: process.env.DATABASE_URL,
 
