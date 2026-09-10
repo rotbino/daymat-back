@@ -663,6 +663,39 @@ export class CatalogService {
     }
 
     // ═══════════════════════════════════════════════════════
+    // کارت ویزیت — ذخیرهٔ مشخصات (JSON) در metadata کاتالوگ
+    // کاربر طرح کارت را یک‌بار می‌سازد و زحمتش از بین نمی‌رود
+    // ═══════════════════════════════════════════════════════
+    async saveVisitCard(id: string, userId: string, spec: Record<string, any> | null | undefined) {
+        const owned = await this.getOwnedCatalog(id, userId);
+
+        // 🛡️ گارد حجم — تصاویر dataURL فشرده سمت کلاینت می‌آیند؛ سقف منطقی ۱.۵MB
+        if (spec !== undefined && spec !== null && JSON.stringify(spec).length > 1_500_000) {
+            throw new BadRequestException('حجم مشخصات کارت ویزیت بیش از حد مجاز است');
+        }
+
+        const catalog = await this.prisma.catalog.findUnique({ where: { id }, select: { metadata: true } });
+        const newMetadata: Record<string, any> = { ...((catalog?.metadata as any) || {}) };
+        if (spec === null) {
+            delete newMetadata.visitCard; // حذف کارت ذخیره‌شده
+        } else if (spec !== undefined) {
+            newMetadata.visitCard = { ...spec, updatedAt: new Date().toISOString() };
+        }
+
+        await this.prisma.catalog.update({
+            where: { id },
+            data: { metadata: newMetadata as any, updatedAt: new Date() },
+        });
+
+        // کش مالک + صفحهٔ عمومی کاتالوگ باطل شود
+        await this.bustUserCatalogs(userId);
+        const slug = (owned as any)?.slug;
+        if (slug) await this.cache.bust(`catalog-slug:${slug}`);
+
+        return { success: true, visitCard: newMetadata.visitCard ?? null };
+    }
+
+    // ═══════════════════════════════════════════════════════
     // تعاملات
     // ═══════════════════════════════════════════════════════
 

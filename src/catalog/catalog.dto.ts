@@ -6,7 +6,7 @@ import {
     IsEnum,
     IsArray,
     MaxLength,
-    Matches, IsIn,
+    Matches, IsIn, IsObject,
 } from 'class-validator';
 
 export class CreateCatalogDto {
@@ -283,4 +283,12 @@ export class RequestVerificationDto {
     @IsArray()
     @IsString({ each: true })
     awardFileIds: string[];
+}
+
+export class SaveVisitCardDto {
+    /** مشخصات کامل کارت ویزیت (JSON آزاد — فشرده‌سازی تصاویر سمت کلاینت) — null = حذف کارت ذخیره‌شده */
+    @ApiPropertyOptional({ description: 'مشخصات کارت ویزیت (JSON) — null برای حذف', nullable: true, type: Object })
+    @IsOptional()
+    @IsObject()
+    spec?: Record<string, any> | null;
 }

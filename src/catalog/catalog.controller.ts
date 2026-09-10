@@ -4,7 +4,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { CatalogService } from './catalog.service';
-import { CreateCatalogDto, UpdateCatalogDto } from './catalog.dto';
+import { CreateCatalogDto, UpdateCatalogDto, SaveVisitCardDto } from './catalog.dto';
 import { CurrentUser } from '../common/decorators/custom.decorators';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../common/guards/optional-jwt-auth.guard';
@@ -114,6 +114,18 @@ export class CatalogController {
         @Body() dto: { units?: any[]; categoryTree?: any[] },
     ) {
         return this.catalogService.updateConfig(id, user.id, dto);
+    }
+
+    @Patch(':id/visit-card')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'ذخیره/حذف مشخصات کارت ویزیت کاتالوگ (JSON) — کارت کاربر گم نشود' })
+    async saveVisitCard(
+        @Param('id') id: string,
+        @CurrentUser() user: any,
+        @Body() dto: SaveVisitCardDto,
+    ) {
+        return this.catalogService.saveVisitCard(id, user.id, dto.spec);
     }
 
     // ─── تعاملات ───
