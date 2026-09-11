@@ -808,6 +808,8 @@ export class AdService {
             where: { id },
             include: {
                 unit: { select: { id: true, title: true, shortCode: true } },
+                // ✅ بازار مهرشده — برای گیت UI صفحهٔ جزئیات (دکمهٔ عضو شو + شرایط عضویت)
+                arm: { select: { id: true, slug: true, name: true, isPrivate: true, membershipTerms: true } },
                 // ✅ کالای مرجع و برند
                 productRef: {
                     select: {
