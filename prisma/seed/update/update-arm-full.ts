@@ -86,9 +86,7 @@ async function main() {
         modules: {
             priceTable: {
                 enabled: true,
-                requireLoginToViewPrices: true,
-                requireMembershipToViewPrices: false,
-                requireLoginToCall: false,
+                // ✅ گیت قیمت فقط با Arm.isPrivate (تب عضویت) اداره می‌شود — فلاگ‌های مردهٔ لگسی حذف شدند
                 requireMembershipToCall: true,
                 allowAnonymousPublishing: true,
                 autoApproveAds: true,

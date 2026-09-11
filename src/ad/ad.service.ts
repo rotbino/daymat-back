@@ -447,11 +447,13 @@ export class AdService {
     }
 
     /** حق دیدن قیمت — فقط وقتی بازار خصوصی باشد کوئری می‌زند
-     *  ✅ ملاک جدید: Arm.isPrivate (بازار خصوصی مثل کانال خصوصی تلگرام)
-     *  fallback لگسی: config.modules.priceTable.requireMembershipToViewPrices
+     *  ✅ ملاکِ یگانه: Arm.isPrivate (بازار خصوصی مثل کانال خصوصی تلگرام)
+     *  ⚠️ فلاگِ لگسی config.modules.priceTable.requireMembershipToViewPrices دیگر خوانده نمی‌شود —
+     *     بازارهای قدیمی که آن را true داشتند با خاموش‌کردن isPrivate هم خصوصی می‌ماندند
+     *     (باگ گزارش‌شده: «روی کارت‌ها هنوز نوشته بازار خصوصی»). ملاک فقط isPrivate است.
      *  ✅ مالک بازار همیشه می‌بیند — عضویتِ او شخصی است و کسب‌وکار ندارد (businessId=null) */
     private async canViewVitrinePrices(arm: any, userId: string | undefined, priceTableConfig: any): Promise<boolean> {
-        const isPrivate = (arm as any)?.isPrivate === true || priceTableConfig.requireMembershipToViewPrices === true;
+        const isPrivate = (arm as any)?.isPrivate === true;
         if (!isPrivate) return true;
         if (!userId) return false; // مهمان
         // چک کن آیا کاربر مالک/ادمین بازار است یا buyer/seller فعال با کسب‌وکار در این بازار
