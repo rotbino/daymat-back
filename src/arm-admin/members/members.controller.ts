@@ -17,6 +17,7 @@ import {
 } from '@nestjs/swagger';
 import { MembersService } from './members.service';
 import { MembershipRequestService } from '../../arm/membership-request.service';
+import { LeaveRequestService } from '../../arm/leave-request.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ArmAdminGuard } from '../../common/guards/arm-admin.guard';
 import {CurrentUser} from "../../common/decorators/custom.decorators";
@@ -30,6 +31,7 @@ export class MembersController {
     constructor(
         private membersService: MembersService,
         private membershipRequestService: MembershipRequestService,
+        private leaveRequestService: LeaveRequestService,
     ) {}
 
     // ============================================================
@@ -66,6 +68,42 @@ export class MembersController {
         @Body('reason') reason: string,
     ) {
         return this.membershipRequestService.decideRequest(slug, requestId, 'reject', admin.id, reason);
+    }
+
+    // ============================================================
+    // درخواست‌های لغو عضویت — خروجِ عضو فقط با تصمیمِ مالک/ادمینِ بازار
+    // ============================================================
+    @Get('leave-requests')
+    @ApiOperation({ summary: 'لیست درخواست‌های لغو عضویت (درخواست‌های خروجِ اعضا)' })
+    @ApiQuery({ name: 'status', required: false, enum: ['pending', 'approved', 'rejected', 'withdrawn'] })
+    async getLeaveRequests(
+        @Param('slug') slug: string,
+        @Query('status') status?: string,
+        @Query('page') page: number = 1,
+        @Query('limit') limit: number = 20,
+    ) {
+        return this.leaveRequestService.listRequests(slug, status, Number(page), Number(limit));
+    }
+
+    @Post('leave-requests/:requestId/approve')
+    @ApiOperation({ summary: 'تایید درخواست لغو — لغوِ عضویت اجرا می‌شود (تاریخ و عاملِ لغو ثبت می‌شود)' })
+    async approveLeaveRequest(
+        @Param('slug') slug: string,
+        @Param('requestId') requestId: string,
+        @CurrentUser() admin: any,
+    ) {
+        return this.leaveRequestService.decideRequest(slug, requestId, 'approve', admin.id);
+    }
+
+    @Post('leave-requests/:requestId/reject')
+    @ApiOperation({ summary: 'رد درخواست لغو با دلیل — عضو می‌ماند' })
+    async rejectLeaveRequest(
+        @Param('slug') slug: string,
+        @Param('requestId') requestId: string,
+        @CurrentUser() admin: any,
+        @Body('reason') reason: string,
+    ) {
+        return this.leaveRequestService.decideRequest(slug, requestId, 'reject', admin.id, reason);
     }
 
     // ============================================================

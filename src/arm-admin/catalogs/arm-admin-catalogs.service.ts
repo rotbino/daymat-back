@@ -815,7 +815,8 @@ async removeCatalog(slug: string, catalogId: string, adminUserId: string) {
                 catalogId: null,
                 publishState: null,
                 roleType: newRoleType,
-                leftAt: new Date(), // ✅ تاریخ دقیق خروج
+                leftAt: new Date(), // ✅ تاریخ دقیق لغو
+                leftVia: 'owner_direct', // ✅ حذف مستقیم توسط مالک/ادمین بازار (نه درخواست خود عضو)
                 reviewedByUserId: adminUserId,
                 reviewedAt: new Date(),
             },
@@ -829,7 +830,8 @@ async removeCatalog(slug: string, catalogId: string, adminUserId: string) {
                 publishState: null,
                 catalogId: null,
                 roleType: null,
-                leftAt: new Date(), // ✅ تاریخ دقیق خروج
+                leftAt: new Date(), // ✅ تاریخ دقیق لغو
+                leftVia: 'owner_direct', // ✅ حذف مستقیم توسط مالک/ادمین بازار (نه درخواست خود عضو)
                 reviewedByUserId: adminUserId,
                 reviewedAt: new Date(),
             },
@@ -902,6 +904,8 @@ async removeBuyer(slug: string, membershipId: string, adminUserId: string) {
             publishState: null,
             businessId: null,
             roleType: null,
+            leftAt: new Date(), // ✅ تاریخ دقیق لغو (قبلاً ثبت نمی‌شد — برای پرونده لازم است)
+            leftVia: 'owner_direct', // ✅ حذف مستقیم توسط مالک/ادمین بازار (نه درخواست خود عضو)
             reviewedByUserId: adminUserId,
             reviewedAt: new Date(),
         },

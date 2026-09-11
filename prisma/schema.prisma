@@ -108,6 +108,7 @@ model User {
   armsOwned       Arm[]           @relation("ArmOwner")
   armMemberships  ArmMembership[]
   armMembershipRequests ArmMembershipRequest[] @relation("ArmMembershipRequests")
+  armLeaveRequests ArmLeaveRequest[] @relation("ArmLeaveRequests")
   credits         Credit[]
   adInteractions  AdInteraction[]
   buyLeads        BuyLead[]
@@ -157,6 +158,7 @@ model Business {
   updatedAt          DateTime @updatedAt
   armMemberships     ArmMembership[] @relation("BizArmMembership")
   membershipRequests ArmMembershipRequest[] @relation("ArmMembershipRequests")
+  leaveRequests      ArmLeaveRequest[] @relation("ArmLeaveRequests")
   catalogs           Catalog[]          @relation("BusinessCatalogs")
   verifications      Verification[]     @relation("BusinessVerification")
   activities         BusinessActivity[] @relation("BusinessActivity")   // ✅ از Catalog برگشت
@@ -199,6 +201,7 @@ model Catalog {
   ads              Ad[]
   armMemberships   ArmMembership[]
   membershipRequests ArmMembershipRequest[] @relation("ArmMembershipRequests")
+  leaveRequests    ArmLeaveRequest[] @relation("ArmLeaveRequests")
   credits          Credit[]
   trustMetrics     TrustMetric[]
   buyLeads         BuyLead[]
@@ -375,6 +378,7 @@ model Arm {
   config              Json?
   memberships         ArmMembership[]
   membershipRequests  ArmMembershipRequest[] @relation("ArmMembershipRequests")
+  leaveRequests       ArmLeaveRequest[] @relation("ArmLeaveRequests")
   ads                 Ad[]
   adPublications      AdPublication[] @relation("ArmAdPublications")
   buyLeads            BuyLead[]
@@ -438,7 +442,10 @@ model ArmMembership {
   reviewedAt       DateTime?
   // ✅ تاریخ دقیق خروج (عضو یا مدیر) — برای پروندهٔ عضویت/لغو عضویت و شکایت‌ها
   leftAt           DateTime?
-  // ✅ ردِ خروجِ اختیاریِ فروشنده: کاتالوگش را خودش از بازار خارج کرده —
+  // ✅ عاملِ لغو عضویت — برای پرونده و شکایت‌ها:
+  //    member_request = درخواست لغویِ عضو که مالک تایید کرد | owner_direct = حذف مستقیم توسط مالک/ادمین بازار
+  leftVia          String?
+  // ✅ ردِ خروجِ اختیاریِ فروشنده: کاتالوگش را خودش خواستار خروج شده —
   //    مدیر نباید اشتباهی دوباره اددش کند (گارد addSeller + بج در کاندیدها)
   selfRemovedCatalog Boolean @default(false)
 
@@ -489,6 +496,44 @@ model ArmMembershipRequest {
 }
 
 // ============================================================
+// درخواست لغو عضویت — خروجِ عضو فقط با تصمیمِ مالکِ بازار (نه ادمین سیستم):
+//   عضو (خریدار از مدال عضویت، فروشنده از بخش «انتشار در بازارها»ی پنل کاتالوگ)
+//   درخواست لغو می‌دهد → درخواست در پنل مالک می‌آید → مالک لغو را تایید می‌کند
+//   (leftAt/leftVia/رویداد/selfRemovedCatalog ثبت می‌شود) یا با دلیل رد می‌کند.
+//   عضو می‌تواند درخواستِ در انتظارش را پس بگیرد (withdrawn).
+//   همهٔ تاریخ‌ها دقیق ثبت می‌شوند — برای پروندهٔ عضویت/لغو و شکایت‌ها.
+// ============================================================
+model ArmLeaveRequest {
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  armId            String    @db.ObjectId
+  arm              Arm       @relation("ArmLeaveRequests", fields: [armId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  userId           String    @db.ObjectId
+  user             User      @relation("ArmLeaveRequests", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  // نقشی که درخواستِ لغویش را داده — buyer | seller
+  roleType         String
+  // فروشنده: کدام کاتالوگ از بازار خارج شود
+  catalogId        String?   @db.ObjectId
+  catalog          Catalog?  @relation("ArmLeaveRequests", fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  // خریدار: کدام کسب‌وکار از بازار خارج شود
+  businessId       String?   @db.ObjectId
+  business         Business? @relation("ArmLeaveRequests", fields: [businessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  status           String    @default("pending") // pending | approved | rejected | withdrawn
+  // دلیلِ اختیاریِ عضو برای خروج — برای مالک ارزشمند است
+  memberReason     String?
+  // دلیلِ ردِ درخواستِ لغو توسط مالک — در اعلان عضو می‌رود
+  rejectReason     String?
+  reviewedByUserId String?   @db.ObjectId
+  reviewedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([armId, status])
+  @@index([userId, status])
+}
+
+// ============================================================
 // ذخیره/فالو بازار — لِینِ شخصیِ جدای عضویت
 //   کاربرِ غیرعضو بازار را «ذخیره» می‌کند تا در سوییچرش بماند (مثل فالو).
 //   هیچ دسترسی‌ای (قیمت/انتشار/پنل) نمی‌دهد؛ فقط سوییچر.
@@ -514,7 +559,7 @@ model ArmMembershipEvent {
   id          String   @id @default(auto()) @map("_id") @db.ObjectId
   armId       String   @db.ObjectId
   userId      String   @db.ObjectId
-  eventType   String   // saved | unsaved | request_submitted | request_approved | request_rejected | joined | left_by_member | seller_left_by_self | removed_by_admin | catalog_added_by_admin | banned | migrated
+  eventType   String   // saved | unsaved | request_submitted | request_approved | request_rejected | joined | left_by_member | seller_left_by_self | removed_by_admin | catalog_added_by_admin | banned | migrated | leave_requested | leave_request_withdrawn | leave_request_approved | leave_request_rejected
   actorUserId String?  @db.ObjectId // خود کاربر / مالک / ادمین — null = سیستم
   note        String?
   createdAt   DateTime @default(now())

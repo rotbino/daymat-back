@@ -209,7 +209,7 @@ export class MembershipRequestService {
             throw new NotFoundException({ errorCode: 'ARM_NOT_FOUND', message: 'بازار یافت نشد' });
         }
 
-        const [request, membership] = await Promise.all([
+        const [request, membership, leaveRequest] = await Promise.all([
             this.prisma.armMembershipRequest.findFirst({
                 where: { armId: arm.id, userId },
                 orderBy: { createdAt: 'desc' },
@@ -223,12 +223,18 @@ export class MembershipRequestService {
                 select: {
                     status: true, businessStatus: true, roleType: true, role: true,
                     publishState: true, businessId: true, catalogId: true,
-                    joinedAt: true, leftAt: true, selfRemovedCatalog: true,
+                    joinedAt: true, leftAt: true, leftVia: true, selfRemovedCatalog: true,
                 },
+            }),
+            // ✅ آخرین درخواست لغوِ عضویت — برای بج «در انتظار تایید مالک» در UI عضو
+            this.prisma.armLeaveRequest.findFirst({
+                where: { armId: arm.id, userId },
+                orderBy: { createdAt: 'desc' },
+                select: { id: true, status: true, roleType: true, memberReason: true, rejectReason: true, createdAt: true, reviewedAt: true },
             }),
         ]);
 
-        return { arm, request, membership };
+        return { arm, request, membership, leaveRequest };
     }
 
     // ============================================================

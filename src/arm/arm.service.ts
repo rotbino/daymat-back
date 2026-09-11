@@ -396,7 +396,7 @@ export class ArmService {
     //    ردیف‌های removed/banned از سوییچر حذف می‌شوند (در پروفایل برای بازگشت هستند)
     // ============================================================
     async getUserArms(userId: string) {
-        const [memberships, savedMarks] = await Promise.all([
+        const [memberships, savedMarks, pendingLeaves] = await Promise.all([
             this.prisma.armMembership.findMany({
                 where: { userId },
                 select: {
@@ -407,6 +407,7 @@ export class ArmService {
                     rejectionReason: true,
                     joinedAt: true,
                     leftAt: true,
+                    leftVia: true,
                     selfRemovedCatalog: true,
                     roleType: true,
                     catalogId: true,
@@ -432,7 +433,13 @@ export class ArmService {
                 where: { userId },
                 orderBy: { savedAt: 'desc' },
             }),
+            // ✅ درخواست‌های لغوی در انتظار — بج «در انتظار تایید مالک» در پنل کاتالوگ/کسب‌وکار
+            this.prisma.armLeaveRequest.findMany({
+                where: { userId, status: 'pending' },
+                select: { armId: true, roleType: true, createdAt: true },
+            }),
         ]);
+        const pendingLeaveMap = new Map(pendingLeaves.map((p) => [p.armId, p]));
 
         // بازارهای ذخیره‌شده‌ای که عضویتِ ردیفیِ آن‌ها را نداریم (عضوها از مسیر عضویت می‌آیند)
         const membershipArmIds = new Set(memberships.map((m) => m.arm.id));
@@ -497,7 +504,10 @@ export class ArmService {
                 rejectionReason: m.rejectionReason,
                 joinedAt: m.joinedAt,
                 leftAt: m.leftAt ?? null,
+                leftVia: m.leftVia ?? null,
                 selfRemovedCatalog: m.selfRemovedCatalog ?? false,
+                // ✅ درخواست لغویِ در انتظارِ تاییدِ مالک — بج در پنل کاتالوگ/کسب‌وکار
+                pendingLeaveRequest: pendingLeaveMap.get(m.arm.id) ?? null,
                 roleType: m.roleType,
                 acceptedCatalogTypes: m.arm.acceptedCatalogTypes || [],
                 catalog: m.catalog
@@ -651,121 +661,7 @@ export class ArmService {
     }
 
     // ============================================================
-    // 6. خروج از بازار — فقط لِینِ خریدار (از پنل کسب‌وکار)
-    //    فروشنده از پنل کاتالوگ (leaveAsSeller) خارج می‌شود — با تایید دومرحله‌ای
-    // ============================================================
-    async leave(userId: string, slug: string) {
-        const arm = await this.prisma.arm.findUnique({ where: { slug } });
-        if (!arm) {
-            throw new NotFoundException({
-                errorCode: 'ARM_NOT_FOUND',
-                message: 'بازاری مورد نظر یافت نشد',
-            });
-        }
-
-        const membership = await this.prisma.armMembership.findFirst({
-            where: { armId: arm.id, userId: userId, status: 'active' },
-        });
-
-        if (!membership) {
-            throw new BadRequestException({
-                errorCode: 'NOT_MEMBER',
-                message: 'شما به این بازار نپیوسته‌اید',
-            });
-        }
-
-        if (membership.role === 'arm_owner' || membership.role === 'arm_admin') {
-            throw new BadRequestException({
-                errorCode: 'ADMIN_CANNOT_LEAVE',
-                message: 'مدیر بازار نمی‌تواند از بازار خارج شود.',
-            });
-        }
-
-        // ✅ فروشنده باید از مسیر کاتالوگ خودش خارج شود (ردِ خروجِ اختیاری + گارد اددِ مجدد)
-        if (membership.catalogId) {
-            throw new BadRequestException({
-                errorCode: 'SELLER_LEAVE_VIA_CATALOG',
-                message: 'شما فروشندهٔ این بازار هستید — برای خروج، از بخش «انتشار در بازارها» در پنل کاتالوگتان اقدام کنید',
-            });
-        }
-
-        const updated = await this.prisma.armMembership.update({
-            where: { id: membership.id },
-            data: {
-                status: 'removed',  // ✅ طبق قرارداد اسکیما: active | banned | removed
-                leftAt: new Date(), // ✅ تاریخ دقیق خروج — برای پرونده و شکایت‌ها
-                publishState: null,
-            },
-        });
-
-        await this.logMembershipEvent(arm.id, userId, 'left_by_member', userId, 'خروج اختیاری خریدار از بازار');
-
-        // ⚠️ ترک بازار → شمارش عضویت پروفایل عوض می‌شود → کش باطل
-        await this.cache.bust(`profile:${userId}`);
-        return updated;
-    }
-
-    // ============================================================
-    // 6.۵) خروج اختیاریِ فروشنده از بازار — از پنل کاتالوگ خودش
-    //    فقط لِینِ فروشندگی برداشته می‌شود؛ اگر خریدار هم هست، عضویتش فعال می‌ماند.
-    //    ردِ خروج در selfRemovedCatalog ثبت می‌شود تا مدیر اشتباهی دوباره اددش نکند.
-    // ============================================================
-    async leaveAsSeller(userId: string, slug: string, catalogId: string) {
-        const arm = await this.prisma.arm.findUnique({ where: { slug } });
-        if (!arm) {
-            throw new NotFoundException({
-                errorCode: 'ARM_NOT_FOUND',
-                message: 'بازاری مورد نظر یافت نشد',
-            });
-        }
-
-        const catalog = await this.prisma.catalog.findUnique({
-            where: { id: catalogId },
-            select: { id: true, name: true, business: { select: { id: true, ownerUserId: true } } },
-        });
-        if (!catalog || (catalog.business as any).ownerUserId !== userId) {
-            throw new BadRequestException({
-                errorCode: 'CATALOG_NOT_FOUND',
-                message: 'کاتالوگ یافت نشد یا متعلق به شما نیست',
-            });
-        }
-
-        const membership = await this.prisma.armMembership.findFirst({
-            where: { armId: arm.id, catalogId },
-        });
-        if (!membership) {
-            throw new BadRequestException({
-                errorCode: 'NOT_MEMBER',
-                message: 'این کاتالوگ در این بازار منتشر نشده است',
-            });
-        }
-
-        // آگهی‌ها از تابلوی بازار برداشته می‌شوند
-        await this.catalogPublish.unstampCatalogAds(catalogId, arm.id);
-
-        // ✅ خریدارِ فعال می‌ماند (businessId دارد)؛ فروشندهٔ خالص کل عضویتش removed می‌شود
-        const keepsBuyerLane = !!membership.businessId;
-        const updated = await this.prisma.armMembership.update({
-            where: { id: membership.id },
-            data: {
-                catalogId: null,
-                publishState: null,
-                roleType: keepsBuyerLane ? 'buyer' : null,
-                status: keepsBuyerLane ? 'active' : 'removed',
-                selfRemovedCatalog: true, // ✅ ردِ خروج اختیاری — گارد اددِ مجددِ اشتباهی
-                leftAt: new Date(),
-            },
-        });
-
-        await this.logMembershipEvent(arm.id, userId, 'seller_left_by_self', userId,
-            `خروج اختیاری فروشنده — کاتالوگ: ${catalog.name}`);
-
-        await this.cache.bust(`profile:${userId}`);
-        return updated;
-    }
-
-    // ============================================================
-    // 6.۶) ذخیره/فالو بازار — برای غیرعضوها؛ آنی و بدون شرط
+    // 6.6) ذخیره/فالو بازار — برای غیرعضوها؛ آنی و بدون شرط
     // ============================================================
     async saveMark(userId: string, slug: string) {
         const arm = await this.prisma.arm.findUnique({ where: { slug }, select: { id: true, slug: true } });
@@ -845,7 +741,7 @@ export class ArmService {
                 select: {
                     id: true, status: true, businessStatus: true, role: true, roleType: true,
                     businessId: true, catalogId: true, publishState: true,
-                    joinedAt: true, leftAt: true, selfRemovedCatalog: true,
+                    joinedAt: true, leftAt: true, leftVia: true, selfRemovedCatalog: true,
                     rejectionReason: true, reviewedAt: true,
                 },
             }),
@@ -859,11 +755,19 @@ export class ArmService {
             }),
         ]);
 
+        // ✅ آخرین درخواست لغوی من — برای بج «در انتظار تایید مالک» و پس‌گرفتن درخواست
+        const leaveRequest = await this.prisma.armLeaveRequest.findFirst({
+            where: { armId: arm.id, userId },
+            orderBy: { createdAt: 'desc' },
+            select: { id: true, status: true, roleType: true, memberReason: true, rejectReason: true, createdAt: true, reviewedAt: true },
+        });
+
         return {
             arm,
             membership,
             saved: !!savedMark,
             savedAt: savedMark?.savedAt ?? null,
+            leaveRequest,
             events,
         };
     }

@@ -14,6 +14,7 @@ import {
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { ArmService } from './arm.service';
 import { MembershipRequestService } from './membership-request.service';
+import { LeaveRequestService } from './leave-request.service';
 import { CreateArmDto } from './dto/create-arm.dto';
 import { CurrentUser } from '../common/decorators/custom.decorators';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -28,6 +29,7 @@ export class ArmController {
     constructor(
         private armService: ArmService,
         private membershipRequestService: MembershipRequestService,
+        private leaveRequestService: LeaveRequestService,
         private prisma: PrismaService,   // ← اضافه کنید
     ) {}
 
@@ -164,38 +166,42 @@ export class ArmController {
     }
 
     // ============================================================
-    // خروج اختیاریِ فروشنده از بازار — از پنل کاتالوگ با تایید دومرحله‌ای
+    // خروجِ عضو فقط با تصمیمِ مالک بازار — درخواست لغو عضویت:
+    //   عضو درخواست می‌دهد → به پنل مالک می‌رود → مالک تایید/رد می‌کند.
+    //   (خروجِ آنیِ خودسرانه حذف شد — تاریخِ لغو و عاملِ آن دقیق ثبت می‌شود)
     // ============================================================
-    @Post(':slug/leave-seller')
+    @Post(':slug/leave-request')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'خروج اختیاری فروشنده — برداشتن کاتالوگ از بازار (ردِ خروج ثبت می‌شود)' })
-    async leaveAsSeller(
+    @ApiOperation({ summary: 'ثبت درخواست لغو عضویت (خریدار/فروشنده) — به پنل مالک بازار می‌رود' })
+    async createLeaveRequest(
         @Param('slug') slug: string,
         @CurrentUser() user: any,
-        @Body() body: { catalogId: string },
+        @Body() body: { roleType: 'buyer' | 'seller'; catalogId?: string; businessId?: string; reason?: string },
     ) {
-        if (!body?.catalogId) {
-            throw new BadRequestException({
-                errorCode: 'CATALOG_REQUIRED',
-                message: 'شناسهٔ کاتالوگ الزامی است',
-            });
-        }
-        return this.armService.leaveAsSeller(user.id, slug, body.catalogId);
+        return this.leaveRequestService.createRequest(user.id, slug, body || {} as any);
     }
 
-    // ============================================================
-    // 5. خروج از بازار (نیاز به احراز هویت)
-    // ============================================================
-    @Delete(':slug/leave')
+    @Get(':slug/leave-request/my')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'قطع عضویت از بازار' })
-    @ApiResponse({ status: 200, description: 'قطع عضویت با موفقیت انجام شد' })
-    @ApiResponse({ status: 400, description: 'عضو نیستید' })
-    @ApiResponse({ status: 404, description: 'بازار یافت نشد' })
-    async leave(@Param('slug') slug: string, @CurrentUser() user: any) {
-        return this.armService.leave(user.id, slug);
+    @ApiOperation({ summary: 'وضعیت آخرین درخواست لغوی من در این بازار' })
+    async getMyLeaveRequest(
+        @Param('slug') slug: string,
+        @CurrentUser() user: any,
+    ) {
+        return this.leaveRequestService.getMyRequest(user.id, slug);
+    }
+
+    @Delete(':slug/leave-request')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'پس‌گرفتن درخواست لغوِ در انتظار' })
+    async withdrawLeaveRequest(
+        @Param('slug') slug: string,
+        @CurrentUser() user: any,
+    ) {
+        return this.leaveRequestService.withdrawRequest(user.id, slug);
     }
 
     // ============================================================

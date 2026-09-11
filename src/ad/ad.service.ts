@@ -1897,6 +1897,90 @@ export class AdService {
             });
         }
 
+        // ═══ ✅ NEW — وضعیت درخواست لغو عضویتِ خودِ کاربر ═══
+        // در انتظارِ تاییدِ مالک — اطلاع‌رسانیِ وضعیت
+        const pendingLeaves = await this.prisma.armLeaveRequest.findMany({
+            where: { userId, status: 'pending' },
+            orderBy: { createdAt: 'desc' },
+            take: 10,
+            include: { arm: { select: { name: true, slug: true } } },
+        });
+        for (const lr of pendingLeaves) {
+            items.push({
+                id: `leave-pending-${lr.id}`,
+                type: 'leave-request-pending',
+                severity: 'info',
+                title: `درخواست لغو عضویت شما در «${lr.arm.name}» در انتظار بررسی مالک بازار است`,
+                body: 'تا زمانی که مالک بررسی نکند، عضویتتان و مزایایش برقرار است — می‌توانید درخواست را پس بگیرید',
+                action: lr.roleType === 'seller'
+                    ? { label: 'پنل کاتالوگ', href: '/my-catalogs' }
+                    : { label: 'دیدن بازار', href: `/${lr.arm.slug}` },
+            });
+        }
+
+        // نتیجهٔ درخواست لغو (تایید/رد با دلیل — ۷ روز)
+        const reviewedLeaves = await this.prisma.armLeaveRequest.findMany({
+            where: { userId, status: { in: ['approved', 'rejected'] }, reviewedAt: { gte: weekAgo } },
+            orderBy: { reviewedAt: 'desc' },
+            take: 10,
+            include: { arm: { select: { name: true, slug: true } } },
+        });
+        for (const lr of reviewedLeaves) {
+            if (lr.status === 'approved') {
+                items.unshift({
+                    id: `leave-approved-${lr.id}`,
+                    type: 'leave-request-approved',
+                    severity: 'warning',
+                    title: `عضویت شما در بازار «${lr.arm.name}» لغو شد`,
+                    body: lr.roleType === 'seller'
+                        ? 'کاتالوگتان از تابلوی این بازار برداشته شد — برای عضویت مجدد با مالک بازار هماهنگ کنید'
+                        : 'دسترسیِ نقش خریدارتان در این بازار برداشته شد — برای عضویت مجدد با مالک بازار هماهنگ کنید',
+                    action: { label: 'دیدن بازار', href: `/${lr.arm.slug}` },
+                });
+            } else {
+                items.push({
+                    id: `leave-rejected-${lr.id}`,
+                    type: 'leave-request-rejected',
+                    severity: 'info',
+                    title: `درخواست لغو عضویت شما در «${lr.arm.name}» رد شد — عضویتتان برقرار است`,
+                    body: `دلیل: ${lr.rejectReason || 'ذکر نشده'}`,
+                    action: { label: 'دیدن بازار', href: `/${lr.arm.slug}` },
+                });
+            }
+        }
+
+        // ═══ ✅ NEW — اعلان‌های مالک/ادمین بازار: درخواست‌های در انتظار بررسی ═══
+        const managedArms = await this.prisma.armMembership.findMany({
+            where: { userId, role: { in: ['arm_owner', 'arm_admin'] }, status: 'active' },
+            select: { armId: true, arm: { select: { name: true, slug: true } } },
+        });
+        for (const mm of managedArms) {
+            const [joinPending, leavePending] = await Promise.all([
+                this.prisma.armMembershipRequest.count({ where: { armId: mm.armId, status: 'pending' } }),
+                this.prisma.armLeaveRequest.count({ where: { armId: mm.armId, status: 'pending' } }),
+            ]);
+            if (joinPending > 0) {
+                items.unshift({
+                    id: `owner-joinreq-${mm.armId}`,
+                    type: 'owner-pending-join',
+                    severity: 'warning',
+                    title: `${joinPending.toLocaleString('fa-IR')} درخواست عضویت در ${mm.arm.name} در انتظار بررسی شماست`,
+                    body: 'تا تایید نکنید، درخواست‌دهنده‌ها قیمت‌ها و امکانات بازار را نمی‌بینند',
+                    action: { label: 'بررسی درخواست‌ها', href: '/arm-admin/membership-requests' },
+                });
+            }
+            if (leavePending > 0) {
+                items.unshift({
+                    id: `owner-leavereq-${mm.armId}`,
+                    type: 'owner-pending-leave',
+                    severity: 'warning',
+                    title: `${leavePending.toLocaleString('fa-IR')} درخواست لغو عضویت در ${mm.arm.name} در انتظار رسیدگی شماست`,
+                    body: 'عضوها منتظر تصمیم شما هستند — تایید یعنی خروج، رد یعنی ماندن با ذکر دلیل',
+                    action: { label: 'بررسی درخواست‌های لغو', href: '/arm-admin/leave-requests' },
+                });
+            }
+        }
+
         // ═══ ✅ مکثِ عضویت توسط مالک بازار — هشدار به فروشنده ═══
         const pausedMemberships = memberships.filter((m) =>
             m.status === 'active' && (m as any).businessStatus === 'paused' && m.catalogId,
