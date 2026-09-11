@@ -18,6 +18,7 @@ export class CatalogPublishService {
         catalogId: string,
         onlyAdIds?: string[],
         publishedBy?: string,
+        forceRepublish = false,
     ): Promise<{
         stamped: number;
         needsCategory: { id: string; title: string; catalogCategoryTitle: string | null }[];
@@ -35,7 +36,7 @@ export class CatalogPublishService {
                 catalogId,
                 status: 'active',
                 publishToMarket: true,
-                expiresAt: { gt: new Date() },
+                // ✅ expiresAt دیگر آگهی را از بازار حذف نمی‌کند (فقط یادآوری آپدیت قیمت است)
                 ...(onlyAdIds?.length ? { id: { in: onlyAdIds } } : {}),
             },
             select: {
@@ -51,6 +52,13 @@ export class CatalogPublishService {
             return { stamped: 0, needsCategory: [] };
         }
 
+        // ✅ publicationهای موجود این کاتالوگ در این بازار — برای حفظ دستهٔ دستی و رد کردن optOut
+        const existingPubs = await this.prisma.adPublication.findMany({
+            where: { catalogId, armId: arm.id },
+            select: { adId: true, categoryId: true, categoryPath: true, optOut: true },
+        });
+        const pubByAd = new Map(existingPubs.map((p) => [p.adId, p]));
+
         const groups = new Map<string, { ids: string[]; path: string[] }>();
         const needsCategory: { id: string; title: string; catalogCategoryTitle: string | null }[] = [];
 
@@ -61,8 +69,14 @@ export class CatalogPublishService {
         };
 
         for (const ad of ads) {
+            // ✅ انصراف صریح فروشنده از انتشار این آگهی در این بازار — مگر با publish صریح تک‌آگهی (forceRepublish)
+            const existingPub = pubByAd.get(ad.id);
+            if (existingPub?.optOut && !forceRepublish) continue;
+
             if (!ad.catalogCategoryId) {
-                if (ad.categoryId) add(`keep:${ad.categoryId}`, ad.id, ad.categoryPath || []);
+                // ✅ دستهٔ دستیِ قبلی (از publication یا snapshot) حفظ می‌شود — گروه keep: که مقصدش خودِ دسته است
+                const handCat = existingPub?.categoryId ?? ad.categoryId ?? null;
+                if (handCat) add(`keep:${handCat}`, ad.id, existingPub?.categoryPath ?? ad.categoryPath ?? []);
                 else add('__none__', ad.id, []);
                 continue;
             }
@@ -79,11 +93,25 @@ export class CatalogPublishService {
                     title: ad.title,
                     catalogCategoryTitle: catNode?.title ?? null,
                 });
-                add('__none__', ad.id, []);
+                // ✅ بدون تطابق درختی — دستهٔ دستیِ قبلی باقی می‌ماند
+                const handCat = existingPub?.categoryId ?? ad.categoryId ?? null;
+                if (handCat) add(`keep:${handCat}`, ad.id, existingPub?.categoryPath ?? ad.categoryPath ?? []);
+                else add('__none__', ad.id, []);
             }
         }
 
         await this.prisma.$transaction(async (tx) => {
+            // ✅ batched — بدون حلقهٔ per-ad (تراکنش ۵ ثانیه‌ای Prisma با دیتابیس راه‌دور timeout می‌شد)
+            const toCreate = [];
+            // گروه‌بندی بر اساس مقصد (categoryId + categoryPath) → هر گروه فقط یک updateMany
+            const updateGroups = new Map();
+            const addToUpdate = (adId, categoryId, categoryPath) => {
+                const k = `${categoryId}|${(categoryPath || []).join('/')}`;
+                const g = updateGroups.get(k) ?? { adIds: [], categoryId, categoryPath: categoryPath || [] };
+                g.adIds.push(adId);
+                updateGroups.set(k, g);
+            };
+
             for (const [key, g] of groups) {
                 const targetCategoryId =
                     key === '__none__' ? null :
@@ -92,53 +120,65 @@ export class CatalogPublishService {
 
                 const targetCategoryPath =
                     key === '__none__' ? [] :
-                    key.startsWith('keep:') ? g.path :
                     g.path;
 
-                // ✅ status همیشه published است — categoryId خالی بودن نشان‌دهنده بدون دسته بودن است
-                const status = 'published';
-
+                // ✅ status همیشه published است — برگشت از paused/unpublished هم همین‌جا انجام می‌شود
                 for (const adId of g.ids) {
-                    await tx.adPublication.upsert({
-                        where: { adId_armId: { adId, armId: arm.id } },
-                        create: {
-                            adId,
-                            armId: arm.id,
-                            catalogId,
-                            categoryId: targetCategoryId,
-                            categoryPath: targetCategoryPath,
-                            status,
-                            publishedBy,
-                        },
-                        update: {
-                            catalogId,
-                            categoryId: targetCategoryId,
-                            categoryPath: targetCategoryPath,
-                            status,
-                            publishedBy,
-                            unpublishedAt: null,
-                            updatedAt: new Date(),
-                        },
-                    });
-
-                    // ✅ snapshot روی Ad هم آپدیت کن (برای backward-compat)
-                    await tx.ad.updateMany({
-                        where: {
-                            id: adId,
-                            OR: [
-                                { armId: null },
-                                { armId: arm.id },
-                            ],
-                        },
-                        data: {
-                            armId: arm.id,
-                            categoryId: targetCategoryId,
-                            categoryPath: targetCategoryPath,
-                        },
+                    if (pubByAd.has(adId)) addToUpdate(adId, targetCategoryId, targetCategoryPath);
+                    else toCreate.push({
+                        adId,
+                        armId: arm.id,
+                        catalogId,
+                        categoryId: targetCategoryId,
+                        categoryPath: targetCategoryPath,
+                        status: 'published',
+                        publishedBy,
                     });
                 }
             }
-        });
+
+            if (toCreate.length) {
+                await tx.adPublication.createMany({ data: toCreate });
+            }
+            for (const g of updateGroups.values()) {
+                await tx.adPublication.updateMany({
+                    where: { adId: { in: g.adIds }, armId: arm.id },
+                    data: {
+                        catalogId,
+                        categoryId: g.categoryId,
+                        categoryPath: g.categoryPath,
+                        status: 'published',
+                        publishedBy,
+                        unpublishedAt: null,
+                        // ✅ publish صریح تک‌آگهی → انصراف قبلی (optOut) لغو می‌شود
+                        ...(forceRepublish ? { optOut: false } : {}),
+                        updatedAt: new Date(),
+                    },
+                });
+            }
+
+            // ✅ snapshot روی Ad (برای backward-compat) — گروهی، بدون حلقهٔ per-ad
+            if (toCreate.length) {
+                // آگهی‌های تازه‌ساخته — هر گروه مقصدِ خودش را داشت؛ بر اساس همان گروه می‌زنیم
+                for (const [key, g] of groups) {
+                    const targetCategoryId = key === '__none__' ? null : key.startsWith('keep:') ? key.substring(5) : key;
+                    const targetCategoryPath = key === '__none__' ? [] : g.path;
+                    const freshIds = g.ids.filter(id => !pubByAd.has(id));
+                    if (freshIds.length) {
+                        await tx.ad.updateMany({
+                            where: { id: { in: freshIds }, OR: [{ armId: null }, { armId: arm.id }] },
+                            data: { armId: arm.id, categoryId: targetCategoryId, categoryPath: targetCategoryPath },
+                        });
+                    }
+                }
+            }
+            for (const g of updateGroups.values()) {
+                await tx.ad.updateMany({
+                    where: { id: { in: g.adIds }, OR: [{ armId: null }, { armId: arm.id }] },
+                    data: { armId: arm.id, categoryId: g.categoryId, categoryPath: g.categoryPath },
+                });
+            }
+        }, { timeout: 30_000, maxWait: 10_000 });
 
         logger.log(`Stamped ${ads.length} ads in arm ${arm.id} (needsCategory: ${needsCategory.length})`);
 
@@ -146,52 +186,137 @@ export class CatalogPublishService {
     }
 
     async unstampCatalogAds(catalogId: string, armId: string): Promise<void> {
+        // ✅ حذف نرم — رکوردها status=unpublished می‌شوند تا دسته‌بندی بازاریِ ست‌شده
+        //    (دستی یا خودکار) برای برگشت بعدی حفظ شود؛ تابلو فقط status=published را نشان می‌دهد
+        // ✅ batched — حلقهٔ per-ad داخل تراکنش با دیتابیس راه‌دور timeout می‌شد
         await this.prisma.$transaction(async (tx) => {
             const publications = await tx.adPublication.findMany({
-                where: { catalogId, armId },
+                where: { catalogId, armId, status: { in: ['published', 'paused', 'needs_category'] } },
                 select: { adId: true },
             });
-            const adIds = publications.map(p => p.adId);
+            const adIds = publications.map((p) => p.adId);
 
             if (adIds.length === 0) return;
 
-            await tx.adPublication.deleteMany({
+            await tx.adPublication.updateMany({
                 where: { catalogId, armId },
+                data: {
+                    status: 'unpublished',
+                    unpublishedAt: new Date(),
+                    updatedAt: new Date(),
+                },
             });
 
-            for (const adId of adIds) {
-                const otherPublications = await tx.adPublication.findFirst({
-                    where: {
-                        adId,
-                        armId: { not: armId },
-                        status: 'published',
-                    },
-                    orderBy: { publishedAt: 'desc' },
-                });
+            // همهٔ publicationهای معتبر دیگرِ این آگهی‌ها — در یک کوئری
+            const others = await tx.adPublication.findMany({
+                where: { adId: { in: adIds }, armId: { not: armId }, status: 'published' },
+                orderBy: { publishedAt: 'desc' },
+                select: { adId: true, armId: true, categoryId: true, categoryPath: true },
+            });
+            const latestByAd = new Map();
+            for (const o of others) {
+                if (!latestByAd.has(o.adId)) latestByAd.set(o.adId, o);
+            }
 
-                if (otherPublications) {
-                    await tx.ad.update({
-                        where: { id: adId },
-                        data: {
-                            armId: otherPublications.armId,
-                            categoryId: otherPublications.categoryId,
-                            categoryPath: otherPublications.categoryPath,
-                        },
-                    });
+            const rewireGroups = new Map();
+            const nullAds: string[] = [];
+            for (const adId of adIds) {
+                const other = latestByAd.get(adId);
+                if (other) {
+                    const k = `${other.armId}|${other.categoryId ?? ''}|${(other.categoryPath || []).join('/')}`;
+                    const g = rewireGroups.get(k) ?? { adIds: [], armId: other.armId, categoryId: other.categoryId, categoryPath: other.categoryPath || [] };
+                    g.adIds.push(adId);
+                    rewireGroups.set(k, g);
                 } else {
-                    await tx.ad.update({
-                        where: { id: adId },
-                        data: {
-                            armId: null,
-                            categoryId: null,
-                            categoryPath: [],
-                        },
-                    });
+                    nullAds.push(adId);
                 }
             }
+            for (const g of rewireGroups.values()) {
+                await tx.ad.updateMany({
+                    where: { id: { in: g.adIds } },
+                    data: { armId: g.armId, categoryId: g.categoryId, categoryPath: g.categoryPath },
+                });
+            }
+            if (nullAds.length) {
+                await tx.ad.updateMany({
+                    where: { id: { in: nullAds } },
+                    data: { armId: null, categoryId: null, categoryPath: [] },
+                });
+            }
+        }, { timeout: 30_000, maxWait: 10_000 });
+
+        logger.log(`Unstamped (soft) catalog ${catalogId} from arm ${armId}`);
+    }
+
+    /**
+     * snapshot آگهی را به یک publication معتبر دیگر وصل می‌کند یا پاک می‌کند
+     * (بعد از برداشتن مهر از یک بازار)
+     */
+    private async rewireAdSnapshot(tx: any, adId: string, removedArmId: string) {
+        const otherPublication = await tx.adPublication.findFirst({
+            where: {
+                adId,
+                armId: { not: removedArmId },
+                status: 'published',
+            },
+            orderBy: { publishedAt: 'desc' },
         });
 
-        logger.log(`Unstamped catalog ${catalogId} from arm ${armId}`);
+        if (otherPublication) {
+            await tx.ad.update({
+                where: { id: adId },
+                data: {
+                    armId: otherPublication.armId,
+                    categoryId: otherPublication.categoryId,
+                    categoryPath: otherPublication.categoryPath,
+                },
+            });
+        } else {
+            await tx.ad.update({
+                where: { id: adId },
+                data: {
+                    armId: null,
+                    categoryId: null,
+                    categoryPath: [],
+                },
+            });
+        }
+    }
+
+    /**
+     * برداشتن مهرِ تک‌آگهی از یک بازار — برخلاف unstampCatalogAds فقط همان آگهی است
+     * + optOut ثبت می‌شود تا re-stamp کلیِ کاتالوگ آن را دوباره منتشر نکند
+     */
+    async unpublishAdFromArm(adId: string, armId: string): Promise<void> {
+        await this.prisma.$transaction(async (tx) => {
+            await tx.adPublication.updateMany({
+                where: { adId, armId },
+                data: {
+                    status: 'unpublished',
+                    optOut: true,
+                    unpublishedAt: new Date(),
+                    updatedAt: new Date(),
+                },
+            });
+            await this.rewireAdSnapshot(tx, adId, armId);
+        }, { timeout: 15_000, maxWait: 5_000 });
+        logger.log(`Unpublished ad ${adId} from arm ${armId} (optOut)`);
+    }
+
+    /**
+     * تغییر وضعیت همهٔ publicationهای یک کاتالوگ در یک بازار — برای مکث/فعال‌سازی عضویت
+     * (دسته‌بندی‌ها و optOut حفظ می‌شوند)
+     */
+    async setPublicationsStatus(catalogId: string, armId: string, status: 'paused' | 'published'): Promise<void> {
+        await this.prisma.adPublication.updateMany({
+            where: { catalogId, armId, optOut: false, status: { in: ['published', 'paused'] } },
+            data: {
+                status,
+                ...(status === 'paused' ? { unpublishedAt: new Date() } : { unpublishedAt: null }),
+                updatedAt: new Date(),
+            },
+        });
+        logger.log(`Publications of catalog ${catalogId} in arm ${armId} → ${status}`);
     }
 
     async pausePublication(adId: string, armId: string): Promise<void> {

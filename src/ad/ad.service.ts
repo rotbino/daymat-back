@@ -14,6 +14,7 @@ import {
 } from '../common/utils/arm.utils';
 import { SearchLogDto } from "./search-log.dto";
 import { CatalogPublishService } from "../common/services/catalog-publish.service";
+import { checkMarketTypeMismatch } from '../common/utils/arm.utils';
 import { CacheHelper } from '../common/services/cache.helper';
 
 const FA_NORMALIZE = (s: string) =>
@@ -122,8 +123,8 @@ export class AdService {
             }
         }
 
-        // ─── ۵) اعتبار قیمت ───
-        const validityHours = dto.validityHours ?? 24;
+        // ─── ۵) اعتبار قیمت — برای یادآوری آپدیت قیمت به خود فروشنده (نه فیلتر بازار) ───
+        const validityHours = dto.validityHours ?? 72;
 
         // ─── ۶) ساخت آگهی — همیشه فقط-کاتالوگی؛ انتشار با مهر بعدی ───
         const ad = await this.prisma.ad.create({
@@ -158,7 +159,8 @@ export class AdService {
                 cityCode: dto.cityCode || null,
                 locationDetail: dto.locationDetail || '',
                 validityHours,
-                expiresAt: null,  // ✅ اعتبار قیمت حذف شد
+                // ✅ اعتبار قیمت برگشت — با پایانش اعلان یادآوری + دکمهٔ آپدیت قیمت (آگهی در بازار می‌ماند)
+                expiresAt: validityHours > 0 ? new Date(Date.now() + validityHours * 3600_000) : null,
                 priceUpdatedAt: new Date(),  // ✅ زمان ثبت قیمت
                 isAnonymous: dto.isAnonymous || false,
                 publishToMarket: dto.publishToMarket ?? true,
@@ -219,6 +221,7 @@ export class AdService {
                 createdByUserId: true,
                 catalogId: true,
                 armId: true,
+                validityHours: true,
             },
         });
         if (!ad) {
@@ -280,6 +283,14 @@ export class AdService {
         const priceChanged = dto.unitPrice !== undefined || dto.singleUnitPrice !== undefined ||
             dto.consumerPrice !== undefined || dto.giftPrice !== undefined;
 
+        // ✅ اعتبار قیمت: تغییر مدت → از همین لحظه بازمحاسبه؛ تغییر قیمت → با همان مدتِ فعلی تازه می‌شود
+        //    (برای یادآوری آپدیت قیمت — نه فیلتر بازار)
+        const effectiveValidity = dto.validityHours !== undefined ? dto.validityHours : ad.validityHours ?? 0;
+        const priceOrValidityChanged = priceChanged || dto.validityHours !== undefined;
+        const nextExpiresAt = priceOrValidityChanged
+            ? (effectiveValidity > 0 ? new Date(Date.now() + effectiveValidity * 3600_000) : null)
+            : undefined;
+
         const adUpdated = await this.prisma.ad.update({
             where: { id },
             data: {
@@ -311,6 +322,7 @@ export class AdService {
                 ...(dto.customFields !== undefined ? { customFields: (dto.customFields as any) || null } : {}),
                 // ✅ اگه قیمت تغییر کرد، priceUpdatedAt رو آپدیت کن
                 ...(priceChanged ? { priceUpdatedAt: new Date() } : {}),
+                ...(nextExpiresAt !== undefined ? { expiresAt: nextExpiresAt } : {}),
                 updatedAt: new Date(),
             },
             include: {
@@ -844,7 +856,8 @@ export class AdService {
             where: { id },
             data: {
                 validityHours: dto.validityHours,
-                expiresAt: null,  // ✅ اعتبار قیمت حذف شد
+                // ✅ تمدید واقعی اعتبار قیمت (یادآوری آپدیت قیمت — نه فیلتر بازار)
+                expiresAt: dto.validityHours > 0 ? new Date(Date.now() + dto.validityHours * 3600_000) : null,
                 status: 'active',
                 updatedAt: new Date(),
                 priceUpdatedAt: new Date(),  // ✅ bump = refresh price time
@@ -945,11 +958,21 @@ export class AdService {
 
         const arm = await this.prisma.arm.findUnique({
             where: { slug: armSlug },
-            select: { id: true, name: true, categoryTree: true, status: true },
+            select: { id: true, name: true, categoryTree: true, status: true, config: true },
         });
         if (!arm) throw new NotFoundException({ errorCode: 'ARM_NOT_FOUND', message: 'بازار یافت نشد' });
         if (arm.status !== 'active') {
             throw new BadRequestException({ errorCode: 'ARM_NOT_ACTIVE', message: 'بازار فعال نیست' });
+        }
+
+        // ✅ گارد تناسب نوع کاتالوگ با نوع بازار — آگهیِ تک‌فروشی در بازار عمده ثبت نمی‌شود و بالعکس
+        const salesTypeOfCatalog = await this.prisma.catalog.findUnique({
+            where: { id: ad.catalogId },
+            select: { salesType: true },
+        });
+        const typeMismatch = checkMarketTypeMismatch(arm, salesTypeOfCatalog?.salesType);
+        if (typeMismatch) {
+            throw new BadRequestException({ errorCode: 'MARKET_TYPE_MISMATCH', message: typeMismatch });
         }
 
         // ✅ چک کن membership این کاتالوگ در این بازار
@@ -999,7 +1022,8 @@ export class AdService {
             });
         }
 
-        const result = await this.catalogPublish.stampCatalogAds(arm, ad.catalogId, [adId], userId);
+        // ✅ forceRepublish — انصراف قبلی تک‌آگهی (optOut) با publish صریح دوباره لغو می‌شود
+        const result = await this.catalogPublish.stampCatalogAds(arm, ad.catalogId, [adId], userId, true);
         return {
             success: true,
             arm: { id: arm.id, name: arm.name, slug: armSlug },
@@ -1033,7 +1057,9 @@ export class AdService {
         });
         if (!arm) throw new NotFoundException({ errorCode: 'ARM_NOT_FOUND', message: 'بازار یافت نشد' });
 
-        await this.catalogPublish.unstampCatalogAds(ad.catalogId, arm.id);
+        // ✅ فقط همین آگهی از بازار حذف می‌شود (قبلاً کل کاتالوگ حذف می‌شد — باگ)
+        //    optOut ثبت می‌شود تا re-stamp کلی کاتالوگ آن را دوباره منتشر نکند
+        await this.catalogPublish.unpublishAdFromArm(adId, arm.id);
         return { success: true, message: `آگهی از بازار ${arm.name} حذف شد` };
     }
 
@@ -1146,7 +1172,7 @@ export class AdService {
 
         const ads = await this.prisma.ad.findMany({
             where: { id: { in: updates.map((u) => u.id) } },
-            select: { id: true, catalogId: true },
+            select: { id: true, catalogId: true, validityHours: true },
         });
         for (const ad of ads) {
             if (!catalogIds.includes(ad.catalogId)) {
@@ -1154,17 +1180,23 @@ export class AdService {
             }
         }
 
-        const updatePromises = updates.map((update) =>
-            this.prisma.ad.update({
+        const now = new Date();
+        const updatePromises = updates.map((update) => {
+            const ad = ads.find((a) => a.id === update.id);
+            const vh = ad?.validityHours ?? 0;
+            return this.prisma.ad.update({
                 where: { id: update.id },
                 data: {
                     unitPrice: update.unitPrice,
-                    updatedAt: new Date(),
-                    priceHistory: { push: { price: update.unitPrice, updatedAt: new Date().toISOString(), note: 'ویرایش گروهی قیمت' } },
+                    updatedAt: now,
+                    // ✅ آپدیت قیمت = قیمت تازه شد؛ اعتبار قیمت هم با همان مدتِ خودش از نو شروع می‌شود
+                    priceUpdatedAt: now,
+                    expiresAt: vh > 0 ? new Date(now.getTime() + vh * 3600_000) : null,
+                    priceHistory: { push: { price: update.unitPrice, updatedAt: now.toISOString(), note: 'آپدیت سریع قیمت' } },
                 },
                 select: { id: true, unitPrice: true },
-            }),
-        );
+            });
+        });
         const results = await this.prisma.$transaction(updatePromises);
         return { message: `${results.length} آگهی به‌روزرسانی شد`, updatedAds: results };
     }
@@ -1593,6 +1625,31 @@ export class AdService {
                 });
             }
 
+            // ✅ اعتبار قیمت تمام‌شده — یادآوری آپدیت قیمت به خود فروشنده
+            //    (آگهی همچنان در بازار نمایش داده می‌شود؛ این فقط تذکر است)
+            const expiredPriceAds = await this.prisma.ad.findMany({
+                where: {
+                    catalogId: b.id,
+                    status: 'active',
+                    expiresAt: { not: null, lt: now },
+                },
+                select: { id: true, productType: true, title: true, expiresAt: true },
+                orderBy: { expiresAt: 'asc' },
+                take: 20,
+            });
+            for (const ad of expiredPriceAds) {
+                const hoursAgo = Math.max(1, Math.floor((now.getTime() - new Date(ad.expiresAt as any).getTime()) / (60 * 60 * 1000)));
+                items.unshift({
+                    id: `price-expired-${ad.id}`,
+                    type: 'price-expired',
+                    severity: 'danger',
+                    title: `اعتبار قیمت «${ad.productType || ad.title}» ${hoursAgo >= 24 ? `${Math.floor(hoursAgo / 24)} روز` : `${hoursAgo} ساعت`} پیش تموم شده`,
+                    body: 'مدت اعتباری که خودت تعیین کرده بودی تمام شده — قیمت رو آپدیت کن تا خریدار مطمئن باشه قیمت روزه',
+                    action: { label: 'آپدیت قیمت', href: `/my-catalogs?catalog=${b.id}&updatePrice=${ad.id}` },
+                    catalogId: b.id,
+                });
+            }
+
             if (!b.slug) {
                 items.push({
                     id: `noslug-${b.id}`,
@@ -1619,14 +1676,15 @@ export class AdService {
             where: { userId, catalogId: { in: catalogIds.length ? catalogIds : ['__none__'] } },
             select: {
                 status: true, catalogId: true, roleType: true, publishState: true,
+                businessStatus: true,
                 joinedAt: true,
                 arm: { select: { name: true, slug: true } },
             },
         });
 
-        // ═══ ✅ NEW — عضویتِ تازهٔ فروشنده: جشنِ عضویت (۴۸ ساعت اول) ═══
+        // ═══ ✅ عضویتِ تازهٔ فروشنده (شامل seller-buyer): جشنِ عضویت (۴۸ ساعت اول) ═══
         const freshSellerMemberships = memberships.filter((m) =>
-            m.roleType === 'seller' &&
+            (m.roleType === 'seller' || m.roleType === 'seller-buyer') &&
             m.status === 'active' &&
             m.publishState === 'published' &&
             Date.now() - new Date(m.joinedAt).getTime() < 48 * 60 * 60 * 1000,
@@ -1657,6 +1715,22 @@ export class AdService {
                 title: `به ${m.arm.name} خوش آمدی!`,
                 body: 'حالا قیمت‌های روز همهٔ فروشندگان این بازار را می‌بینی — مقایسه کن و مستقیم تماس بگیر',
                 action: { label: 'دیدن تابلو', href: `/${m.arm.slug}` },
+                catalogId: m.catalogId,
+            });
+        }
+
+        // ═══ ✅ مکثِ عضویت توسط مالک بازار — هشدار به فروشنده ═══
+        const pausedMemberships = memberships.filter((m) =>
+            m.status === 'active' && (m as any).businessStatus === 'paused' && m.catalogId,
+        );
+        for (const m of pausedMemberships) {
+            items.unshift({
+                id: `mpaused-${m.catalogId}-${m.arm.slug}`,
+                type: 'membership-paused',
+                severity: 'warning',
+                title: `انتشار کاتالوگت در ${m.arm.name} موقتاً متوقف شده`,
+                body: 'کالاهاش فعلاً روی تابلوی این بازار دیده نمی‌شن — با مدیر بازار هماهنگ کن',
+                action: { label: 'دیدن کاتالوگ', href: `/my-catalogs?catalog=${m.catalogId}` },
                 catalogId: m.catalogId,
             });
         }

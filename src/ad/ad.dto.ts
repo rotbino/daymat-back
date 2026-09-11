@@ -288,8 +288,8 @@ export class CreateAdDto {
     @ApiProperty({ example: 24, description: 'مدت اعتبار (ساعت)', minimum: 1, maximum: 240, required: false })
     @IsOptional()
     @IsNumber()
-    @Min(1)
-    @Max(240)
+    @Min(0)
+    @Max(8760)
     validityHours?: number;
 
     @ApiProperty({ example: false, description: 'انتشار ناشناس', required: false })
@@ -453,8 +453,8 @@ export class UpdateAdDto {
     @ApiProperty({ example: 24, description: 'مدت اعتبار (ساعت)', required: false })
     @IsOptional()
     @IsNumber()
-    @Min(1)
-    @Max(240)
+    @Min(0)
+    @Max(8760)
     validityHours?: number;
 
     @ApiProperty({ example: false, description: 'انتشار ناشناس', required: false })
@@ -646,7 +646,7 @@ export class ExtendAdDto {
     @IsNotEmpty({ message: 'مدت تمدید الزامی است' })
     @IsNumber()
     @Min(1)
-    @Max(240)
+    @Max(8760)
     validityHours: number;
 
     @ApiProperty({ example: false, description: 'فعال‌سازی نردبان در حین تمدید', required: false })

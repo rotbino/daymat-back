@@ -10,6 +10,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateCatalogDto, UpdateCatalogDto } from './catalog.dto';
 import { CatalogRole } from '../common/enums/prisma-enums';
 import { CacheHelper } from '../common/services/cache.helper';
+import { CatalogPublishService } from '../common/services/catalog-publish.service';
+import { checkMarketTypeMismatch } from '../common/utils/arm.utils';
 
 /** عمر کش لیست‌های عمومی کاتالوگ — ۵ دقیقه */
 const PUBLIC_LIST_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -33,6 +35,7 @@ export class CatalogService {
     constructor(
         private prisma: PrismaService,
         private cache: CacheHelper,
+        private catalogPublish: CatalogPublishService,
     ) {}
 
     // ─── اسلاگ ───
@@ -215,12 +218,61 @@ export class CatalogService {
         });
 
         if (dto.armSlug) {
-            const arm = await this.prisma.arm.findUnique({ where: { slug: dto.armSlug }, select: { id: true } });
+            const arm = await this.prisma.arm.findUnique({
+                where: { slug: dto.armSlug },
+                select: { id: true, categoryTree: true, config: true },
+            });
             if (arm) {
-                await this.prisma.armMembership.updateMany({
-                    where: { armId: arm.id, userId, status: 'active' },
-                    data: { catalogId: catalog.id },
+                // ✅ همان ناوردهای addSeller: یک کاتالوگِ فعال در این بازار + مهر خودکار کالاها
+                const existing = await this.prisma.armMembership.findUnique({
+                    where: { armId_userId: { armId: arm.id, userId } },
                 });
+                if (existing?.catalogId && existing.catalogId !== catalog.id) {
+                    // ✅ بی‌سروصدا نادیده گرفته نمی‌شود — همان قاعدهٔ BUSINESS_HAS_OTHER_CATALOG
+                    throw new ConflictException({
+                        errorCode: 'BUSINESS_HAS_OTHER_CATALOG',
+                        message: 'کسب‌وکار شما با کاتالوگ دیگری در این بازار فعال است',
+                    });
+                }
+                const salesType = (await this.prisma.catalog.findUnique({
+                    where: { id: catalog.id },
+                    select: { salesType: true },
+                }))?.salesType;
+                const typeMismatch = checkMarketTypeMismatch(arm, salesType);
+                if (typeMismatch) {
+                    throw new BadRequestException({ errorCode: 'MARKET_TYPE_MISMATCH', message: typeMismatch });
+                }
+                await this.prisma.armMembership.upsert({
+                    where: { armId_userId: { armId: arm.id, userId } },
+                    create: {
+                        armId: arm.id,
+                        userId,
+                        businessId: catalog.businessId,
+                        catalogId: catalog.id,
+                        role: 'arm_member',
+                        roleType: 'seller',
+                        status: 'active',
+                        publishState: 'published',
+                        source: 'manual',
+                    },
+                    update: {
+                        catalogId: catalog.id,
+                        status: 'active',
+                        publishState: 'published',
+                        roleType: 'seller',
+                        businessId: catalog.businessId,
+                    },
+                });
+                // ✅ انتشار پیش‌فرض: همهٔ آگهی‌های کاتالوگ تازه به این بازار مهر می‌خورند
+                await this.prisma.ad.updateMany({
+                    where: { catalogId: catalog.id, status: 'active', publishToMarket: false },
+                    data: { publishToMarket: true },
+                });
+                try {
+                    await this.catalogPublish.stampCatalogAds(arm as any, catalog.id, undefined, userId);
+                } catch (err) {
+                    console.error(`catalog create: stampCatalogAds failed for arm ${arm.id}:`, err);
+                }
             }
         }
 

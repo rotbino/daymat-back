@@ -11,6 +11,7 @@ import { CreateArmDto, } from './dto/create-arm.dto';
 import { LocationService } from '../location/location.service';
 import { SystemRole } from "src/common/enums/prisma-enums";
 import { CatalogPublishService } from "../common/services/catalog-publish.service";
+import { checkMarketTypeMismatch } from '../common/utils/arm.utils';
 import { CacheHelper } from '../common/services/cache.helper';
 
 @Injectable()
@@ -477,6 +478,7 @@ export class ArmService {
                 select: {
                     id: true,
                     name: true,
+                    salesType: true,
                     business: { select: { id: true, ownerUserId: true } },
                 },
             });
@@ -487,6 +489,12 @@ export class ArmService {
                 });
             }
             resolvedBusinessId = (catalog.business as any).id;
+
+            // ✅ گارد تناسب نوع کاتالوگ با نوع بازار — تک‌فروشی در بازار عمده پذیرفته نمی‌شود و بالعکس
+            const typeMismatch = checkMarketTypeMismatch(arm, (catalog as any).salesType);
+            if (typeMismatch) {
+                throw new BadRequestException({ errorCode: 'MARKET_TYPE_MISMATCH', message: typeMismatch });
+            }
         }
 
         // ✅ businessId اجباری است (طبق schema جدید)
@@ -513,7 +521,7 @@ export class ArmService {
         const finalStatus = requireApproval ? 'pending' : 'active';
 
         if (existing) {
-            if (existing.status === 'active' && existing.catalogId && existing.catalogId === catalogId) {
+            if (existing.status === 'active' && existing.catalogId && existing.catalogId === catalogId && existing.publishState === 'published') {
                 throw new BadRequestException({
                     errorCode: 'ALREADY_MEMBER',
                     message: 'این کاتالوگ قبلاً در این بازار منتشر شده',
@@ -527,12 +535,28 @@ export class ArmService {
                     status: existing.status === 'active' ? 'active' : finalStatus,
                     rejectionReason: null,
                     joinedAt: new Date(),
-                    roleType: roleType || existing.roleType || null,
+                    roleType: roleType || (catalogId ? 'seller' : existing.roleType || null),
                     catalogId: catalogId || existing.catalogId,
                     businessId: resolvedBusinessId || existing.businessId,
+                    // ✅ عضویت با کاتالوگ = انتشار پیش‌فرض (همان رفتار addSeller مالک بازار)
+                    ...(catalogId && finalStatus === 'active' ? { publishState: 'published' } : {}),
                     source: 'manual',
                 },
             });
+
+            // ✅ عضویت فروشندگی فعال شد → همهٔ آگهی‌های کاتالوگ منتشر و مهر می‌خورند
+            if (catalogId && finalStatus === 'active') {
+                await this.prisma.ad.updateMany({
+                    where: { catalogId, status: 'active', publishToMarket: false },
+                    data: { publishToMarket: true },
+                });
+                try {
+                    await this.catalogPublish.stampCatalogAds(arm, catalogId, undefined, userId);
+                } catch (err) {
+                    // نباید عضویت به‌خاطر خطای مهر شکست بخورد — لاگ کافی است
+                    console.error(`join: stampCatalogAds failed for arm ${arm.id}:`, err);
+                }
+            }
 
             // ⚠️ تعداد عضویت‌ها در پروفایل هست → کش پروفایل باطل
             await this.cache.bust(`profile:${userId}`);
@@ -546,11 +570,25 @@ export class ArmService {
                 businessId: resolvedBusinessId,
                 status: finalStatus,
                 role: 'arm_member',
-                roleType: roleType || null,
+                roleType: roleType || (catalogId ? 'seller' : null),
                 catalogId: catalogId || null,
+                ...(catalogId && finalStatus === 'active' ? { publishState: 'published' } : {}),
                 source: 'manual',
             },
         });
+
+        // ✅ عضویت فروشندگی فعال شد → انتشار خودکار کالاها (همان رفتار addSeller)
+        if (catalogId && finalStatus === 'active') {
+            await this.prisma.ad.updateMany({
+                where: { catalogId, status: 'active', publishToMarket: false },
+                data: { publishToMarket: true },
+            });
+            try {
+                await this.catalogPublish.stampCatalogAds(arm, catalogId, undefined, userId);
+            } catch (err) {
+                console.error(`join: stampCatalogAds failed for arm ${arm.id}:`, err);
+            }
+        }
 
         // ⚠️ عضویت جدید → شمارش پروفایل عوض می‌شود → کش باطل
         await this.cache.bust(`profile:${userId}`);
@@ -593,7 +631,10 @@ export class ArmService {
 
         const updated = await this.prisma.armMembership.update({
             where: { id: membership.id },
-            data: { status: 'paused' },
+            data: {
+                status: 'removed',  // ✅ طبق قرارداد اسکیما: active | banned | removed
+                publishState: null,
+            },
         });
 
         // ⚠️ ترک بازار → شمارش عضویت پروفایل عوض می‌شود → کش باطل

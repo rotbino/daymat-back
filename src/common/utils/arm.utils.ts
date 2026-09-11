@@ -172,3 +172,38 @@ export function findCategoryPathInTree(tree: any[], categoryId: string): string[
 
     return search(tree, []) || [];
 }
+/**
+ * انواع فروش قابل‌نمایش در بازار — از کانفیگ ماژول جدول قیمت.
+ * بازارِ «عمده» یعنی visibleSalesTypes = ['wholesale']، بازارِ «تک‌فروشی» = ['retail'].
+ * خالی/ناموجود = محدودیتی ندارد (هم عمده هم تک).
+ */
+export function getArmVisibleSalesTypes(arm: { config?: any }): string[] {
+    const priceTable = (arm?.config as any)?.modules?.priceTable || {};
+    const visible = priceTable.visibleSalesTypes;
+    return Array.isArray(visible) ? visible : [];
+}
+
+/**
+ * برچسب فارسی نوع فروش کاتالوگ — برای پیام‌های خطا
+ */
+export function salesTypeLabel(salesType: string): string {
+    return salesType === 'retail' ? 'تک‌فروشی' : 'عمده‌فروشی';
+}
+
+/**
+ * گارد تناسب نوع کاتالوگ با نوع بازار:
+ * آگهیِ تک‌فروشی نباید در بازار عمده‌فروشی منتشر شود و بالعکس.
+ * خروجی: null یعنی مجاز؛ رشته یعنی پیام خطا
+ */
+export function checkMarketTypeMismatch(
+    arm: { config?: any },
+    catalogSalesType: string | null | undefined,
+): string | null {
+    const visible = getArmVisibleSalesTypes(arm);
+    if (!visible.length) return null; // بازار بدون محدودیت
+    if (!catalogSalesType) return null; // کاتالوگ بدون نوع — محدودیت اعمال نمی‌شود
+    if (visible.includes(catalogSalesType)) return null;
+    return visible.length === 1
+        ? `این بازار فقط ${salesTypeLabel(visible[0])} را می‌پذیرد — کاتالوگ شما ${salesTypeLabel(catalogSalesType)} است`
+        : `نوع کاتالوگ شما (${salesTypeLabel(catalogSalesType)}) با انواع فروش قابل‌نمایش در این بازار هم‌خوان نیست`;
+}

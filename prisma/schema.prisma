@@ -568,6 +568,8 @@ model AdPublication {
 
   status          String   @default("published")
   rejectionReason String?
+  // ✅ انصراف صریح فروشنده از انتشار این آگهی در این بازار — در re-stamp کلی نادیده گرفته می‌شود
+  optOut          Boolean  @default(false)
 
   publishedAt     DateTime @default(now())
   publishedBy     String?  @db.ObjectId

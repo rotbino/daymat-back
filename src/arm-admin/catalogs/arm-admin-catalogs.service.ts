@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CatalogPublishService } from '../../common/services/catalog-publish.service';
-import { findCategoryPathInTree, findNodeInTree } from '../../common/utils/arm.utils';
+import { findCategoryPathInTree, findNodeInTree, checkMarketTypeMismatch } from '../../common/utils/arm.utils';
 
 /**
  * مدیریت اعضای بازار — دو-مرحله‌ای:
@@ -143,7 +143,7 @@ export class ArmAdminCatalogsService {
                     by: ['catalogId'],
                     where: {
                         catalogId: { in: catIds }, armId: arm.id,
-                        status: 'active', expiresAt: { gt: new Date() },
+                        status: 'active',
                     },
                     _count: { _all: true },
                 }),
@@ -375,13 +375,19 @@ export class ArmAdminCatalogsService {
 
         const catalog = await this.prisma.catalog.findFirst({
             where: { id: catalogId, status: { not: 'closed' } },
-            select: { id: true, business: { select: { id: true, ownerUserId: true } } },
+            select: { id: true, salesType: true, business: { select: { id: true, ownerUserId: true } } },
         });
         if (!catalog) {
             throw new NotFoundException({ errorCode: 'CATALOG_NOT_FOUND', message: 'کاتالوگ یافت نشد' });
         }
         const ownerUserId = (catalog.business as any).ownerUserId;
         const businessId = (catalog.business as any).id;
+
+        // ✅ گارد تناسب نوع کاتالوگ با نوع بازار — تک‌فروشی در بازار عمده پذیرفته نمی‌شود و بالعکس
+        const mismatch = checkMarketTypeMismatch(arm as any, (catalog as any).salesType);
+        if (mismatch) {
+            throw new BadRequestException({ errorCode: 'MARKET_TYPE_MISMATCH', message: mismatch });
+        }
 
         // ✅ membership این کاربر در این بازار رو پیدا کن
         const existing = await this.prisma.armMembership.findUnique({
@@ -445,18 +451,8 @@ export class ArmAdminCatalogsService {
             },
         });
 
-        // ✅ همچنین آگهی‌های منقضی‌شده رو تمدید کن (اگه اعتبارشون تموم شده)
-        // این کار فقط برای آگهی‌هایی که status=active ولی expiresAt گذشته
-        await this.prisma.ad.updateMany({
-            where: {
-                catalogId,
-                status: 'active',
-                expiresAt: { lt: new Date() },
-            },
-            data: {
-                expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),  // ۲۴ ساعت اعتبار
-            },
-        });
+        // ⚠️ تمدید خودکار آگهی‌های منقضی حذف شد — اعتبار قیمت دیگر مانع انتشار نیست
+        // (فقط یادآوری آپدیت قیمت به خود فروشنده است)
 
         const stamp = await this.catalogPublish.stampCatalogAds(arm, catalogId, undefined, ownerUserId);
         return {
@@ -736,8 +732,9 @@ async setCatalogPaused(slug: string, catalogId: string, paused: boolean) {
     const membership = await this.getMembershipByCatalog(arm.id, catalogId);
 
     if (paused) {
-        // ✅ pause: آگهی‌ها رو از تابلو بردار، businessStatus=paused کن
-        await this.catalogPublish.unstampCatalogAds(catalogId, arm.id);
+        // ✅ pause: publicationها status=paused می‌شوند (موقت از تابلو برداشته می‌شوند)
+        //    دسته‌بندی بازاری و انصراف‌های تک‌آگهی حفظ می‌شود — بدون حذف رکورد
+        await this.catalogPublish.setPublicationsStatus(catalogId, arm.id, 'paused');
         return this.prisma.armMembership.update({
             where: { id: membership.id },
             data: { businessStatus: 'paused' },
@@ -745,6 +742,7 @@ async setCatalogPaused(slug: string, catalogId: string, paused: boolean) {
     }
 
     // ✅ resume: businessStatus=active کن، اگه publishState=published بود دوباره stamp کن
+    //    (stamp هم status را published می‌کند هم دسته‌ها را با درخت تازه بازمحاسبه می‌کند)
     const updated = await this.prisma.armMembership.update({
         where: { id: membership.id },
         data: { businessStatus: 'active' },
@@ -936,15 +934,17 @@ async setAdCategory(slug: string, adId: string, categoryId: string) {
         throw new NotFoundException({ errorCode: 'AD_NOT_IN_ARM', message: 'آگهی در این بازار منتشر نیست' });
     }
 
+    const categoryPath = findCategoryPathInTree((arm.categoryTree as any[]) || [], categoryId) || [];
+
+    // ✅ منبع حقیقت: publication همین بازار است (تابلو از آن می‌خواند) — قبلاً فقط snapshot آپدیت می‌شد
+    await this.prisma.adPublication.updateMany({
+        where: { adId, armId: arm.id },
+        data: { categoryId, categoryPath, updatedAt: new Date() },
+    });
+
     return this.prisma.ad.update({
         where: { id: adId },
-        data: {
-            categoryId,
-            categoryPath: findCategoryPathInTree(
-                (arm.categoryTree as any[]) || [],
-                categoryId,
-            ) || [],
-        },
+        data: { categoryId, categoryPath },
         select: { id: true, categoryId: true, categoryPath: true },
     });
 }
@@ -1092,15 +1092,17 @@ async setOwnAdCategory(userId: string, adId: string, categoryId: string) {
         });
     }
 
+    const categoryPath = findCategoryPathInTree((arm.categoryTree as any[]) || [], categoryId) || [];
+
+    // ✅ منبع حقیقت: publication همین بازار است (تابلو از آن می‌خواند) — قبلاً فقط snapshot آپدیت می‌شد
+    await this.prisma.adPublication.updateMany({
+        where: { adId, armId: arm.id },
+        data: { categoryId, categoryPath, updatedAt: new Date() },
+    });
+
     return this.prisma.ad.update({
         where: { id: adId },
-        data: {
-            categoryId,
-            categoryPath: findCategoryPathInTree(
-                (arm.categoryTree as any[]) || [],
-                categoryId,
-            ) || [],
-        },
+        data: { categoryId, categoryPath },
         select: { id: true, categoryId: true, categoryPath: true },
     });
 }

@@ -89,13 +89,14 @@ export class ArmController {
     async join(
         @Param('slug') slug: string,
         @CurrentUser() user: any,
-        @Body() body?: { roleType?: 'seller' | 'buyer'; catalogId?: string }, // ✅ ? اضافه شد
+        @Body() body?: { roleType?: 'seller' | 'buyer'; catalogId?: string; businessId?: string }, // ✅ ? اضافه شد
     ) {
         return this.armService.join(
             user.id,
             slug,
             body?.roleType,    // ✅ optional chaining
-            body?.catalogId   // ✅ optional chaining
+            body?.catalogId,   // ✅ optional chaining
+            body?.businessId,  // ✅ اتصال به کسب‌وکار مشخص (قبلاً سرویس می‌گرفت ولی کنترلر پاس نمی‌داد)
         );
     }
 
