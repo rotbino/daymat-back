@@ -9,7 +9,7 @@ import {
     Param,
     Query,
     UseGuards,
-    ForbiddenException, Patch,
+    ForbiddenException, Patch, BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { ArmService } from './arm.service';
@@ -128,6 +128,60 @@ export class ArmController {
         @CurrentUser() user: any,
     ) {
         return this.membershipRequestService.getMyRequest(user.id, slug);
+    }
+
+    // ============================================================
+    // وضعیت کامل من در بازار — عضویت + تاریخ‌ها + ذخیره + تاریخچهٔ رویدادها
+    // ============================================================
+    @Get(':slug/my-membership')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'وضعیت کامل من در بازار (عضویت، ذخیره، تاریخ‌ها و تاریخچه)' })
+    async getMyMembership(
+        @Param('slug') slug: string,
+        @CurrentUser() user: any,
+    ) {
+        return this.armService.getMyMembership(user.id, slug);
+    }
+
+    // ============================================================
+    // ذخیره/فالو بازار — برای غیرعضوها؛ بازار در سوییچر می‌ماند
+    // ============================================================
+    @Post(':slug/save')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'ذخیره (فالو) بازار — فقط برای غیرعضوها' })
+    async saveMark(@Param('slug') slug: string, @CurrentUser() user: any) {
+        return this.armService.saveMark(user.id, slug);
+    }
+
+    @Delete(':slug/save')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'حذف از ذخیره‌ها (آنفالو)' })
+    async unsaveMark(@Param('slug') slug: string, @CurrentUser() user: any) {
+        return this.armService.unsaveMark(user.id, slug);
+    }
+
+    // ============================================================
+    // خروج اختیاریِ فروشنده از بازار — از پنل کاتالوگ با تایید دومرحله‌ای
+    // ============================================================
+    @Post(':slug/leave-seller')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'خروج اختیاری فروشنده — برداشتن کاتالوگ از بازار (ردِ خروج ثبت می‌شود)' })
+    async leaveAsSeller(
+        @Param('slug') slug: string,
+        @CurrentUser() user: any,
+        @Body() body: { catalogId: string },
+    ) {
+        if (!body?.catalogId) {
+            throw new BadRequestException({
+                errorCode: 'CATALOG_REQUIRED',
+                message: 'شناسهٔ کاتالوگ الزامی است',
+            });
+        }
+        return this.armService.leaveAsSeller(user.id, slug, body.catalogId);
     }
 
     // ============================================================

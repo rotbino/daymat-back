@@ -436,6 +436,11 @@ model ArmMembership {
   rejectionReason  String?
   reviewedByUserId String?  @db.ObjectId
   reviewedAt       DateTime?
+  // ✅ تاریخ دقیق خروج (عضو یا مدیر) — برای پروندهٔ عضویت/لغو عضویت و شکایت‌ها
+  leftAt           DateTime?
+  // ✅ ردِ خروجِ اختیاریِ فروشنده: کاتالوگش را خودش از بازار خارج کرده —
+  //    مدیر نباید اشتباهی دوباره اددش کند (گارد addSeller + بج در کاندیدها)
+  selfRemovedCatalog Boolean @default(false)
 
   // ✅ یک کاربر در یک بازار فقط یک membership دارد
   // این membership می‌تواند همزمان arm_owner و seller/buyer هم باشد
@@ -481,6 +486,41 @@ model ArmMembershipRequest {
 
   @@index([armId, status])
   @@index([userId, status])
+}
+
+// ============================================================
+// ذخیره/فالو بازار — لِینِ شخصیِ جدای عضویت
+//   کاربرِ غیرعضو بازار را «ذخیره» می‌کند تا در سوییچرش بماند (مثل فالو).
+//   هیچ دسترسی‌ای (قیمت/انتشار/پنل) نمی‌دهد؛ فقط سوییچر.
+//   عمداً جدای ArmMembership است تا شمارندهٔ «اعضا» و گیت‌ها آلوده نشوند —
+//   اعضا (businessId/catalogId) همیشه در سوییچرند و به ذخیره نیاز ندارند.
+// ============================================================
+model ArmSavedMark {
+  id      String   @id @default(auto()) @map("_id") @db.ObjectId
+  armId   String   @db.ObjectId
+  userId  String   @db.ObjectId
+  savedAt DateTime @default(now())
+
+  @@unique([armId, userId])
+  @@index([userId])
+}
+
+// ============================================================
+// تاریخچهٔ رویدادهای عضویت — ردِ دقیق برای شکایت‌ها و حسابرسی
+//   چه کسی، چه زمانی، چه کرد: عضویت/خروج/حذف/تایید/رد/ذخیره…
+//   بدون relation — فقط شناسه؛ سبک و سریع
+// ============================================================
+model ArmMembershipEvent {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  armId       String   @db.ObjectId
+  userId      String   @db.ObjectId
+  eventType   String   // saved | unsaved | request_submitted | request_approved | request_rejected | joined | left_by_member | seller_left_by_self | removed_by_admin | catalog_added_by_admin | banned | migrated
+  actorUserId String?  @db.ObjectId // خود کاربر / مالک / ادمین — null = سیستم
+  note        String?
+  createdAt   DateTime @default(now())
+
+  @@index([armId, userId, createdAt])
+  @@index([eventType])
 }
 
 

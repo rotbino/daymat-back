@@ -286,6 +286,15 @@ export class ArmAdminCatalogsService {
         });
         const excludeCatIds = liveMembers.map((m) => m.catalogId!);
 
+        // ✅ ردِ «خروج اختیاری» — فروشنده‌هایی که خودشان خارج شده‌اند؛ بج هشدار + گارد اددِ مجدد
+        const selfRemovedRows = await this.prisma.armMembership.findMany({
+            where: { armId: arm.id, selfRemovedCatalog: true, catalogId: null },
+            select: { businessId: true },
+        });
+        const selfRemovedBizIds = new Set(
+            selfRemovedRows.map((r) => r.businessId).filter((v): v is string => !!v),
+        );
+
         // ✅ فیلتر business — صنف و موقعیت روی Business هست (نه Catalog)
         //    چون Catalog ممکنه industryName/cityCode قدیمی یا خالی داشته باشه
         const businessFilter: any = {};
@@ -351,6 +360,8 @@ export class ArmAdminCatalogsService {
                 businessId: (b.business as any)?.id ?? null,
                 businessName: (b.business as any)?.name ?? null,
                 businessIndustry: (b.business as any)?.industryName ?? null,
+                // ✅ این فروشنده خودش قبلاً از بازار خارج شده — افزودن مجدد نیاز به تایید صریح دارد
+                selfRemoved: selfRemovedBizIds.has((b.business as any)?.id),
                 _count: b._count,
             })),
         };
@@ -371,7 +382,7 @@ export class ArmAdminCatalogsService {
     //      ولی role رو دست نمی‌زنه (اگه arm_owner بوده، arm_owner می‌مونه)
     //   4) اگه نیست → بساز با role=arm_member
     // ============================================================
-    async addSeller(slug: string, catalogId: string) {
+    async addSeller(slug: string, catalogId: string, opts?: { confirmSelfRemoved?: boolean; actorUserId?: string }) {
         const arm = await this.resolveArm(slug);
 
         const catalog = await this.prisma.catalog.findFirst({
@@ -403,6 +414,15 @@ export class ArmAdminCatalogsService {
             });
         }
 
+        // ✅ گارد «خروج اختیاری»: فروشنده‌ای که خودش کاتالوگش را از بازار خارج کرده را
+        //    نباید اشتباهی دوباره ادد کرد — افزودن مجدد فقط با تاییدِ صریحِ مدیر
+        if (existing?.selfRemovedCatalog && !existing.catalogId && opts?.confirmSelfRemoved !== true) {
+            throw new ConflictException({
+                errorCode: 'SELF_REMOVED_CONFLICT',
+                message: 'این فروشنده خودش کاتالوگش را از بازار خارج کرده — برای افزودن مجدد، تایید صریح لازم است',
+            });
+        }
+
         // ✅ تعیین roleType نهایی:
         //    - اگه buyer هست (businessId داره ولی catalogId نداره) → seller-buyer
         //    - وگرنه → seller
@@ -420,6 +440,8 @@ export class ArmAdminCatalogsService {
                     businessId,
                     catalogId,
                     rejectionReason: null,
+                    selfRemovedCatalog: false, // ✅ افزودن مجدد آگاهانه — ردِ خروج اختیاری پاک می‌شود
+                    leftAt: null,
                     reviewedByUserId: null,
                     reviewedAt: null,
                     source: 'owner_add',
@@ -438,6 +460,19 @@ export class ArmAdminCatalogsService {
                     source: 'owner_add',
                 },
             });
+
+        // ✅ تاریخچه — افزودن کاتالوگ توسط مدیر (اددِ مجدد بعد از خروج اختیاری هم ثبت می‌شود)
+        try {
+            await this.prisma.armMembershipEvent.create({
+                data: {
+                    armId: arm.id,
+                    userId: ownerUserId,
+                    eventType: 'catalog_added_by_admin',
+                    actorUserId: opts?.actorUserId || null,
+                    note: `کاتالوگ به بازار افزوده شد`,
+                },
+            });
+        } catch (err) { console.error('addSeller: event log failed:', err); }
 
         // ✅ قبل از stamp، تمام آگهی‌های فعال این کاتالوگ رو publishToMarket=true کن
         // این یعنی وقتی کاتالوگ به بازار اضافه می‌شه، همه آگهی‌هاش خودکار منتشر می‌شن
@@ -768,35 +803,53 @@ async removeCatalog(slug: string, catalogId: string, adminUserId: string) {
     // آگهی‌ها رو از تابلو بردار
     await this.catalogPublish.unstampCatalogAds(catalogId, arm.id);
 
+    let updated;
     if (membership.role === 'arm_owner') {
         // ✅ arm_owner: فقط نقش فروشندگی رو پاک کن، membership می‌مونه
         // اگه businessId داره (buyer هم هست) → roleType=buyer کن
         // وگرنه → roleType=null کن
         const newRoleType = membership.businessId ? 'buyer' : null;
-        return this.prisma.armMembership.update({
+        updated = await this.prisma.armMembership.update({
             where: { id: membership.id },
             data: {
                 catalogId: null,
                 publishState: null,
                 roleType: newRoleType,
+                leftAt: new Date(), // ✅ تاریخ دقیق خروج
+                reviewedByUserId: adminUserId,
+                reviewedAt: new Date(),
+            },
+        });
+    } else {
+        // arm_member: کل membership رو removed کن
+        updated = await this.prisma.armMembership.update({
+            where: { id: membership.id },
+            data: {
+                status: 'removed',
+                publishState: null,
+                catalogId: null,
+                roleType: null,
+                leftAt: new Date(), // ✅ تاریخ دقیق خروج
                 reviewedByUserId: adminUserId,
                 reviewedAt: new Date(),
             },
         });
     }
 
-    // arm_member: کل membership رو removed کن
-    return this.prisma.armMembership.update({
-        where: { id: membership.id },
-        data: {
-            status: 'removed',
-            publishState: null,
-            catalogId: null,
-            roleType: null,
-            reviewedByUserId: adminUserId,
-            reviewedAt: new Date(),
-        },
-    });
+    // ✅ تاریخچه — حذف کاتالوگ توسط مدیر (خروجِ اختیاریِ خودِ فروشنده نیست)
+    try {
+        await this.prisma.armMembershipEvent.create({
+            data: {
+                armId: arm.id,
+                userId: membership.userId,
+                eventType: 'removed_by_admin',
+                actorUserId: adminUserId,
+                note: 'کاتالوگ توسط مدیر از بازار حذف شد',
+            },
+        });
+    } catch (err) { console.error('removeCatalog: event log failed:', err); }
+
+    return updated;
 }
 
 // ============================================================

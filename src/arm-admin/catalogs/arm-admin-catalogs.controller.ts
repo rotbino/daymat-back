@@ -73,12 +73,17 @@ export class ArmAdminCatalogsController {
     }
 
     @Post('sellers')
-    @ApiOperation({ summary: 'افزودن فروشنده (کاتالوگ) به بازار + مهر انتشار' })
+    @ApiOperation({ summary: 'افزودن فروشنده (کاتالوگ) به بازار + مهر انتشار — اددِ مجددِ خروج‌اختیاری نیاز به confirmSelfRemoved دارد' })
     async addSeller(
         @Param('slug') slug: string,
+        @CurrentUser() user: any,
         @Body('catalogId') catalogId: string,
+        @Body('confirmSelfRemoved') confirmSelfRemoved?: boolean,
     ) {
-        return this.catalogsService.addSeller(slug, catalogId);
+        return this.catalogsService.addSeller(slug, catalogId, {
+            confirmSelfRemoved: confirmSelfRemoved === true,
+            actorUserId: user?.id,
+        });
     }
 
     @Patch('sellers/:catalogId')

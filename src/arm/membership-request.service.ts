@@ -40,13 +40,15 @@ export class MembershipRequestService {
         if (!arm) {
             throw new NotFoundException({ errorCode: 'ARM_NOT_FOUND', message: 'بازار یافت نشد' });
         }
-        if (!arm.isPrivate) {
+        if (!arm.isPrivate && dto.roleType !== 'seller') {
+            // ✅ بازار عمومی: خریدار نیازی به درخواست ندارد (قیمت‌ها آزاد است؛ عضویت آنی از مسیر join)
+            //    ولی فروشنده همیشه باید درخواست بدهد — تایید مدیر + افزودن کاتالوگ توسط مدیر
             throw new BadRequestException({
                 errorCode: 'MARKET_NOT_PRIVATE',
-                message: 'این بازار خصوصی نیست — عضویت از مسیر عادی انجام می‌شود',
+                message: 'در بازار عمومی برای دیدن قیمت عضویت لازم نیست',
             });
         }
-        if (dto.termsAccepted !== true) {
+        if (arm.isPrivate && dto.termsAccepted !== true) {
             throw new BadRequestException({
                 errorCode: 'TERMS_REQUIRED',
                 message: 'برای ثبت درخواست باید شرایط عضویت را بپذیرید',
@@ -177,6 +179,21 @@ export class MembershipRequestService {
             },
         });
 
+        // ✅ تاریخچه — ثبت درخواست (درخواستِ به‌تنهایی عضو نمی‌کند؛ تاییدِ مدیر سازندهٔ عضویت است)
+        try {
+            await this.prisma.armMembershipEvent.create({
+                data: {
+                    armId: arm.id,
+                    userId,
+                    eventType: 'request_submitted',
+                    actorUserId: userId,
+                    note: `درخواست ${roleType === 'seller' ? 'فروشندگی' : 'خریداری'}`,
+                },
+            });
+        } catch (err) {
+            console.error('membership-request: event log failed:', err);
+        }
+
         return request;
     }
 
@@ -206,6 +223,7 @@ export class MembershipRequestService {
                 select: {
                     status: true, businessStatus: true, roleType: true, role: true,
                     publishState: true, businessId: true, catalogId: true,
+                    joinedAt: true, leftAt: true, selfRemovedCatalog: true,
                 },
             }),
         ]);
@@ -301,6 +319,14 @@ export class MembershipRequestService {
                     reviewedAt: new Date(),
                 },
             });
+            try {
+                await this.prisma.armMembershipEvent.create({
+                    data: {
+                        armId: arm.id, userId: request.userId, eventType: 'request_rejected',
+                        actorUserId: adminUserId, note: reason.trim(),
+                    },
+                });
+            } catch (err) { console.error('membership-request: event log failed:', err); }
             return { request: updated, membership: null };
         }
 
@@ -332,6 +358,7 @@ export class MembershipRequestService {
                 : roleType;
 
         let membership;
+        const wasActiveMember = existing?.status === 'active';
         if (existing) {
             membership = await this.prisma.armMembership.update({
                 where: { id: existing.id },
@@ -340,6 +367,9 @@ export class MembershipRequestService {
                     businessStatus: 'active',
                     roleType: mergedRoleType,
                     rejectionReason: null,
+                    joinedAt: new Date(),       // ✅ تاریخ دقیق عضویت (مجدداً) ثبت می‌شود
+                    leftAt: null,               // ✅ بازگشت → خروج قبلی بی‌اعتبار
+                    selfRemovedCatalog: false,  // ✅ بازگشتِ فروشنده → ردِ خروج اختیاری پاک می‌شود
                     businessId: businessId || existing.businessId,
                     ...(catalogId ? { catalogId, publishState: 'published' } : {}),
                     source: 'membership_request',
@@ -366,6 +396,25 @@ export class MembershipRequestService {
                 },
             });
         }
+
+        // ✅ تاریخچه — تاییدِ درخواست = سازندهٔ عضویت
+        try {
+            await this.prisma.armMembershipEvent.create({
+                data: {
+                    armId: arm.id, userId: request.userId, eventType: 'request_approved',
+                    actorUserId: adminUserId,
+                    note: roleType === 'seller' ? 'تایید درخواست فروشندگی' : 'تایید درخواست خریداری',
+                },
+            });
+            await this.prisma.armMembershipEvent.create({
+                data: {
+                    armId: arm.id, userId: request.userId,
+                    eventType: wasActiveMember ? 'joined' : 'joined',
+                    actorUserId: adminUserId,
+                    note: wasActiveMember ? 'فعال‌سازی مجدد عضویت' : 'عضویت فعال شد',
+                },
+            });
+        } catch (err) { console.error('membership-request: event log failed:', err); }
 
         // ✅ عضویت فروشنده فعال شد → کالاهای کاتالوگ منتشر و مهر بازار می‌خورند
         if (catalogId) {

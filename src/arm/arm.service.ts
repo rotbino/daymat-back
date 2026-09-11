@@ -391,46 +391,76 @@ export class ArmService {
     }
 
     // ============================================================
-    // 4. لیست بازارهای کاربر — null-safe برای عضویتِ بی-کاتالوگ
+    // 4. لیست بازارهای کاربر — عضویت‌ها + ذخیره‌ها (فالو)
+    //    شکل هر ردیف: عضویت (isMember) یا ذخیرهٔ خالی (status:'saved')
+    //    ردیف‌های removed/banned از سوییچر حذف می‌شوند (در پروفایل برای بازگشت هستند)
     // ============================================================
     async getUserArms(userId: string) {
-        const memberships = await this.prisma.armMembership.findMany({
-            where: { userId },
-            select: {
-                role: true,
-                status: true,
-                publishState: true,
-                rejectionReason: true,
-                joinedAt: true,
-                roleType: true,
-                catalogId: true,
-                catalog: {
-                    select: { id: true, name: true, type: true },
-                },
-                arm: {
-                    select: {
-                        id: true,
-                        slug: true,
-                        name: true,
-                        slogan: true,
-                        colorPrimary: true,
-                        config: true,
-                        categoryTree: true,
-                        acceptedCatalogTypes: true,
+        const [memberships, savedMarks] = await Promise.all([
+            this.prisma.armMembership.findMany({
+                where: { userId },
+                select: {
+                    role: true,
+                    status: true,
+                    businessId: true,
+                    publishState: true,
+                    rejectionReason: true,
+                    joinedAt: true,
+                    leftAt: true,
+                    selfRemovedCatalog: true,
+                    roleType: true,
+                    catalogId: true,
+                    catalog: {
+                        select: { id: true, name: true, type: true },
+                    },
+                    arm: {
+                        select: {
+                            id: true,
+                            slug: true,
+                            name: true,
+                            slogan: true,
+                            colorPrimary: true,
+                            config: true,
+                            categoryTree: true,
+                            acceptedCatalogTypes: true,
+                        },
                     },
                 },
-            },
-            orderBy: { joinedAt: 'desc' },
-        });
+                orderBy: { joinedAt: 'desc' },
+            }),
+            this.prisma.armSavedMark.findMany({
+                where: { userId },
+                orderBy: { savedAt: 'desc' },
+            }),
+        ]);
 
-        if (memberships.length === 0) return [];
+        // بازارهای ذخیره‌شده‌ای که عضویتِ ردیفیِ آن‌ها را نداریم (عضوها از مسیر عضویت می‌آیند)
+        const membershipArmIds = new Set(memberships.map((m) => m.arm.id));
+        const savedOnlyArmIds = savedMarks
+            .filter((s) => !membershipArmIds.has(s.armId))
+            .map((s) => s.armId);
 
-        const armIds = memberships.map((m) => m.arm.id);
+        const savedArms = savedOnlyArmIds.length > 0
+            ? await this.prisma.arm.findMany({
+                  where: { id: { in: savedOnlyArmIds } },
+                  select: {
+                      id: true, slug: true, name: true, slogan: true, colorPrimary: true,
+                      config: true, categoryTree: true, acceptedCatalogTypes: true,
+                  },
+              })
+            : [];
+        const savedArmMap = new Map(savedArms.map((a) => [a.id, a]));
+
+        const allArmIds = [
+            ...memberships.map((m) => m.arm.id),
+            ...savedArms.map((a) => a.id),
+        ];
+        if (allArmIds.length === 0) return [];
 
         const logoFiles = await this.prisma.file.findMany({
             where: {
                 relatedModel: 'Arm',
-                relatedId: { in: armIds },
+                relatedId: { in: allArmIds },
                 fieldKey: 'logo',
             },
             select: { relatedId: true, path: true, thumbnailPath: true },
@@ -447,6 +477,9 @@ export class ArmService {
             const general = config.general || {};
             const logoFile = logoMap.get(m.arm.id);
             const logoUrl = logoFile?.path || general.logoUrl || null;
+            // ✅ عضو واقعی = لِین فعال (کسب‌وکار/کاتالوگ) یا نقش مدیریتی
+            const isMember = m.status === 'active' &&
+                !!(m.catalogId || m.role === 'arm_owner' || m.role === 'arm_admin' || m.businessId);
 
             result.push({
                 id: m.arm.id,
@@ -457,10 +490,14 @@ export class ArmService {
                 logoUrl: logoUrl,
                 role: m.role,
                 status: m.status,
+                isMember,
+                saved: true, // عضوها همیشه در سوییچرند
                 catalogId: m.catalogId,
                 publishState: m.catalogId ? m.publishState : null,
                 rejectionReason: m.rejectionReason,
                 joinedAt: m.joinedAt,
+                leftAt: m.leftAt ?? null,
+                selfRemovedCatalog: m.selfRemovedCatalog ?? false,
                 roleType: m.roleType,
                 acceptedCatalogTypes: m.arm.acceptedCatalogTypes || [],
                 catalog: m.catalog
@@ -470,14 +507,51 @@ export class ArmService {
             });
         }
 
+        // ✅ بازارهای فقط-ذخیره‌شده — بدون عضویت؛ فقط برای سوییچر
+        for (const s of savedMarks) {
+            const arm = savedArmMap.get(s.armId);
+            if (!arm) continue;
+            const config = arm.config as any || {};
+            const general = config.general || {};
+            const logoFile = logoMap.get(arm.id);
+            const logoUrl = logoFile?.path || general.logoUrl || null;
+
+            result.push({
+                id: arm.id,
+                slug: arm.slug,
+                name: arm.name,
+                slogan: arm.slogan,
+                colorPrimary: arm.colorPrimary,
+                logoUrl,
+                role: 'arm_member',
+                status: 'saved', // نشانگر فقط-ذخیره برای فرانت
+                isMember: false,
+                saved: true,
+                savedAt: s.savedAt,
+                catalogId: null,
+                publishState: null,
+                rejectionReason: null,
+                joinedAt: null,
+                leftAt: null,
+                selfRemovedCatalog: false,
+                roleType: null,
+                acceptedCatalogTypes: arm.acceptedCatalogTypes || [],
+                catalog: null,
+                categoryTree: arm.categoryTree || [],
+            });
+        }
+
         return result;
     }
 
     // ============================================================
-    // 5. پیوستن به بازار — دو-مرحله‌ای
+    // 5. پیوستن به بازار — فقط خریدارِ بازارِ عمومی (فعالِ آنی)
     // ============================================================
-    // roleType پارامتر قدیمی است — برای backward-compat نگه داشته شده
-    // در سیستم جدید، تشخیص seller/buyer از روی catalogId است
+    // مدل نهایی عضویت:
+    //   - عضویتِ خریدار (با کسب‌وکار) در بازار عمومی → فعالِ آنی؛ در خصوصی اصلاً از این مسیر نمی‌آید
+    //   - بازار خصوصی → فقط از مسیر درخواست عضویت (ArmMembershipRequest) — تاییدِ مدیر سازندهٔ عضویت است
+    //   - فروشنده شدن (هر دو نوع بازار) → همیشه درخواست + تایید مدیر + افزودن کاتالوگ توسط مدیر
+    //   - دنبال‌کردن بازار (بدون کسب‌وکار) → دکمهٔ ذخیرهٔ هدر (ArmSavedMark) — عضویت نیست
     // ============================================================
     async join(userId: string, slug: string, roleType?: 'seller' | 'buyer', catalogId?: string, businessId?: string) {
         const arm = await this.prisma.arm.findUnique({ where: { slug } });
@@ -488,99 +562,69 @@ export class ArmService {
             });
         }
 
-        // ✅ ملاکِ یگانهٔ نیاز به تایید: بازار خصوصی است یا نه
-        //    (تنظیمات قدیمی config.accessRules حذف شدند — عضویت همیشه از مسیر کسب‌وکار/کاتالوگ است)
-        const requireApproval = arm.isPrivate === true;
+        // ✅ بازار خصوصی: عضویت فقط با درخواست و تایید مدیر — اینجا مستقیم عضو نمی‌شویم
+        if (arm.isPrivate === true) {
+            throw new BadRequestException({
+                errorCode: 'USE_MEMBERSHIP_REQUEST',
+                message: 'این بازار خصوصی است — برای عضویت درخواست بده تا مدیر بازار بررسی کند',
+            });
+        }
+
+        // ✅ فروشنده شدن همیشه نیاز به تایید و افزودن کاتالوگ توسط مدیر دارد (بازار عمومی و خصوصی)
+        if (catalogId) {
+            throw new BadRequestException({
+                errorCode: 'USE_SELLER_REQUEST',
+                message: 'فروشنده شدن نیاز به تایید مدیر بازار دارد — درخواست فروشندگی بده',
+            });
+        }
 
         let resolvedBusinessId = businessId || null;
-        if (catalogId) {
-            const catalog = await this.prisma.catalog.findUnique({
-                where: { id: catalogId },
-                select: {
-                    id: true,
-                    name: true,
-                    salesType: true,
-                    business: { select: { id: true, ownerUserId: true } },
-                },
-            });
-            if (!catalog || (catalog.business as any).ownerUserId !== userId) {
-                throw new BadRequestException({
-                    errorCode: 'BUSINESS_NOT_FOUND',
-                    message: 'کاتالوگ یافت نشد یا متعلق به شما نیست',
-                });
-            }
-            resolvedBusinessId = (catalog.business as any).id;
-
-            // ✅ گارد تناسب نوع کاتالوگ با نوع بازار — تک‌فروشی در بازار عمده پذیرفته نمی‌شود و بالعکس
-            const typeMismatch = checkMarketTypeMismatch(arm, (catalog as any).salesType);
-            if (typeMismatch) {
-                throw new BadRequestException({ errorCode: 'MARKET_TYPE_MISMATCH', message: typeMismatch });
-            }
-        }
 
         // ✅ membership این کاربر در این بازار رو پیدا کن (با armId + userId)
         const existing = await this.prisma.armMembership.findUnique({
             where: { armId_userId: { armId: arm.id, userId } },
         });
 
-        // ✅ بدون کسب‌وکار → عضویت شخصی (فالو) در بازار عمومی — بازار در سوییچر می‌ماند
-        //    ولی قیمتِ بازار خصوصی را نمی‌بیند (گیت قیمت businessId می‌خواهد)
+        // ✅ بدون کسب‌وکار عضویت معنا ندارد — برای دنبال‌کردن بازار دکمهٔ ذخیره هست
         if (!resolvedBusinessId) {
             const firstBiz = await this.prisma.business.findFirst({
                 where: { ownerUserId: userId, status: 'active' },
                 select: { id: true },
             });
             if (!firstBiz) {
-                if (arm.isPrivate !== true) {
-                    return this.joinAsPersonalFollow(arm, userId, existing);
-                }
                 throw new BadRequestException({
                     errorCode: 'BUSINESS_REQUIRED',
-                    message: 'این بازار خصوصی است — برای عضویت ابتدا کسب‌وکارت را ثبت کن و درخواست عضویت بده',
+                    message: 'برای عضویت باید کسب‌وکارت را ثبت کنی — برای دنبال‌کردن بازار از دکمهٔ ذخیره در هدر استفاده کن',
                 });
             }
             resolvedBusinessId = firstBiz.id;
         }
 
-        const finalStatus = requireApproval ? 'pending' : 'active';
-
         if (existing) {
-            if (existing.status === 'active' && existing.catalogId && existing.catalogId === catalogId && existing.publishState === 'published') {
-                throw new BadRequestException({
+            if (existing.status === 'active' && existing.businessId) {
+                throw new ConflictException({
                     errorCode: 'ALREADY_MEMBER',
-                    message: 'این کاتالوگ قبلاً در این بازار منتشر شده',
+                    message: 'شما قبلاً به این بازار پیوسته‌اید',
                 });
             }
 
-            // ✅ آپدیت کن — role رو دست نمی‌زنیم
+            const isRejoin = existing.status === 'removed' || existing.status === 'banned';
+            // ✅ آپدیت کن — role رو دست نمی‌زنیم؛ فروشندهٔ فعال که خریدار می‌شود → دو-نقشی
             const updated = await this.prisma.armMembership.update({
                 where: { id: existing.id },
                 data: {
-                    status: existing.status === 'active' ? 'active' : finalStatus,
+                    status: 'active',
                     rejectionReason: null,
+                    leftAt: null,
                     joinedAt: new Date(),
-                    roleType: roleType || (catalogId ? 'seller' : existing.roleType || null),
-                    catalogId: catalogId || existing.catalogId,
+                    roleType: existing.roleType === 'seller' ? 'seller-buyer' : (roleType || existing.roleType || 'buyer'),
                     businessId: resolvedBusinessId || existing.businessId,
-                    // ✅ عضویت با کاتالوگ = انتشار پیش‌فرض (همان رفتار addSeller مالک بازار)
-                    ...(catalogId && finalStatus === 'active' ? { publishState: 'published' } : {}),
                     source: 'manual',
                 },
             });
 
-            // ✅ عضویت فروشندگی فعال شد → همهٔ آگهی‌های کاتالوگ منتشر و مهر می‌خورند
-            if (catalogId && finalStatus === 'active') {
-                await this.prisma.ad.updateMany({
-                    where: { catalogId, status: 'active', publishToMarket: false },
-                    data: { publishToMarket: true },
-                });
-                try {
-                    await this.catalogPublish.stampCatalogAds(arm, catalogId, undefined, userId);
-                } catch (err) {
-                    // نباید عضویت به‌خاطر خطای مهر شکست بخورد — لاگ کافی است
-                    console.error(`join: stampCatalogAds failed for arm ${arm.id}:`, err);
-                }
-            }
+            await this.logMembershipEvent(arm.id, userId, isRejoin ? 'joined' : 'joined', userId,
+                isRejoin ? 'عضویت مجدد خریدار در بازار عمومی' : 'پیوستن خریدار به بازار عمومی');
 
             // ⚠️ تعداد عضویت‌ها در پروفایل هست → کش پروفایل باطل
             await this.cache.bust(`profile:${userId}`);
@@ -592,64 +636,23 @@ export class ArmService {
                 armId: arm.id,
                 userId: userId,
                 businessId: resolvedBusinessId,
-                status: finalStatus,
+                status: 'active',
                 role: 'arm_member',
-                roleType: roleType || (catalogId ? 'seller' : null),
-                catalogId: catalogId || null,
-                ...(catalogId && finalStatus === 'active' ? { publishState: 'published' } : {}),
+                roleType: roleType || 'buyer',
                 source: 'manual',
             },
         });
 
-        // ✅ عضویت فروشندگی فعال شد → انتشار خودکار کالاها (همان رفتار addSeller)
-        if (catalogId && finalStatus === 'active') {
-            await this.prisma.ad.updateMany({
-                where: { catalogId, status: 'active', publishToMarket: false },
-                data: { publishToMarket: true },
-            });
-            try {
-                await this.catalogPublish.stampCatalogAds(arm, catalogId, undefined, userId);
-            } catch (err) {
-                console.error(`join: stampCatalogAds failed for arm ${arm.id}:`, err);
-            }
-        }
+        await this.logMembershipEvent(arm.id, userId, 'joined', userId, 'پیوستن خریدار به بازار عمومی');
 
         // ⚠️ عضویت جدید → شمارش پروفایل عوض می‌شود → کش باطل
         await this.cache.bust(`profile:${userId}`);
         return created;
     }
 
-    /** عضویت شخصی (فالو) — بدون کسب‌وکار؛ فقط بازار عمومی؛ کاربر بازار را در سوییچرش دارد */
-    private async joinAsPersonalFollow(arm: any, userId: string, existing: any) {
-        if (existing?.status === 'active') {
-            return existing; // از قبل فالو/عضو است — idempotent
-        }
-        if (existing && ['removed', 'banned'].includes(existing.status)) {
-            throw new BadRequestException({
-                errorCode: 'MEMBERSHIP_BLOCKED',
-                message: 'عضویت شما در این بازار توسط مدیر متوقف شده است',
-            });
-        }
-        const membership = existing
-            ? await this.prisma.armMembership.update({
-                  where: { id: existing.id },
-                  data: { status: 'active', joinedAt: new Date() },
-              })
-            : await this.prisma.armMembership.create({
-                  data: {
-                      armId: arm.id,
-                      userId,
-                      role: 'arm_member',
-                      status: 'active',
-                      source: 'manual',
-                  },
-              });
-        await this.cache.bust(`profile:${userId}`);
-        return membership;
-    }
-
     // ============================================================
-    // 6. خروج از بازار
+    // 6. خروج از بازار — فقط لِینِ خریدار (از پنل کسب‌وکار)
+    //    فروشنده از پنل کاتالوگ (leaveAsSeller) خارج می‌شود — با تایید دومرحله‌ای
     // ============================================================
     async leave(userId: string, slug: string) {
         const arm = await this.prisma.arm.findUnique({ where: { slug } });
@@ -671,28 +674,215 @@ export class ArmService {
             });
         }
 
-        if (membership.role === 'arm_owner') {
+        if (membership.role === 'arm_owner' || membership.role === 'arm_admin') {
             throw new BadRequestException({
                 errorCode: 'ADMIN_CANNOT_LEAVE',
                 message: 'مدیر بازار نمی‌تواند از بازار خارج شود.',
             });
         }
 
+        // ✅ فروشنده باید از مسیر کاتالوگ خودش خارج شود (ردِ خروجِ اختیاری + گارد اددِ مجدد)
         if (membership.catalogId) {
-            await this.catalogPublish.unstampCatalogAds(membership.catalogId, arm.id);
+            throw new BadRequestException({
+                errorCode: 'SELLER_LEAVE_VIA_CATALOG',
+                message: 'شما فروشندهٔ این بازار هستید — برای خروج، از بخش «انتشار در بازارها» در پنل کاتالوگتان اقدام کنید',
+            });
         }
 
         const updated = await this.prisma.armMembership.update({
             where: { id: membership.id },
             data: {
                 status: 'removed',  // ✅ طبق قرارداد اسکیما: active | banned | removed
+                leftAt: new Date(), // ✅ تاریخ دقیق خروج — برای پرونده و شکایت‌ها
                 publishState: null,
             },
         });
 
+        await this.logMembershipEvent(arm.id, userId, 'left_by_member', userId, 'خروج اختیاری خریدار از بازار');
+
         // ⚠️ ترک بازار → شمارش عضویت پروفایل عوض می‌شود → کش باطل
         await this.cache.bust(`profile:${userId}`);
         return updated;
+    }
+
+    // ============================================================
+    // 6.۵) خروج اختیاریِ فروشنده از بازار — از پنل کاتالوگ خودش
+    //    فقط لِینِ فروشندگی برداشته می‌شود؛ اگر خریدار هم هست، عضویتش فعال می‌ماند.
+    //    ردِ خروج در selfRemovedCatalog ثبت می‌شود تا مدیر اشتباهی دوباره اددش نکند.
+    // ============================================================
+    async leaveAsSeller(userId: string, slug: string, catalogId: string) {
+        const arm = await this.prisma.arm.findUnique({ where: { slug } });
+        if (!arm) {
+            throw new NotFoundException({
+                errorCode: 'ARM_NOT_FOUND',
+                message: 'بازاری مورد نظر یافت نشد',
+            });
+        }
+
+        const catalog = await this.prisma.catalog.findUnique({
+            where: { id: catalogId },
+            select: { id: true, name: true, business: { select: { id: true, ownerUserId: true } } },
+        });
+        if (!catalog || (catalog.business as any).ownerUserId !== userId) {
+            throw new BadRequestException({
+                errorCode: 'CATALOG_NOT_FOUND',
+                message: 'کاتالوگ یافت نشد یا متعلق به شما نیست',
+            });
+        }
+
+        const membership = await this.prisma.armMembership.findFirst({
+            where: { armId: arm.id, catalogId },
+        });
+        if (!membership) {
+            throw new BadRequestException({
+                errorCode: 'NOT_MEMBER',
+                message: 'این کاتالوگ در این بازار منتشر نشده است',
+            });
+        }
+
+        // آگهی‌ها از تابلوی بازار برداشته می‌شوند
+        await this.catalogPublish.unstampCatalogAds(catalogId, arm.id);
+
+        // ✅ خریدارِ فعال می‌ماند (businessId دارد)؛ فروشندهٔ خالص کل عضویتش removed می‌شود
+        const keepsBuyerLane = !!membership.businessId;
+        const updated = await this.prisma.armMembership.update({
+            where: { id: membership.id },
+            data: {
+                catalogId: null,
+                publishState: null,
+                roleType: keepsBuyerLane ? 'buyer' : null,
+                status: keepsBuyerLane ? 'active' : 'removed',
+                selfRemovedCatalog: true, // ✅ ردِ خروج اختیاری — گارد اددِ مجددِ اشتباهی
+                leftAt: new Date(),
+            },
+        });
+
+        await this.logMembershipEvent(arm.id, userId, 'seller_left_by_self', userId,
+            `خروج اختیاری فروشنده — کاتالوگ: ${catalog.name}`);
+
+        await this.cache.bust(`profile:${userId}`);
+        return updated;
+    }
+
+    // ============================================================
+    // 6.۶) ذخیره/فالو بازار — برای غیرعضوها؛ آنی و بدون شرط
+    // ============================================================
+    async saveMark(userId: string, slug: string) {
+        const arm = await this.prisma.arm.findUnique({ where: { slug }, select: { id: true, slug: true } });
+        if (!arm) {
+            throw new NotFoundException({
+                errorCode: 'ARM_NOT_FOUND',
+                message: 'بازار مورد نظر یافت نشد',
+            });
+        }
+
+        // ✅ اعضا (businessId/catalogId/مالک/ادمین) دکمهٔ ذخیره ندارند — بازارشان همیشه در سوییچر است
+        const membership = await this.prisma.armMembership.findUnique({
+            where: { armId_userId: { armId: arm.id, userId } },
+        });
+        if (
+            membership?.status === 'active' &&
+            (membership.businessId || membership.catalogId ||
+             membership.role === 'arm_owner' || membership.role === 'arm_admin')
+        ) {
+            throw new ConflictException({
+                errorCode: 'MEMBER_NO_SAVE',
+                message: 'شما عضو این بازار هستید — بازارِ عضو همیشه در سوییچر شماست و ذخیره ندارد',
+            });
+        }
+
+        const existing = await this.prisma.armSavedMark.findUnique({
+            where: { armId_userId: { armId: arm.id, userId } },
+        });
+        if (existing) return existing; // idempotent
+
+        const mark = await this.prisma.armSavedMark.create({
+            data: { armId: arm.id, userId },
+        });
+        await this.logMembershipEvent(arm.id, userId, 'saved', userId, 'ذخیرهٔ بازار');
+        await this.cache.bust(`profile:${userId}`);
+        return mark;
+    }
+
+    async unsaveMark(userId: string, slug: string) {
+        const arm = await this.prisma.arm.findUnique({ where: { slug }, select: { id: true } });
+        if (!arm) {
+            throw new NotFoundException({
+                errorCode: 'ARM_NOT_FOUND',
+                message: 'بازار مورد نظر یافت نشد',
+            });
+        }
+
+        const mark = await this.prisma.armSavedMark.findUnique({
+            where: { armId_userId: { armId: arm.id, userId } },
+        });
+        if (!mark) return { ok: true }; // idempotent
+
+        await this.prisma.armSavedMark.delete({ where: { id: mark.id } });
+        await this.logMembershipEvent(arm.id, userId, 'unsaved', userId, 'حذف از ذخیره‌ها');
+        await this.cache.bust(`profile:${userId}`);
+        return { ok: true };
+    }
+
+    // ============================================================
+    // 6.۷) وضعیت کامل من در بازار — عضویت + تاریخ‌ها + ذخیره + تاریخچهٔ رویدادها
+    // ============================================================
+    async getMyMembership(userId: string, slug: string) {
+        const arm = await this.prisma.arm.findUnique({
+            where: { slug },
+            select: { id: true, name: true, slug: true, isPrivate: true, membershipTerms: true, status: true },
+        });
+        if (!arm) {
+            throw new NotFoundException({
+                errorCode: 'ARM_NOT_FOUND',
+                message: 'بازار مورد نظر یافت نشد',
+            });
+        }
+
+        const [membership, savedMark, events] = await Promise.all([
+            this.prisma.armMembership.findUnique({
+                where: { armId_userId: { armId: arm.id, userId } },
+                select: {
+                    id: true, status: true, businessStatus: true, role: true, roleType: true,
+                    businessId: true, catalogId: true, publishState: true,
+                    joinedAt: true, leftAt: true, selfRemovedCatalog: true,
+                    rejectionReason: true, reviewedAt: true,
+                },
+            }),
+            this.prisma.armSavedMark.findUnique({
+                where: { armId_userId: { armId: arm.id, userId } },
+            }),
+            this.prisma.armMembershipEvent.findMany({
+                where: { armId: arm.id, userId },
+                orderBy: { createdAt: 'desc' },
+                take: 30,
+            }),
+        ]);
+
+        return {
+            arm,
+            membership,
+            saved: !!savedMark,
+            savedAt: savedMark?.savedAt ?? null,
+            events,
+        };
+    }
+
+    /** ثبت رویداد تاریخچهٔ عضویت — هرگز جریان اصلی را نمی‌شکند */
+    private async logMembershipEvent(armId: string, userId: string, eventType: string, actorUserId?: string, note?: string) {
+        try {
+            await this.prisma.armMembershipEvent.create({
+                data: {
+                    armId,
+                    userId,
+                    eventType,
+                    actorUserId: actorUserId || null,
+                    note: note || null,
+                },
+            });
+        } catch (err) {
+            console.error(`logMembershipEvent(${eventType}) failed:`, err);
+        }
     }
 
     // ============================================================
