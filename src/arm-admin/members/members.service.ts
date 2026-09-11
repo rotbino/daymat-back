@@ -7,12 +7,14 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { SystemRole, ArmRole } from '../../common/enums/prisma-enums';
 import { CatalogPublishService } from '../../common/services/catalog-publish.service';
+import { CacheHelper } from '../../common/services/cache.helper';
 
 @Injectable()
 export class MembersService {
     constructor(
         private prisma: PrismaService,
         private catalogPublish: CatalogPublishService,
+        private cache: CacheHelper,
     ) {}
 
     // ============================================================
@@ -465,6 +467,7 @@ export class MembersService {
     private getRoleDisplay(role: ArmRole): string {
         const roleMap: Record<ArmRole, string> = {
             [ArmRole.arm_owner]: 'مالک بازار',
+            [ArmRole.arm_admin]: 'ادمین بازار',
             [ArmRole.arm_seller]: 'فروشنده',
             [ArmRole.arm_buyer]: 'خریدار',
             [ArmRole.arm_member]: 'عضو',
@@ -623,5 +626,122 @@ export class MembersService {
                 updatedAt: new Date(),
             },
         });
+    }
+
+    // ============================================================
+    // ادمین‌های بازار — منصوبِ مالک؛ غیر از مالک است و وظایف واگذارشده را انجام می‌دهد
+    //   • لیست ادمین‌ها: مالک یا ادمین
+    //   • انتصاب/عزل: فقط مالک بازار (یا مدیر سیستم)
+    // ============================================================
+    private async getArmOrThrow(slug: string) {
+        const arm = await this.prisma.arm.findUnique({
+            where: { slug },
+            select: { id: true, name: true },
+        });
+        if (!arm) {
+            throw new NotFoundException({ errorCode: 'ARM_NOT_FOUND', message: 'بازار یافت نشد' });
+        }
+        return arm;
+    }
+
+    async getAdmins(slug: string) {
+        const arm = await this.getArmOrThrow(slug);
+
+        const admins = await this.prisma.armMembership.findMany({
+            where: { armId: arm.id, role: 'arm_admin', status: { in: ['active', 'paused'] } },
+            orderBy: { joinedAt: 'desc' },
+            select: {
+                id: true,
+                userId: true,
+                status: true,
+                joinedAt: true,
+                businessId: true,
+                catalogId: true,
+                user: { select: { id: true, fullName: true, phone: true, avatarUrl: true } },
+                business: { select: { id: true, name: true } },
+                catalog: { select: { id: true, name: true } },
+            },
+        });
+
+        return { items: admins, total: admins.length };
+    }
+
+    /** انتصاب ادمین با شماره موبایل — اگر عضو نبود، عضویت شخصیِ ادمین ساخته می‌شود */
+    async addAdminByPhone(slug: string, phone: string, ownerUserId: string) {
+        const arm = await this.getArmOrThrow(slug);
+
+        const normalized = phone.replace(/\s|-/g, '');
+        const user = await this.prisma.user.findFirst({
+            where: { phone: { in: [normalized, normalized.replace(/^0/, '+98'), normalized.replace(/^\+98/, '0')] } },
+            select: { id: true, fullName: true, phone: true },
+        });
+        if (!user) {
+            throw new NotFoundException({
+                errorCode: 'USER_NOT_FOUND',
+                message: 'کاربری با این شماره موبایل یافت نشد — ابتدا باید در دیمت ثبت‌نام کند',
+            });
+        }
+
+        const existing = await this.prisma.armMembership.findUnique({
+            where: { armId_userId: { armId: arm.id, userId: user.id } },
+        });
+
+        if (existing?.role === 'arm_owner') {
+            throw new BadRequestException({ errorCode: 'IS_ARM_OWNER', message: 'این کاربر مالک بازار است' });
+        }
+
+        const data = existing
+            ? this.prisma.armMembership.update({
+                  where: { id: existing.id },
+                  data: { role: 'arm_admin', status: 'active', source: 'owner_add', updatedAt: new Date() },
+              })
+            : this.prisma.armMembership.create({
+                  data: {
+                      armId: arm.id,
+                      userId: user.id,
+                      role: 'arm_admin',
+                      status: 'active',
+                      businessId: null,
+                      source: 'owner_add',
+                  },
+              });
+
+        const [membership] = await Promise.all([data, this.cacheBustProfile(user.id)]);
+
+        return {
+            membership,
+            user,
+            message: `${user.fullName || 'کاربر'} به‌عنوان ادمین بازار ${arm.name} منصوب شد`,
+        };
+    }
+
+    /** عزل ادمین — نقش به عضو عادی برمی‌گردد (رابطهٔ کسب‌وکار/کاتالوگ حفظ می‌شود) */
+    async removeAdmin(slug: string, userId: string, ownerUserId: string) {
+        const arm = await this.getArmOrThrow(slug);
+
+        const membership = await this.prisma.armMembership.findFirst({
+            where: { armId: arm.id, userId, role: 'arm_admin' },
+        });
+        if (!membership) {
+            throw new NotFoundException({ errorCode: 'ADMIN_NOT_FOUND', message: 'این کاربر ادمین بازار نیست' });
+        }
+
+        const [updated] = await Promise.all([
+            this.prisma.armMembership.update({
+                where: { id: membership.id },
+                data: { role: 'arm_member', updatedAt: new Date() },
+            }),
+            this.cacheBustProfile(userId),
+        ]);
+
+        return { membership: updated, message: 'ادمین بازار عزل شد' };
+    }
+
+    private async cacheBustProfile(userId: string) {
+        try {
+            await this.cache.bust(`profile:${userId}`);
+        } catch {
+            // bust بهترین‌تلاشی است — شکستش عضویت را نمی‌شکند
+        }
     }
 }

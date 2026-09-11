@@ -6,6 +6,8 @@ import {
     Param,
     Query,
     UseGuards, Post,
+    Req,
+    ForbiddenException,
 } from '@nestjs/common';
 import {
     ApiTags,
@@ -98,6 +100,52 @@ export class MembersController {
             sortBy,
             sortOrder,
         );
+    }
+
+    // ============================================================
+    // ادمین‌های بازار — انتصاب/عزل فقط مالک (ادمین فقط می‌بیند)
+    // ⚠️ قبل از مسیرهای :userId declare شده تا «admins» با :userId قاطی نشود
+    // ============================================================
+    private assertArmOwner(req: any) {
+        const isSystemAdmin = req?.user?.role === 'system_admin';
+        const isOwner = req?.armMembership?.role === 'arm_owner';
+        if (!isSystemAdmin && !isOwner) {
+            throw new ForbiddenException({
+                errorCode: 'ARM_OWNER_ONLY',
+                message: 'فقط مالک بازار می‌تواند ادمین منصوب یا عزل کند',
+            });
+        }
+    }
+
+    @Get('admins')
+    @ApiOperation({ summary: 'لیست ادمین‌های بازار' })
+    async getAdmins(@Param('slug') slug: string) {
+        return this.membersService.getAdmins(slug);
+    }
+
+    @Post('admins')
+    @ApiOperation({ summary: 'انتصاب ادمین بازار با شماره موبایل (فقط مالک)' })
+    async addAdmin(
+        @Param('slug') slug: string,
+        @Body('phone') phone: string,
+        @Req() req: any,
+    ) {
+        this.assertArmOwner(req);
+        if (!phone || !phone.trim()) {
+            throw new ForbiddenException({ errorCode: 'PHONE_REQUIRED', message: 'شماره موبایل الزامی است' });
+        }
+        return this.membersService.addAdminByPhone(slug, phone.trim(), req.user?.id);
+    }
+
+    @Post('admins/:userId/remove')
+    @ApiOperation({ summary: 'عزل ادمین بازار (فقط مالک)' })
+    async removeAdmin(
+        @Param('slug') slug: string,
+        @Param('userId') userId: string,
+        @Req() req: any,
+    ) {
+        this.assertArmOwner(req);
+        return this.membersService.removeAdmin(slug, userId, req.user?.id);
     }
 
     // ============================================================

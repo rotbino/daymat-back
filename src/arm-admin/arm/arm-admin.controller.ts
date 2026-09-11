@@ -8,6 +8,7 @@ import {
     Param,
     UseGuards,
     Query,
+    Req,
 } from '@nestjs/common';
 import {
     ApiTags,
@@ -105,10 +106,9 @@ export class ArmAdminController {
     async updateSettings(
         @Param('slug') slug: string,
         @Body() data: any, // داده‌ها را مستقیماً دریافت می‌کند
+        @Req() req: any,
     ) {
-        // لاگ برای دیباگ (اختیاری)
-        console.log('📥 دریافت درخواست به‌روزرسانی تنظیمات:', JSON.stringify(data, null, 2));
-        return this.armAdminService.updateArmSettings(slug, data);
+        return this.armAdminService.updateArmSettings(slug, data, req?.armMembership?.role);
     }
 
     // ============================================================
@@ -128,8 +128,9 @@ export class ArmAdminController {
     async updatePaymentSettings(
         @Param('slug') slug: string,
         @Body() data: any,
+        @Req() req: any,
     ) {
-        return this.armAdminService.updatePaymentSettings(slug, data);
+        return this.armAdminService.updatePaymentSettings(slug, data, req?.armMembership?.role);
     }
 
     // ============================================================

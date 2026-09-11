@@ -68,16 +68,18 @@ export class ArmAdminGuard implements CanActivate {
             throw new ForbiddenException({ errorCode: 'USER_ID_MISSING', message: 'اطلاعات کاربر ناقص است' });
         }
 
+        // ✅ مالک یا ادمین بازار — نقش در request می‌ماند تا سرویس‌ها مالک‌انحصاری‌ها را بگیرند
         const membership = await this.prisma.armMembership.findFirst({
             where: {
                 userId: user.id,
                 armId: armId,
-                role: 'arm_owner',
+                role: { in: ['arm_owner', 'arm_admin'] },
                 status: 'active',
             },
         });
 
         if (membership) {
+            request.armMembership = { role: membership.role, id: membership.id };
             return true;
         }
 

@@ -454,7 +454,7 @@ export class AdService {
         const isPrivate = (arm as any)?.isPrivate === true || priceTableConfig.requireMembershipToViewPrices === true;
         if (!isPrivate) return true;
         if (!userId) return false; // مهمان
-        // چک کن آیا کاربر مالک بازار است یا buyer/seller فعال با کسب‌وکار در این بازار
+        // چک کن آیا کاربر مالک/ادمین بازار است یا buyer/seller فعال با کسب‌وکار در این بازار
         const membership = await this.prisma.armMembership.findFirst({
             where: {
                 armId: arm.id,
@@ -462,7 +462,7 @@ export class AdService {
                 status: 'active',
                 businessStatus: 'active',
                 OR: [
-                    { role: 'arm_owner' }, // مالک/مدیر بازار — نمایندهٔ کسب‌وکار نیست
+                    { role: { in: ['arm_owner', 'arm_admin'] } }, // مالک و ادمین بازار — نمایندهٔ کسب‌وکار نیستند
                     { businessId: { not: null } }, // عضویت کسب‌وکاری (خریدار/فروشنده)
                 ],
             },

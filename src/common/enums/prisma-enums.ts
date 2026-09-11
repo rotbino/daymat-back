@@ -7,6 +7,7 @@ export enum SystemRole {
 
 export enum ArmRole {
     arm_owner = 'arm_owner',
+    arm_admin = 'arm_admin',
     arm_seller = 'arm_seller',
     arm_buyer = 'arm_buyer',
     arm_member = 'arm_member',

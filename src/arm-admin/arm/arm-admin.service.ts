@@ -1,6 +1,41 @@
 // src/arm-admin/arm/arm-admin.service.ts
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+
+/** بخش‌های config → کلید مجوز متناظر در armAdminPermission — برای ادمینِ منصوبِ بازار */
+const ADMIN_SECTION_PERMISSION: Record<string, string> = {
+    accessRules: 'accessRules.canEdit',
+    economy: 'economy.canEdit',
+    payment: 'payment.canEdit',
+    categories: 'categories.canEdit',
+    categoryTree: 'categories.canEdit',
+    allowedCategoryScopeTree: 'categories.canEdit',
+    locationSelections: 'locations.canEdit',
+    formLabels: 'formLabels.canEdit',
+    supplierIndustryIds: 'industries.canEdit',
+    buyerIndustryIds: 'industries.canEdit',
+    supplierIndustries: 'industries.canEdit',
+    buyerIndustries: 'industries.canEdit',
+    localization: 'general.canEditName', // تنظیمات جزئی — با مجوز عمومی
+};
+
+/** فیلدهای ریشه‌ای Arm → کلید مجوز — برای ادمینِ منصوبِ بازار */
+const ADMIN_ROOT_FIELD_PERMISSION: Record<string, string> = {
+    name: 'general.canEditName',
+    shortName: 'general.canEditShortName',
+    slogan: 'general.canEditSlogan',
+    description: 'general.canEditDescription',
+    mission: 'general.canEditMission',
+    icon: 'general.canEditIcon',
+    colorPrimary: 'general.canEditColors',
+    colorSecondary: 'general.canEditColors',
+    logoUrl: 'general.canEditLogo',
+    bannerUrl: 'general.canEditBanner',
+    // isPrivate/membershipTerms/acceptedCatalogTypes = تنظیمات عضویت
+    isPrivate: 'accessRules.canEdit',
+    membershipTerms: 'accessRules.canEdit',
+    acceptedCatalogTypes: 'accessRules.canEdit',
+};
 
 @Injectable()
 export class ArmAdminService {
@@ -336,7 +371,7 @@ export class ArmAdminService {
     // ============================================================
     // src/arm-admin/arm/arm-admin.service.ts
 
-    async updateArmSettings(slug: string, data: any) {
+    async updateArmSettings(slug: string, data: any, actorRole?: string) {
         const arm = await this.prisma.arm.findUnique({
             where: { slug },
             select: { id: true, config: true },
@@ -347,6 +382,11 @@ export class ArmAdminService {
                 errorCode: 'ARM_NOT_FOUND',
                 message: 'بازار یافت نشد',
             });
+        }
+
+        // ✅ ادمینِ منصوب فقط بخش‌های واگذارشده را می‌تواند تغییر دهد (مالک/مدیر سیستم آزاد است)
+        if (actorRole === 'arm_admin') {
+            this.assertAdminPermissions(arm.config as any || {}, data);
         }
 
         // ✅ ادغام هوشمندانه
@@ -383,7 +423,7 @@ export class ArmAdminService {
     // ============================================================
     // ✅ به‌روزرسانی تنظیمات پرداخت بازار
     // ============================================================
-    async updatePaymentSettings(slug: string, data: any) {
+    async updatePaymentSettings(slug: string, data: any, actorRole?: string) {
         const arm = await this.prisma.arm.findUnique({
             where: { slug },
             select: { id: true, config: true },
@@ -394,6 +434,17 @@ export class ArmAdminService {
                 errorCode: 'ARM_NOT_FOUND',
                 message: 'بازار یافت نشد',
             });
+        }
+
+        // ✅ ادمینِ منصوب باید مجوز payment داشته باشد
+        if (actorRole === 'arm_admin') {
+            const cfg = arm.config as any || {};
+            if (cfg.armAdminPermission?.payment?.canEdit !== true) {
+                throw new ForbiddenException({
+                    errorCode: 'PERMISSION_DENIED',
+                    message: 'ادمین بازار اجازهٔ ویرایش تنظیمات پرداخت را ندارد',
+                });
+            }
         }
 
         const currentConfig = arm.config as any || {};
@@ -413,6 +464,68 @@ export class ArmAdminService {
                 config: updatedConfig,
             },
         });
+    }
+
+    /**
+     * ✅ چک مجوز ادمینِ منصوبِ بازار روی payload تنظیمات:
+     *   • armAdminPermission هرگز از دست ادمین خارج نیست (تغییر دسترسی‌ها = مالک/مدیر سیستم)
+     *   • status و slug هرگز از دست ادمین خارج نیست
+     *   • هر بخش/فیلد دیگری فقط با مجوز متناظر
+     */
+    private assertAdminPermissions(currentConfig: any, data: any) {
+        const perm = currentConfig.armAdminPermission || {};
+        const granted = (path: string): boolean => {
+            let cur: any = perm;
+            for (const part of path.split('.')) {
+                if (cur === null || cur === undefined) return false;
+                cur = cur[part];
+            }
+            return cur === true;
+        };
+        const deny = (what: string) => {
+            throw new ForbiddenException({
+                errorCode: 'PERMISSION_DENIED',
+                message: `ادمین بازار اجازهٔ تغییر ${what} را ندارد`,
+            });
+        };
+
+        // فیلدهای ممنوعِ مطلق
+        if (data.status !== undefined) deny('وضعیت بازار');
+        if (data.slug !== undefined) deny('شناسه بازار');
+
+        // فیلدهای ریشه‌ای
+        for (const [field, permKey] of Object.entries(ADMIN_ROOT_FIELD_PERMISSION)) {
+            if (data[field] !== undefined && !granted(permKey as string)) {
+                deny(`«${field}»`);
+            }
+        }
+
+        // بخش‌های config
+        const cfg = data.config || {};
+        if (cfg.armAdminPermission !== undefined) {
+            deny('دسترسی‌های ادمین بازار');
+        }
+        for (const [section, permKey] of Object.entries(ADMIN_SECTION_PERMISSION)) {
+            if (cfg[section] !== undefined && !granted(permKey as string)) {
+                deny(`تنظیمات «${section}»`);
+            }
+        }
+        // ماژول‌ها — کلید به کلید
+        if (cfg.modules) {
+            const modulePerms: Record<string, string> = {
+                priceTable: 'modules.canEditPriceTable',
+                buyLead: 'modules.canEditBuyLead',
+            };
+            for (const [mod, permKey] of Object.entries(modulePerms)) {
+                if ((cfg.modules as any)[mod] !== undefined && !granted(permKey)) {
+                    deny(`تنظیمات ماژول «${mod}»`);
+                }
+            }
+            const extraModules = Object.keys(cfg.modules).filter((k) => !(k in modulePerms));
+            if (extraModules.length > 0) {
+                deny(`ماژول‌های ${extraModules.join('، ')}`);
+            }
+        }
     }
 
     // ============================================================

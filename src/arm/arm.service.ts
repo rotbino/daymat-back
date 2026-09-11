@@ -209,6 +209,7 @@ export class ArmService {
 
         // ✅ مالکیت — کوئری مستقل، بدون رلیشن تودرتو (مهمان هم امن)
         let isArmOwner = false;
+        let isArmAdmin = false;
         let isSystemAdmin = false;
 
         if (userId) {
@@ -217,7 +218,7 @@ export class ArmService {
                     where: {
                         armId: arm.id,
                         userId: userId,
-                        role: 'arm_owner',
+                        role: { in: ['arm_owner', 'arm_admin'] },
                         status: 'active',
                     },
                     select: { role: true },
@@ -228,7 +229,8 @@ export class ArmService {
                 }),
             ]);
 
-            isArmOwner = !!membership;
+            isArmOwner = membership?.role === 'arm_owner';
+            isArmAdmin = membership?.role === 'arm_admin';
             isSystemAdmin = user?.role === SystemRole.system_admin;
         }
 
@@ -267,6 +269,8 @@ export class ArmService {
             allowedCategoryScopeTree,
             locationTree,
             isArmOwner,
+            isArmAdmin,
+            isArmManager: isArmOwner || isArmAdmin,
             isSystemAdmin,
         };
     }
@@ -514,26 +518,29 @@ export class ArmService {
             }
         }
 
-        // ✅ businessId اجباری است (طبق schema جدید)
-        // اگه catalogId داده نشده، اولین کسب‌وکار فعال کاربر رو استفاده می‌کنیم
+        // ✅ membership این کاربر در این بازار رو پیدا کن (با armId + userId)
+        const existing = await this.prisma.armMembership.findUnique({
+            where: { armId_userId: { armId: arm.id, userId } },
+        });
+
+        // ✅ بدون کسب‌وکار → عضویت شخصی (فالو) در بازار عمومی — بازار در سوییچر می‌ماند
+        //    ولی قیمتِ بازار خصوصی را نمی‌بیند (گیت قیمت businessId می‌خواهد)
         if (!resolvedBusinessId) {
             const firstBiz = await this.prisma.business.findFirst({
                 where: { ownerUserId: userId, status: 'active' },
                 select: { id: true },
             });
             if (!firstBiz) {
+                if (arm.isPrivate !== true) {
+                    return this.joinAsPersonalFollow(arm, userId, existing);
+                }
                 throw new BadRequestException({
                     errorCode: 'BUSINESS_REQUIRED',
-                    message: 'برای عضویت در بازار باید یک کسب‌وکار داشته باشید',
+                    message: 'این بازار خصوصی است — برای عضویت ابتدا کسب‌وکارت را ثبت کن و درخواست عضویت بده',
                 });
             }
             resolvedBusinessId = firstBiz.id;
         }
-
-        // ✅ membership این کاربر در این بازار رو پیدا کن (با armId + userId)
-        const existing = await this.prisma.armMembership.findUnique({
-            where: { armId_userId: { armId: arm.id, userId } },
-        });
 
         const finalStatus = requireApproval ? 'pending' : 'active';
 
@@ -610,6 +617,35 @@ export class ArmService {
         // ⚠️ عضویت جدید → شمارش پروفایل عوض می‌شود → کش باطل
         await this.cache.bust(`profile:${userId}`);
         return created;
+    }
+
+    /** عضویت شخصی (فالو) — بدون کسب‌وکار؛ فقط بازار عمومی؛ کاربر بازار را در سوییچرش دارد */
+    private async joinAsPersonalFollow(arm: any, userId: string, existing: any) {
+        if (existing?.status === 'active') {
+            return existing; // از قبل فالو/عضو است — idempotent
+        }
+        if (existing && ['removed', 'banned'].includes(existing.status)) {
+            throw new BadRequestException({
+                errorCode: 'MEMBERSHIP_BLOCKED',
+                message: 'عضویت شما در این بازار توسط مدیر متوقف شده است',
+            });
+        }
+        const membership = existing
+            ? await this.prisma.armMembership.update({
+                  where: { id: existing.id },
+                  data: { status: 'active', joinedAt: new Date() },
+              })
+            : await this.prisma.armMembership.create({
+                  data: {
+                      armId: arm.id,
+                      userId,
+                      role: 'arm_member',
+                      status: 'active',
+                      source: 'manual',
+                  },
+              });
+        await this.cache.bust(`profile:${userId}`);
+        return membership;
     }
 
     // ============================================================
