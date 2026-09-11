@@ -12,6 +12,7 @@ import {
     ValidateNested,
     IsObject,
     IsIn,
+    ArrayMaxSize,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -618,6 +619,19 @@ export class CreateArmDto {
     @IsArray()
     @IsString({ each: true })
     featuresEnabled?: string[];
+
+    @ApiProperty({
+        example: ['wholesale', 'retail'],
+        description: 'انواع کاتالوگ پذیرفته‌شده در بازار — خالی یا ناموجود = بدون محدودیت',
+        required: false,
+        type: [String],
+        enum: ['retail', 'wholesale', 'service'],
+    })
+    @IsOptional()
+    @IsArray()
+    @ArrayMaxSize(3)
+    @IsIn(['retail', 'wholesale', 'service'], { each: true })
+    acceptedCatalogTypes?: string[];
 
     @ApiProperty({
         example: 'simple',

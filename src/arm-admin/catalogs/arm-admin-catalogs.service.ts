@@ -33,7 +33,8 @@ export class ArmAdminCatalogsService {
     private async resolveArm(slug: string) {
         const arm = await this.prisma.arm.findUnique({
             where: { slug },
-            select: { id: true, ownerUserId: true, categoryTree: true },
+            // ✅ config + acceptedCatalogTypes برای گارد نوع بازار (بدون این‌ها گارد addSeller/addBuyer همیشه بی‌اثر بود)
+            select: { id: true, ownerUserId: true, categoryTree: true, config: true, acceptedCatalogTypes: true },
         });
         if (!arm) {
             throw new NotFoundException({ errorCode: 'ARM_NOT_FOUND', message: 'بازار یافت نشد' });

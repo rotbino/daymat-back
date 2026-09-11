@@ -14,7 +14,7 @@ import {
 } from '../common/utils/arm.utils';
 import { SearchLogDto } from "./search-log.dto";
 import { CatalogPublishService } from "../common/services/catalog-publish.service";
-import { checkMarketTypeMismatch } from '../common/utils/arm.utils';
+import { checkMarketTypeMismatch, getArmAcceptedCatalogTypes } from '../common/utils/arm.utils';
 import { CacheHelper, VITRINE_CACHE_PREFIX } from '../common/services/cache.helper';
 
 const FA_NORMALIZE = (s: string) =>
@@ -362,7 +362,7 @@ export class AdService {
     async getVitrine(armSlug: string, query: AdListQueryDto, userId?: string) {
         const arm = await this.prisma.arm.findUnique({
             where: { slug: armSlug },
-            select: { id: true, config: true, categoryTree: true, status: true },
+            select: { id: true, config: true, categoryTree: true, status: true, acceptedCatalogTypes: true },
         });
 
         if (!arm) {
@@ -481,11 +481,10 @@ export class AdService {
             
         };
 
-        // فیلتر نوع فروش ویترین
-        const priceTableConfig = (arm.config as any)?.modules?.priceTable || {};
-        const visibleSalesTypes = priceTableConfig.visibleSalesTypes;
-        if (Array.isArray(visibleSalesTypes) && visibleSalesTypes.length) {
-            adWhere.catalog = { salesType: { in: visibleSalesTypes } };
+        // ✅ فیلتر نوع کاتالوگ پذیرفته‌شدهٔ بازار — ملاک واحد: acceptedCatalogTypes (fallback لگسی: visibleSalesTypes)
+        const acceptedTypes = getArmAcceptedCatalogTypes(arm);
+        if (acceptedTypes.length) {
+            adWhere.catalog = { salesType: { in: acceptedTypes } };
         }
 
         if (query.search) {
@@ -958,7 +957,7 @@ export class AdService {
 
         const arm = await this.prisma.arm.findUnique({
             where: { slug: armSlug },
-            select: { id: true, name: true, categoryTree: true, status: true, config: true },
+            select: { id: true, name: true, categoryTree: true, status: true, config: true, acceptedCatalogTypes: true },
         });
         if (!arm) throw new NotFoundException({ errorCode: 'ARM_NOT_FOUND', message: 'بازار یافت نشد' });
         if (arm.status !== 'active') {

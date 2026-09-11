@@ -368,7 +368,7 @@ export class ArmAdminService {
 
         // ۳. فیلدهای اصلی Arm رو به‌روز کن (از خود data)
         const updateData: any = { config: newConfig };
-        const armFields = ['name', 'shortName', 'slogan', 'description', 'icon', 'colorPrimary', 'colorSecondary', 'logoUrl', 'bannerUrl', 'mission', 'status'];
+        const armFields = ['name', 'shortName', 'slogan', 'description', 'icon', 'colorPrimary', 'colorSecondary', 'logoUrl', 'bannerUrl', 'mission', 'status', 'acceptedCatalogTypes'];
         for (const field of armFields) {
             if (data[field] !== undefined) {
                 updateData[field] = data[field];

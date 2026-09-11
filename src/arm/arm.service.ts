@@ -11,7 +11,7 @@ import { CreateArmDto, } from './dto/create-arm.dto';
 import { LocationService } from '../location/location.service';
 import { SystemRole } from "src/common/enums/prisma-enums";
 import { CatalogPublishService } from "../common/services/catalog-publish.service";
-import { checkMarketTypeMismatch } from '../common/utils/arm.utils';
+import { checkMarketTypeMismatch, ARM_CATALOG_TYPES } from '../common/utils/arm.utils';
 import { CacheHelper } from '../common/services/cache.helper';
 
 @Injectable()
@@ -85,6 +85,10 @@ export class ArmService {
                     geoScopeType: dto.geoScopeType,
                     defaultUnitId: dto.defaultUnitId || null,
                     featuresEnabled: dto.featuresEnabled || [],
+                    // ✅ انواع کاتالوگ پذیرفته‌شده — فقط مقادیر معتبر، بدون تکرار
+                    acceptedCatalogTypes: Array.isArray(dto.acceptedCatalogTypes)
+                        ? [...new Set(dto.acceptedCatalogTypes.filter((t: string) => (ARM_CATALOG_TYPES as readonly string[]).includes(t)))]
+                        : [],
                     rankingAlgorithm: dto.rankingAlgorithm || 'simple',
                     metadata: dto.metadata || null,
                     categoryTree: [],
@@ -397,6 +401,7 @@ export class ArmService {
                         colorPrimary: true,
                         config: true,
                         categoryTree: true,
+                        acceptedCatalogTypes: true,
                     },
                 },
             },
@@ -442,6 +447,7 @@ export class ArmService {
                 rejectionReason: m.rejectionReason,
                 joinedAt: m.joinedAt,
                 roleType: m.roleType,
+                acceptedCatalogTypes: m.arm.acceptedCatalogTypes || [],
                 catalog: m.catalog
                     ? { id: m.catalog.id, name: m.catalog.name, type: m.catalog.type }
                     : null,
@@ -729,6 +735,11 @@ export class ArmService {
         if (dto.geoScopeType) updateData.geoScopeType = dto.geoScopeType;
         if (dto.defaultUnitId !== undefined) updateData.defaultUnitId = dto.defaultUnitId;
         if (dto.featuresEnabled) updateData.featuresEnabled = dto.featuresEnabled;
+        if (dto.acceptedCatalogTypes !== undefined) {
+            updateData.acceptedCatalogTypes = Array.isArray(dto.acceptedCatalogTypes)
+                ? [...new Set(dto.acceptedCatalogTypes.filter((t: string) => (ARM_CATALOG_TYPES as readonly string[]).includes(t)))]
+                : [];
+        }
         if (dto.rankingAlgorithm) updateData.rankingAlgorithm = dto.rankingAlgorithm;
         if (dto.metadata !== undefined) updateData.metadata = dto.metadata;
 

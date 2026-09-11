@@ -352,6 +352,9 @@ model Arm {
   geoScopeType        String
   defaultUnitId       String?   @db.ObjectId
   featuresEnabled     String[]  @default([])
+  // ✅ انواع کاتالوگ پذیرفته‌شده در بازار (retail | wholesale | service) — خالی = بدون محدودیت
+  //    ملاک گارد عضویت و فیلتر تابلوی قیمت؛ fallback لگسی: config.modules.priceTable.visibleSalesTypes
+  acceptedCatalogTypes String[] @default([])
   rankingAlgorithm    String    @default("simple")
   metadata            Json?
   createdAt           DateTime  @default(now())

@@ -183,27 +183,48 @@ export function getArmVisibleSalesTypes(arm: { config?: any }): string[] {
     return Array.isArray(visible) ? visible : [];
 }
 
+// ============================================================
+// ✅ انواع کاتالوگ پذیرفته‌شده در بازار — فیلد درجه‌یک Arm
+// ============================================================
+export const ARM_CATALOG_TYPES = ['retail', 'wholesale', 'service'] as const;
+
 /**
- * برچسب فارسی نوع فروش کاتالوگ — برای پیام‌های خطا
+ * انواع کاتالوگ پذیرفته‌شده — ملاک واحد گارد عضویت و فیلتر تابلوی بازار.
+ * اولویت: فیلد درجه‌یک acceptedCatalogTypes → fallback لگسی: visibleSalesTypes جدول قیمت
+ * خالی = بدون محدودیت (هم تک‌فروشی هم عمده هم خدمات)
  */
-export function salesTypeLabel(salesType: string): string {
-    return salesType === 'retail' ? 'تک‌فروشی' : 'عمده‌فروشی';
+export function getArmAcceptedCatalogTypes(arm: { acceptedCatalogTypes?: string[]; config?: any }): string[] {
+    const own = (arm as any)?.acceptedCatalogTypes;
+    if (Array.isArray(own) && own.length) return own;
+    return getArmVisibleSalesTypes(arm);
 }
 
 /**
+ * برچسب فارسی نوع فروش کاتالوگ — برای پیام‌های خطا
+ */
+export function catalogTypeLabel(salesType: string): string {
+    if (salesType === 'retail') return 'تک‌فروشی';
+    if (salesType === 'service') return 'خدماتی';
+    return 'عمده‌فروشی';
+}
+
+/** backward-compat — نام قدیمی */
+export const salesTypeLabel = catalogTypeLabel;
+
+/**
  * گارد تناسب نوع کاتالوگ با نوع بازار:
- * آگهیِ تک‌فروشی نباید در بازار عمده‌فروشی منتشر شود و بالعکس.
+ * آگهیِ تک‌فروشی نباید در بازار عمده‌فروشی منتشر شود و بالعکس؛ خدماتی فقط در بازار خدمات.
  * خروجی: null یعنی مجاز؛ رشته یعنی پیام خطا
  */
 export function checkMarketTypeMismatch(
-    arm: { config?: any },
+    arm: { acceptedCatalogTypes?: string[]; config?: any },
     catalogSalesType: string | null | undefined,
 ): string | null {
-    const visible = getArmVisibleSalesTypes(arm);
-    if (!visible.length) return null; // بازار بدون محدودیت
+    const accepted = getArmAcceptedCatalogTypes(arm);
+    if (!accepted.length) return null; // بازار بدون محدودیت
     if (!catalogSalesType) return null; // کاتالوگ بدون نوع — محدودیت اعمال نمی‌شود
-    if (visible.includes(catalogSalesType)) return null;
-    return visible.length === 1
-        ? `این بازار فقط ${salesTypeLabel(visible[0])} را می‌پذیرد — کاتالوگ شما ${salesTypeLabel(catalogSalesType)} است`
-        : `نوع کاتالوگ شما (${salesTypeLabel(catalogSalesType)}) با انواع فروش قابل‌نمایش در این بازار هم‌خوان نیست`;
+    if (accepted.includes(catalogSalesType)) return null;
+    return accepted.length === 1
+        ? `این بازار فقط ${catalogTypeLabel(accepted[0])} را می‌پذیرد — کاتالوگ شما ${catalogTypeLabel(catalogSalesType)} است`
+        : `نوع کاتالوگ شما (${catalogTypeLabel(catalogSalesType)}) با انواع کاتالوگ پذیرفته‌شده در این بازار هم‌خوان نیست`;
 }
