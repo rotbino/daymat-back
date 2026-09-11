@@ -6,12 +6,25 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { findCategoryPathInTree, findNodeInTree } from '../utils/arm.utils';
 import { findNodeByRef } from '../utils/category-map.utils';
+import { CacheHelper, VITRINE_CACHE_PREFIX } from './cache.helper';
 
 const logger = new Logger('CatalogPublishService');
 
 @Injectable()
 export class CatalogPublishService {
-    constructor(private prisma: PrismaService) {}
+    constructor(
+        private prisma: PrismaService,
+        private cache: CacheHelper,
+    ) {}
+
+    /**
+     * تابلوی بازار (ویترین) کش ۵ دقیقه‌ای دارد — بعد از هر تغییر وضعیت انتشار باید بشکند،
+     * وگرنه مکث/حذف/برگشت کاتالوگ تا ۵ دقیقه در تابلو اعمال نمی‌شود
+     * (باگ واقعی: مالک بازار عضویت را متوقف می‌کند ولی آگهی‌ها هنوز نمایش داده می‌شوند)
+     */
+    private async bustVitrineCache(): Promise<void> {
+        await this.cache.bust(VITRINE_CACHE_PREFIX);
+    }
 
     async stampCatalogAds(
         arm: { id: string; categoryTree: any },
@@ -181,6 +194,7 @@ export class CatalogPublishService {
         }, { timeout: 30_000, maxWait: 10_000 });
 
         logger.log(`Stamped ${ads.length} ads in arm ${arm.id} (needsCategory: ${needsCategory.length})`);
+        await this.bustVitrineCache();
 
         return { stamped: ads.length, needsCategory };
     }
@@ -246,6 +260,7 @@ export class CatalogPublishService {
         }, { timeout: 30_000, maxWait: 10_000 });
 
         logger.log(`Unstamped (soft) catalog ${catalogId} from arm ${armId}`);
+        await this.bustVitrineCache();
     }
 
     /**
@@ -301,6 +316,7 @@ export class CatalogPublishService {
             await this.rewireAdSnapshot(tx, adId, armId);
         }, { timeout: 15_000, maxWait: 5_000 });
         logger.log(`Unpublished ad ${adId} from arm ${armId} (optOut)`);
+        await this.bustVitrineCache();
     }
 
     /**
@@ -317,6 +333,7 @@ export class CatalogPublishService {
             },
         });
         logger.log(`Publications of catalog ${catalogId} in arm ${armId} → ${status}`);
+        await this.bustVitrineCache();
     }
 
     async pausePublication(adId: string, armId: string): Promise<void> {
@@ -328,6 +345,7 @@ export class CatalogPublishService {
                 updatedAt: new Date(),
             },
         });
+        await this.bustVitrineCache();
     }
 
     async resumePublication(adId: string, armId: string): Promise<void> {
@@ -339,6 +357,7 @@ export class CatalogPublishService {
                 updatedAt: new Date(),
             },
         });
+        await this.bustVitrineCache();
     }
 
     async getAdPublications(adId: string) {

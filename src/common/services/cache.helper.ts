@@ -14,6 +14,10 @@ import { Cache } from 'cache-manager';
 /** TTL پیش‌فرض epoch — یک روز؛ با هر bust زودتر از این هم عوض می‌شود */
 const EPOCH_TTL_MS = 24 * 60 * 60 * 1000;
 
+/** namespace کش تابلوی بازار (ویترین) — بعد از هر تغییر وضعیت انتشار باید bust شود
+ *  وگرنه مکث/حذف کاتالوگ تا ۵ دقیقه در تابلو اعمال نمی‌شود */
+export const VITRINE_CACHE_PREFIX = 'vitrine';
+
 @Injectable()
 export class CacheHelper {
     /** شمارندهٔ محلی برای وقتی که کش در دسترس نیست — تضمین epoch جدید */

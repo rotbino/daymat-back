@@ -15,7 +15,7 @@ import {
 import { SearchLogDto } from "./search-log.dto";
 import { CatalogPublishService } from "../common/services/catalog-publish.service";
 import { checkMarketTypeMismatch } from '../common/utils/arm.utils';
-import { CacheHelper } from '../common/services/cache.helper';
+import { CacheHelper, VITRINE_CACHE_PREFIX } from '../common/services/cache.helper';
 
 const FA_NORMALIZE = (s: string) =>
     (s ?? '')
@@ -375,10 +375,10 @@ export class AdService {
         // ✅ چک کن آیا کاربر حق دیدن قیمت‌ها رو داره (per-user — بیرون از کش)
         const canViewPrices = await this.canViewVitrinePrices(arm.id, userId, priceTableConfig);
 
-        // ✅ هستهٔ سنگین لیست — مشترک بین همهٔ کاربران → کش ۵ دقیقه‌ای بدون باطل‌سازی
-        //    (ثبت/ویرایش آگهی دیگران کش را نمی‌شکند؛ حداکثر ۵ دقیقه کهنگی — تصمیم محصول)
+        // ✅ هستهٔ سنگین لیست — مشترک بین همهٔ کاربران → کش ۵ دقیقه‌ای
+        //    باطل‌سازی از داخل CatalogPublishService انجام می‌شود (هر تغییر وضعیت انتشار کش را می‌شکند)
         const core = await this.cache.wrap(
-            'vitrine',
+            VITRINE_CACHE_PREFIX,
             [armSlug, JSON.stringify(query)],
             VITRINE_CACHE_TTL_MS,
             () => this.fetchVitrineCore(arm, query),
