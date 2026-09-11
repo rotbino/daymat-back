@@ -12,6 +12,7 @@ import { CreditModule } from '../credit/credit.module';
 import {ArmAdminCatalogsController} from "./catalogs/arm-admin-catalogs.controller";
 import {ArmAdminCatalogsService} from "./catalogs/arm-admin-catalogs.service";
 import {UserMarketController} from "../user-market/user-market.controller"; // ✅ اضافه شد
+import { ArmModule } from '../arm/arm.module';
 import { ArmAdminReferenceController } from './reference/arm-admin-reference.controller';
 import { ArmAdminReferenceService } from './reference/arm-admin-reference.service';
 import { AdminProductService } from '../admin/product/admin-product.service';
@@ -23,6 +24,7 @@ import { AdminBrandService } from '../admin/brand/admin-brand.service';
         AuthModule,
         MembersModule,
         CreditModule, // ✅ اضافه شد تا CreditService در دسترس باشد
+        ArmModule, // ✅ CatalogDelegationService — واگذاری کارِ کاتالوگ
     ],
     controllers: [
         ArmAdminController,

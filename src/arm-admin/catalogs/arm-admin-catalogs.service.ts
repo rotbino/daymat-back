@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CatalogPublishService } from '../../common/services/catalog-publish.service';
+import { CatalogAccessService } from '../../common/services/catalog-access.service';
 import { findCategoryPathInTree, findNodeInTree, checkMarketTypeMismatch } from '../../common/utils/arm.utils';
 
 /**
@@ -28,6 +29,7 @@ export class ArmAdminCatalogsService {
     constructor(
         private prisma: PrismaService,
         private catalogPublish: CatalogPublishService,
+        private catalogAccess: CatalogAccessService,
     ) {}
 
     private async resolveArm(slug: string) {
@@ -1117,6 +1119,7 @@ async setOwnAdCategory(userId: string, adId: string, categoryId: string) {
         select: {
             id: true,
             armId: true,
+            catalogId: true,
             catalogCategoryId: true,
             catalog: { select: { business: { select: { ownerUserId: true } } } },
         },
@@ -1124,9 +1127,10 @@ async setOwnAdCategory(userId: string, adId: string, categoryId: string) {
     if (!ad) {
         throw new NotFoundException({ errorCode: 'AD_NOT_FOUND', message: 'آگهی یافت نشد' });
     }
-    if ((ad.catalog as any)?.business?.ownerUserId !== userId) {
-        throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'فقط مالک کاتالوگ' });
-    }
+    // ✅ گیتِ واحد — مالکِ کاتالوگ یا تیمِ بازاری که کارِ کاتالوگ به آن واگذار شده
+    await this.catalogAccess.assertCanManageCatalog(ad.catalogId, userId, {
+        message: 'شما اجازه تعیین دستهٔ بازاری این کالا را ندارید',
+    });
     if (!ad.armId) {
         throw new BadRequestException({
             errorCode: 'NOT_IN_MARKET',

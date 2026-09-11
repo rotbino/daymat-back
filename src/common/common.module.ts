@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { CacheModule } from '@nestjs/cache-manager';
 import { PrismaModule } from '../prisma/prisma.module';
 import { CatalogPublishService } from './services/catalog-publish.service';
+import { CatalogAccessService } from './services/catalog-access.service';
 import { CacheHelper } from './services/cache.helper';
 
 /**
@@ -14,7 +15,7 @@ import { CacheHelper } from './services/cache.helper';
 @Global()
 @Module({
     imports: [PrismaModule, CacheModule.register({ isGlobal: true })],
-    providers: [CatalogPublishService, CacheHelper],
-    exports: [CatalogPublishService, CacheHelper],
+    providers: [CatalogPublishService, CatalogAccessService, CacheHelper],
+    exports: [CatalogPublishService, CatalogAccessService, CacheHelper],
 })
 export class CommonModule {}

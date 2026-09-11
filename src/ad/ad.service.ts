@@ -16,6 +16,7 @@ import { SearchLogDto } from "./search-log.dto";
 import { CatalogPublishService } from "../common/services/catalog-publish.service";
 import { checkMarketTypeMismatch, getArmAcceptedCatalogTypes } from '../common/utils/arm.utils';
 import { CacheHelper, VITRINE_CACHE_PREFIX } from '../common/services/cache.helper';
+import { CatalogAccessService } from '../common/services/catalog-access.service';
 
 const FA_NORMALIZE = (s: string) =>
     (s ?? '')
@@ -45,6 +46,7 @@ export class AdService {
         private catalogPublish: CatalogPublishService,
         private creditService: CreditService,
         private cache: CacheHelper,
+        private catalogAccess: CatalogAccessService,
     ) {}
 
     private getConfigValue<T>(config: any, path: string, defaultValue: T): T {
@@ -91,12 +93,11 @@ export class AdService {
                 message: 'کاتالوگ مورد نظر یافت نشد',
             });
         }
-        if ((catalog.business as any).ownerUserId !== userId) {
-            throw new ForbiddenException({
-                errorCode: 'FORBIDDEN_CATALOG',
-                message: 'شما به این کاتالوگ دسترسی ندارید',
-            });
-        }
+        // ✅ گیتِ واحد: مالکِ کسب‌وکار یا تیمِ بازاری که کارِ کاتالوگ به آن واگذار شده
+        await this.catalogAccess.assertCanManageCatalog(catalog.id, userId, {
+            errorCode: 'FORBIDDEN_CATALOG',
+            message: 'شما به این کاتالوگ دسترسی ندارید',
+        });
 
         // ─── ۲) واحد — الزامی و سراسری ───
         if (!dto.unitId) {
@@ -251,17 +252,10 @@ export class AdService {
             throw new NotFoundException({ errorCode: 'AD_NOT_FOUND', message: 'آگهی یافت نشد' });
         }
 
-        // ✅ مالکیت از مسیر نهاد
-        const catalog = await this.prisma.catalog.findUnique({
-            where: { id: ad.catalogId },
-            select: { business: { select: { ownerUserId: true } } },
+        // ✅ مالکیت از مسیر نهاد — یا تیمِ واگذارشده
+        await this.catalogAccess.assertCanManageCatalog(ad.catalogId, userId, {
+            message: 'شما اجازه ویرایش این آگهی را ندارید',
         });
-        if ((catalog as any)?.business?.ownerUserId !== userId) {
-            throw new ForbiddenException({
-                errorCode: 'FORBIDDEN',
-                message: 'شما اجازه ویرایش این آگهی را ندارید',
-            });
-        }
 
         // ─── واحد ───
         if (dto.unitId) {
@@ -731,9 +725,9 @@ export class AdService {
         });
 
         if (!ad) throw new NotFoundException({ errorCode: 'AD_NOT_FOUND', message: 'آگهی یافت نشد' });
-        if ((ad.catalog as any).business.ownerUserId !== userId) {
-            throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'شما اجازه نردبان این آگهی را ندارید' });
-        }
+        await this.catalogAccess.assertCanManageCatalog(ad.catalogId, userId, {
+            message: 'شما اجازه نردبان این آگهی را ندارید',
+        });
         if (ad.status !== 'active') throw new BadRequestException({ errorCode: 'AD_NOT_ACTIVE', message: 'فقط آگهی‌های فعال قابل نردبان هستند' });
 
         // ✅ چک کن آگهی در حداقل یک بازار published است (از AdPublication)
@@ -946,7 +940,9 @@ export class AdService {
         });
 
         if (!ad) throw new NotFoundException();
-        if ((ad.catalog as any).business.ownerUserId !== userId) throw new ForbiddenException();
+        await this.catalogAccess.assertCanManageCatalog(ad.catalogId, userId, {
+            message: 'شما اجازه تمدید این آگهی را ندارید',
+        });
         if (ad.status !== 'active' && ad.status !== 'expired' && ad.status !== 'inactive') {
             throw new BadRequestException('آگهی قابل تمدید نیست');
         }
@@ -1031,9 +1027,9 @@ export class AdService {
             },
         });
         if (!ad) throw new NotFoundException({ errorCode: 'AD_NOT_FOUND', message: 'آگهی یافت نشد' });
-        if ((ad.catalog as any).business.ownerUserId !== userId) {
-            throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'شما اجازه حذف این آگهی را ندارید' });
-        }
+        await this.catalogAccess.assertCanManageCatalog(ad.catalogId, userId, {
+            message: 'شما اجازه حذف این آگهی را ندارید',
+        });
         const removed = await this.prisma.ad.update({ where: { id }, data: { status: 'deleted', updatedAt: new Date() } });
         // ✅ آگهی حذف‌شده باید فوری از تابلوی همهٔ بازارها برود — کش ویترین می‌شکند (همان کلاس باگِ مکث کاتالوگ)
         await this.cache.bust(VITRINE_CACHE_PREFIX);
@@ -1099,9 +1095,9 @@ export class AdService {
             },
         });
         if (!ad) throw new NotFoundException({ errorCode: 'AD_NOT_FOUND', message: 'آگهی یافت نشد' });
-        if ((ad.catalog as any).business.ownerUserId !== userId) {
-            throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'شما مالک این آگهی نیستید' });
-        }
+        await this.catalogAccess.assertCanManageCatalog(ad.catalogId, userId, {
+            message: 'شما اجازه انتشار این آگهی را ندارید',
+        });
         if (ad.status !== 'active') {
             throw new BadRequestException({ errorCode: 'AD_NOT_ACTIVE', message: 'آگهی فعال نیست' });
         }
@@ -1197,9 +1193,9 @@ export class AdService {
             },
         });
         if (!ad) throw new NotFoundException({ errorCode: 'AD_NOT_FOUND', message: 'آگهی یافت نشد' });
-        if ((ad.catalog as any).business.ownerUserId !== userId) {
-            throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'شما مالک این آگهی نیستید' });
-        }
+        await this.catalogAccess.assertCanManageCatalog(ad.catalogId, userId, {
+            message: 'شما اجازه توقف انتشار این آگهی را ندارید',
+        });
 
         const arm = await this.prisma.arm.findUnique({
             where: { slug: armSlug },
@@ -1308,17 +1304,8 @@ export class AdService {
     async bulkUpdate(userId: string, updates: { id: string; unitPrice: number }[]) {
         if (!updates || updates.length === 0) throw new BadRequestException('هیچ آگهی ارسال نشده است.');
 
-        // ✅ کاتالوگ‌های کاربر از مسیر نهادها
-        const userBizIds = (await this.prisma.business.findMany({
-            where: { ownerUserId: userId, status: 'active' },
-            select: { id: true },
-        })).map((b) => b.id);
-
-        const userCatalogs = await this.prisma.catalog.findMany({
-            where: { businessId: { in: userBizIds }, status: 'active' },
-            select: { id: true },
-        });
-        const catalogIds = userCatalogs.map((b) => b.id);
+        // ✅ گیتِ واحد — کاتالوگ‌های خودِ کاربر + کاتالوگ‌های واگذارشده به تیمِ او
+        const catalogIds = await this.catalogAccess.manageableCatalogIds(userId);
 
         const ads = await this.prisma.ad.findMany({
             where: { id: { in: updates.map((u) => u.id) } },
@@ -1326,7 +1313,7 @@ export class AdService {
         });
         for (const ad of ads) {
             if (!catalogIds.includes(ad.catalogId)) {
-                throw new ForbiddenException(`شما مالک آگهی ${ad.id} نیستید.`);
+                throw new ForbiddenException(`شما اجازه ویرایش آگهی ${ad.id} را ندارید.`);
             }
         }
 
@@ -1949,15 +1936,55 @@ export class AdService {
             }
         }
 
+        // ═══ ✅ NEW — واگذاریِ کارِ کاتالوگ به تیمِ بازار — خبرهای فروشنده (۷ روز) ═══
+        if (catalogIds.length) {
+            const recentDelegations = await this.prisma.catalogArmDelegation.findMany({
+                where: { catalogId: { in: catalogIds }, updatedAt: { gte: weekAgo } },
+                orderBy: { updatedAt: 'desc' },
+                take: 10,
+                include: {
+                    arm: { select: { name: true, slug: true } },
+                    catalog: { select: { id: true, name: true } },
+                },
+            });
+            for (const d of recentDelegations) {
+                if (d.status === 'active') {
+                    items.unshift({
+                        id: `delegation-active-${d.id}`,
+                        type: 'delegation-active',
+                        severity: 'info',
+                        title: `کارِ کاتالوگ «${d.catalog.name}» در ${d.arm.name} به تیمِ بازار واگذار شده`,
+                        body: 'مالک و ادمین‌های بازار حالا می‌توانند محصول‌ها و قیمت‌ها را به‌جایتان مدیریت کنند — هر وقت خواستید می‌توانید پس بگیرید',
+                        action: { label: 'پنل کاتالوگ', href: `/my-catalogs?catalog=${d.catalogId}` },
+                        catalogId: d.catalogId,
+                    });
+                } else if (d.revokedByUserId && d.revokedByUserId !== userId) {
+                    items.unshift({
+                        id: `delegation-revoked-${d.id}`,
+                        type: 'delegation-revoked',
+                        severity: 'warning',
+                        title: `دسترسی تیمِ بازار ${d.arm.name} به کاتالوگ «${d.catalog.name}» لغو شد`,
+                        body: 'از این به بعد مدیریت محصول‌ها و قیمت‌ها فقط با خودتان است',
+                        action: { label: 'پنل کاتالوگ', href: `/my-catalogs?catalog=${d.catalogId}` },
+                        catalogId: d.catalogId,
+                    });
+                }
+            }
+        }
+
         // ═══ ✅ NEW — اعلان‌های مالک/ادمین بازار: درخواست‌های در انتظار بررسی ═══
         const managedArms = await this.prisma.armMembership.findMany({
             where: { userId, role: { in: ['arm_owner', 'arm_admin'] }, status: 'active' },
             select: { armId: true, arm: { select: { name: true, slug: true } } },
         });
         for (const mm of managedArms) {
-            const [joinPending, leavePending] = await Promise.all([
+            const [joinPending, leavePending, freshDelegations] = await Promise.all([
                 this.prisma.armMembershipRequest.count({ where: { armId: mm.armId, status: 'pending' } }),
                 this.prisma.armLeaveRequest.count({ where: { armId: mm.armId, status: 'pending' } }),
+                // ✅ واگذاری‌های تازه — فروشنده‌ها کارِ کاتالوگشان را به تیمِ شما سپرده‌اند
+                this.prisma.catalogArmDelegation.count({
+                    where: { armId: mm.armId, status: 'active', grantedAt: { gte: weekAgo } },
+                }),
             ]);
             if (joinPending > 0) {
                 items.unshift({
@@ -1977,6 +2004,16 @@ export class AdService {
                     title: `${leavePending.toLocaleString('fa-IR')} درخواست لغو عضویت در ${mm.arm.name} در انتظار رسیدگی شماست`,
                     body: 'عضوها منتظر تصمیم شما هستند — تایید یعنی خروج، رد یعنی ماندن با ذکر دلیل',
                     action: { label: 'بررسی درخواست‌های لغو', href: '/arm-admin/leave-requests' },
+                });
+            }
+            if (freshDelegations > 0) {
+                items.unshift({
+                    id: `owner-delegation-${mm.armId}`,
+                    type: 'owner-new-delegation',
+                    severity: 'info',
+                    title: `${freshDelegations.toLocaleString('fa-IR')} کاتالوگ به تیمِ ${mm.arm.name} واگذار شده`,
+                    body: 'فروشنده‌ها کارِ کاتالوگشان (محصول و قیمت) را به شما سپرده‌اند — از پنل، کارشان را انجام دهید',
+                    action: { label: 'دیدن واگذاری‌ها', href: '/arm-admin/delegated' },
                 });
             }
         }

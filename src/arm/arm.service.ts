@@ -441,6 +441,16 @@ export class ArmService {
         ]);
         const pendingLeaveMap = new Map(pendingLeaves.map((p) => [p.armId, p]));
 
+        // ✅ واگذاری‌های کارِ کاتالوگ — بج «واگذارشده به تیم بازار» در تب انتشار
+        const memberCatIds = memberships.map((m) => m.catalogId).filter(Boolean) as string[];
+        const delegations = memberCatIds.length
+            ? await this.prisma.catalogArmDelegation.findMany({
+                  where: { catalogId: { in: memberCatIds } },
+                  select: { catalogId: true, armId: true, status: true, grantedAt: true, revokedAt: true },
+              })
+            : [];
+        const delegationMap = new Map(delegations.map((d) => [`${d.catalogId}:${d.armId}`, d]));
+
         // بازارهای ذخیره‌شده‌ای که عضویتِ ردیفیِ آن‌ها را نداریم (عضوها از مسیر عضویت می‌آیند)
         const membershipArmIds = new Set(memberships.map((m) => m.arm.id));
         const savedOnlyArmIds = savedMarks
@@ -508,6 +518,10 @@ export class ArmService {
                 selfRemovedCatalog: m.selfRemovedCatalog ?? false,
                 // ✅ درخواست لغویِ در انتظارِ تاییدِ مالک — بج در پنل کاتالوگ/کسب‌وکار
                 pendingLeaveRequest: pendingLeaveMap.get(m.arm.id) ?? null,
+                // ✅ واگذاریِ کارِ کاتالوگ به تیمِ همین بازار (فروشنده)
+                delegation: m.catalogId
+                    ? (delegationMap.get(`${m.catalogId}:${m.arm.id}`) ?? null)
+                    : null,
                 roleType: m.roleType,
                 acceptedCatalogTypes: m.arm.acceptedCatalogTypes || [],
                 catalog: m.catalog

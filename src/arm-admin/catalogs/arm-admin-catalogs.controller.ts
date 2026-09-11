@@ -4,6 +4,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { ArmAdminCatalogsService } from './arm-admin-catalogs.service';
+import { CatalogDelegationService } from '../../arm/catalog-delegation.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ArmAdminGuard } from '../../common/guards/arm-admin.guard';
 import { CurrentUser } from '../../common/decorators/custom.decorators';
@@ -13,7 +14,24 @@ import { CurrentUser } from '../../common/decorators/custom.decorators';
 @UseGuards(JwtAuthGuard, ArmAdminGuard)
 @ApiBearerAuth('access-token')
 export class ArmAdminCatalogsController {
-    constructor(private catalogsService: ArmAdminCatalogsService) {}
+    constructor(
+        private catalogsService: ArmAdminCatalogsService,
+        private delegationService: CatalogDelegationService,
+    ) {}
+
+    // ═══ واگذاری‌های کارِ کاتالوگ ═══
+
+    @Get('delegated')
+    @ApiOperation({ summary: 'کاتالوگ‌های واگذارشده به تیمِ بازار — کارِ این‌ها را به‌جای فروشنده انجام می‌دهید' })
+    @ApiQuery({ name: 'status', required: false, enum: ['active', 'revoked', 'all'] })
+    async getDelegated(
+        @Param('slug') slug: string,
+        @Query('status') status?: string,
+        @Query('page') page: number = 1,
+        @Query('limit') limit: number = 20,
+    ) {
+        return this.delegationService.listForArm(slug, status || 'active', Number(page), Number(limit));
+    }
 
     // ═══ فروشندگان ═══
 
