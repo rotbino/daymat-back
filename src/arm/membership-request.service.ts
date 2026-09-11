@@ -99,10 +99,13 @@ export class MembershipRequestService {
             }
             businessId = biz.id;
 
-            // قبلاً به‌عنوان خریدارِ فعال عضو است؟
+            // قبلاً به‌عنوان خریدارِ فعال (با کسب‌وکار) عضو است؟
+            // ⚠️ عضویت شخصیِ بدون businessId (مثل مالک بازار) شمرده نمی‌شود — او باید بتواند
+            //    کسب‌وکارش را به‌عنوان خریدار/فروشنده اضافه کند
             if (
                 membership?.status === 'active' &&
                 membership.businessStatus === 'active' &&
+                membership.businessId &&
                 (membership.roleType === 'buyer' || membership.roleType === 'seller-buyer')
             ) {
                 throw new BadRequestException({
@@ -201,7 +204,7 @@ export class MembershipRequestService {
             this.prisma.armMembership.findUnique({
                 where: { armId_userId: { armId: arm.id, userId } },
                 select: {
-                    status: true, businessStatus: true, roleType: true,
+                    status: true, businessStatus: true, roleType: true, role: true,
                     publishState: true, businessId: true, catalogId: true,
                 },
             }),

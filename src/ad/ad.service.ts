@@ -448,19 +448,23 @@ export class AdService {
 
     /** حق دیدن قیمت — فقط وقتی بازار خصوصی باشد کوئری می‌زند
      *  ✅ ملاک جدید: Arm.isPrivate (بازار خصوصی مثل کانال خصوصی تلگرام)
-     *  fallback لگسی: config.modules.priceTable.requireMembershipToViewPrices */
+     *  fallback لگسی: config.modules.priceTable.requireMembershipToViewPrices
+     *  ✅ مالک بازار همیشه می‌بیند — عضویتِ او شخصی است و کسب‌وکار ندارد (businessId=null) */
     private async canViewVitrinePrices(arm: any, userId: string | undefined, priceTableConfig: any): Promise<boolean> {
         const isPrivate = (arm as any)?.isPrivate === true || priceTableConfig.requireMembershipToViewPrices === true;
         if (!isPrivate) return true;
         if (!userId) return false; // مهمان
-        // چک کن آیا کاربر buyer یا seller فعال در این بازار هست
+        // چک کن آیا کاربر مالک بازار است یا buyer/seller فعال با کسب‌وکار در این بازار
         const membership = await this.prisma.armMembership.findFirst({
             where: {
                 armId: arm.id,
                 userId,
                 status: 'active',
                 businessStatus: 'active',
-                businessId: { not: null },
+                OR: [
+                    { role: 'arm_owner' }, // مالک/مدیر بازار — نمایندهٔ کسب‌وکار نیست
+                    { businessId: { not: null } }, // عضویت کسب‌وکاری (خریدار/فروشنده)
+                ],
             },
             select: { id: true },
         });
