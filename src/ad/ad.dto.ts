@@ -2,7 +2,7 @@
 import {ApiProperty, ApiPropertyOptional} from '@nestjs/swagger';
 import {
     IsNotEmpty, IsString, IsNumber, IsOptional, IsBoolean,
-    Min, Max, IsEnum, ValidateNested, IsObject, IsArray,
+    Min, Max, IsEnum, ValidateNested, IsObject, IsArray, MaxLength,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 
@@ -636,6 +636,36 @@ export class AdListQueryDto {
     @IsOptional()
     @IsString()
     search?: string;
+
+    // ─── فیلترهای بازار (فیلتربار توسعه‌پذیر دیوار‌سبک) ───
+
+    @ApiProperty({ example: 'id1,id2', description: 'شناسهٔ برندها — چندانتخابی جداشده با ویرگول', required: false })
+    @IsOptional()
+    @IsString()
+    @MaxLength(500)
+    brandIds?: string;
+
+    @ApiProperty({ required: false, description: 'فقط آگهی‌های چکی' })
+    @IsOptional()
+    @IsBoolean()
+    @Transform(({ value }) => value === 'true' || value === true)
+    hasCheque?: boolean;
+
+    @ApiProperty({ example: 5, description: 'حداقل مهلت چک (روز)', required: false })
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    @Min(0)
+    @Max(730)
+    chequeMinDays?: number;
+
+    @ApiProperty({ example: 300, description: 'حداکثر مهلت چک (روز)', required: false })
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    @Min(0)
+    @Max(730)
+    chequeMaxDays?: number;
 }
 
 // ═══════════════════════════════════════════════════════════════

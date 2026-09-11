@@ -57,6 +57,22 @@ export class AdService {
         return value !== undefined && value !== null ? value : defaultValue;
     }
 
+    /** ✅ قیمت مؤثر فیلتر بازار — قیمت تکی مصرف‌کننده (یک عدد پفک، نه کارتن پفک)
+     *  اولویت: consumerPrice → singleUnitPrice → unitPrice (برای تک‌فروشی unitPrice خودش تکی است) */
+    private computeFilterPrice(unitPrice: number, singleUnitPrice?: number | null, consumerPrice?: number | null): number {
+        return consumerPrice ?? singleUnitPrice ?? unitPrice;
+    }
+
+    /** ✅ فرادادهٔ فیلتر چک — از paymentMethods.cheque مشتق می‌شود (دنرمال برای کوئری دیتابیسی) */
+    private computeChequeMeta(paymentMethods: any): { hasCheque: boolean; chequeMinDays: number | null; chequeMaxDays: number | null } {
+        const options = Array.isArray(paymentMethods?.cheque) ? paymentMethods.cheque : [];
+        const days = options
+            .map((c: any) => Number(c?.days))
+            .filter((d: number) => Number.isFinite(d) && d > 0);
+        if (!days.length) return { hasCheque: false, chequeMinDays: null, chequeMaxDays: null };
+        return { hasCheque: true, chequeMinDays: Math.min(...days), chequeMaxDays: Math.max(...days) };
+    }
+
     // ═══════════════════════════════════════
     // 1. ثبت آگهی جدید — کاتالوگ‌محور نهایی
     // ═══════════════════════════════════════
@@ -149,6 +165,9 @@ export class AdService {
                 unitPrice: dto.unitPrice,
                 singleUnitPrice: dto.singleUnitPrice || null,
                 consumerPrice: dto.consumerPrice || null,
+                // ✅ فیلتر بازار — دنرمال از قیمت‌ها و شرایط فروش
+                filterPrice: this.computeFilterPrice(dto.unitPrice, dto.singleUnitPrice, dto.consumerPrice),
+                ...this.computeChequeMeta((dto.paymentMethods as any) || null),
                 minQuantity: dto.minQuantity,
                 availableQuantity: dto.availableQuantity || null,
                 availableQuantityBucket: dto.availableQuantityBucket || null,
@@ -222,6 +241,10 @@ export class AdService {
                 catalogId: true,
                 armId: true,
                 validityHours: true,
+                unitPrice: true,
+                singleUnitPrice: true,
+                consumerPrice: true,
+                paymentMethods: true,
             },
         });
         if (!ad) {
@@ -291,6 +314,12 @@ export class AdService {
             ? (effectiveValidity > 0 ? new Date(Date.now() + effectiveValidity * 3600_000) : null)
             : undefined;
 
+        // ✅ فیلتر بازار — بازمحاسبهٔ دنرمال از مقادیر نهایی (پس از اعمال dto روی وضع فعلی)
+        const nextUnitPrice = dto.unitPrice !== undefined ? dto.unitPrice : ad.unitPrice;
+        const nextSingleUnitPrice = dto.singleUnitPrice !== undefined ? (dto.singleUnitPrice || null) : ad.singleUnitPrice;
+        const nextConsumerPrice = dto.consumerPrice !== undefined ? (dto.consumerPrice || null) : ad.consumerPrice;
+        const nextPaymentMethods = dto.paymentMethods !== undefined ? ((dto.paymentMethods as any) || null) : ad.paymentMethods;
+
         const adUpdated = await this.prisma.ad.update({
             where: { id },
             data: {
@@ -319,6 +348,9 @@ export class AdService {
                 ...(dto.unitQty !== undefined ? { unitQty: dto.unitQty ?? null } : {}),
                 ...(dto.unitIsVariableQty !== undefined ? { unitIsVariableQty: dto.unitIsVariableQty } : {}),
                 ...(dto.paymentMethods !== undefined ? { paymentMethods: (dto.paymentMethods as any) || null } : {}),
+                // ✅ فیلتر بازار — دنرمال همیشه همگام
+                filterPrice: this.computeFilterPrice(nextUnitPrice, nextSingleUnitPrice, nextConsumerPrice),
+                ...this.computeChequeMeta(nextPaymentMethods),
                 ...(dto.customFields !== undefined ? { customFields: (dto.customFields as any) || null } : {}),
                 // ✅ اگه قیمت تغییر کرد، priceUpdatedAt رو آپدیت کن
                 ...(priceChanged ? { priceUpdatedAt: new Date() } : {}),
@@ -329,6 +361,10 @@ export class AdService {
                 unit: { select: { id: true, title: true, shortCode: true } },
             },
         });
+
+        // ✅ هر ویرایش آگهی (قیمت/شرایط فروش/وضعیت) باید فوری در تابلو بیفتد — کش ویترین می‌شکند
+        //    (re-stamp دسته هم خودش bust می‌زند؛ اینجا برای بقیهٔ تغییرات)
+        await this.cache.bust(VITRINE_CACHE_PREFIX);
 
         // ─── اگر دستهٔ کاتالوگ عوض شد → دستهٔ بازاری در همه بازارها بازمحاسبه ───
         if (dto.categoryId !== undefined) {
@@ -396,10 +432,16 @@ export class AdService {
             }))
             : core.ads;
 
+        // فاست‌های قیمتی هم مثل خود قیمت‌ها برای مهمانِ بدون اجازه null می‌مانند
+        const facets = canViewPrices
+            ? core.facets
+            : { ...core.facets, priceMin: null, priceMax: null };
+
         return {
             ads,
             canViewPrices,  // ✅ فرانت از این استفاده می‌کنه تا پیام مناسب نشون بده
             pagination: core.pagination,
+            facets,
         };
     }
 
@@ -451,25 +493,20 @@ export class AdService {
             }
         }
 
-        // ✅ صفحه‌بندی روی AdPublication (نه Ad)
-        const [publications, pubTotal] = await Promise.all([
-            this.prisma.adPublication.findMany({
-                where: pubWhere,
-                orderBy: { publishedAt: 'desc' },
-                skip,
-                take: limit,
-                select: { adId: true, categoryId: true, categoryPath: true },
-            }),
-            this.prisma.adPublication.count({ where: pubWhere }),
-        ]);
-
-        const adIds = publications.map((p) => p.adId);
-        const pubMap = new Map(publications.map((p) => [p.adId, p]));
+        // ✅ همهٔ publicationهای بازاره (فقط id) — فیلترهای آگهی‌سطح، کانت، فاست و صفحه‌بندی روی Ad
+        //    تا همه دقیقاً از «بازهٔ فیلتری» بیایند و بدون در نظر گرفتن پیجینگ (رفتار کانت)
+        const pubs = await this.prisma.adPublication.findMany({
+            where: pubWhere,
+            select: { adId: true, categoryId: true, categoryPath: true },
+        });
+        const adIds = pubs.map((p) => p.adId);
+        const pubMap = new Map(pubs.map((p) => [p.adId, p]));
 
         if (adIds.length === 0) {
             return {
                 ads: [],
                 pagination: { page, limit, total: 0, totalPages: 0 },
+                facets: { priceMin: null, priceMax: null, brands: [] },
             };
         }
 
@@ -495,10 +532,27 @@ export class AdService {
         }
         if (query.cityCode) adWhere.cityCode = query.cityCode;
         if (query.provinceCode) adWhere.provinceCode = query.provinceCode;
+        // ✅ فیلتر قیمت روی قیمت تکی مصرف‌کننده (filterPrice دنرمال) — یک عدد پفک، نه کارتن پفک
         if (query.minPrice !== undefined || query.maxPrice !== undefined) {
-            adWhere.unitPrice = {};
-            if (query.minPrice !== undefined) adWhere.unitPrice.gte = query.minPrice;
-            if (query.maxPrice !== undefined) adWhere.unitPrice.lte = query.maxPrice;
+            adWhere.filterPrice = {};
+            if (query.minPrice !== undefined) adWhere.filterPrice.gte = query.minPrice;
+            if (query.maxPrice !== undefined) adWhere.filterPrice.lte = query.maxPrice;
+        }
+
+        // ✅ فیلتر برند — چندانتخابی (شناسه‌ها جداشده با ویرگول)
+        const filterBrandIds = (query.brandIds || '')
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean);
+        if (filterBrandIds.length) adWhere.brandId = { in: filterBrandIds };
+
+        // ✅ فیلتر چک — تیک «فقط چکی» + بازهٔ اختیاری مهلت (هم‌پوشانی بازهٔ آگهی و بازهٔ کاربر)
+        if (query.hasCheque) {
+            adWhere.hasCheque = true;
+            const chequeOverlap: any[] = [];
+            if (query.chequeMaxDays !== undefined) chequeOverlap.push({ chequeMinDays: { lte: query.chequeMaxDays } });
+            if (query.chequeMinDays !== undefined) chequeOverlap.push({ chequeMaxDays: { gte: query.chequeMinDays } });
+            if (chequeOverlap.length) adWhere.AND = [...(adWhere.AND || []), ...chequeOverlap];
         }
         if (query.minAvailableQuantity !== undefined || query.maxAvailableQuantity !== undefined) {
             adWhere.availableQuantity = {};
@@ -510,14 +564,24 @@ export class AdService {
             adWhere.isBumped = true;
             adWhere.bumpExpiresAt = { gt: new Date() };
         } else if (query.bumpFilter === 'normal') {
-            adWhere.OR = [
-                { isBumped: false },
-                { bumpExpiresAt: { lt: new Date() } },
-            ];
+            // ✅ زیر AND می‌رود تا ORِ جستجو را نبلعد (باگ قدیمی هم‌پوشانی OR)
+            adWhere.AND = [...(adWhere.AND || []), {
+                OR: [
+                    { isBumped: false },
+                    { bumpExpiresAt: { lt: new Date() } },
+                ],
+            }];
         }
 
+        // ✅ کانت دقیق روی همهٔ فیلترها (کانتِ بازهٔ فیلتری — بدون پیجینگ)
+        const total = await this.prisma.ad.count({ where: adWhere });
+
+        // ✅ صفحهٔ فعلی — مرتب‌سازی در دیتابیس: نردباندار اول، تازه‌ترین قیمت بعد
         const ads = await this.prisma.ad.findMany({
             where: adWhere,
+            orderBy: [{ isBumped: 'desc' }, { priceUpdatedAt: 'desc' }],
+            skip,
+            take: limit,
             select: {
                 id: true,
                 title: true,
@@ -570,28 +634,44 @@ export class AdService {
             },
         });
 
-        // ✅ ترتیب آگهی‌ها باید همون ترتیب AdPublication باشه (publishedAt desc)
-        // و isBumped اول بیاد
-        const adMap = new Map(ads.map((a: any) => [a.id, a]));
-        const orderedAds = adIds
-            .map((adId) => adMap.get(adId))
-            .filter(Boolean) as any[];
+        // ✅ فاست‌ها — فیلترِ خودشان از شرط‌ها حذف می‌شود تا با تغییرِ خودِ فیلتر، بازه/لیست فرو نریزد
+        //    (رفتار دیوار: بازهٔ قیمت و لیست برند با بقیهٔ فیلترها محاسبه می‌شوند، نه با خودشان)
+        const facetPriceWhere: any = { ...adWhere };
+        delete facetPriceWhere.filterPrice;
+        const facetBrandWhere: any = { ...adWhere };
+        delete facetBrandWhere.brandId;
 
-        // ✅ bumped ها اول، بعد priceUpdatedAt DESC
-        orderedAds.sort((a: any, b: any) => {
-            if (a.isBumped && !b.isBumped) return -1;
-            if (!a.isBumped && b.isBumped) return 1;
-            // ✅ sort by priceUpdatedAt DESC
-            const aTime = a.priceUpdatedAt ? new Date(a.priceUpdatedAt).getTime() : 0;
-            const bTime = b.priceUpdatedAt ? new Date(b.priceUpdatedAt).getTime() : 0;
-            return bTime - aTime;
-        });
+        const [priceAgg, brandGroups] = await Promise.all([
+            this.prisma.ad.aggregate({
+                where: facetPriceWhere,
+                _min: { filterPrice: true },
+                _max: { filterPrice: true },
+            }),
+            this.prisma.ad.groupBy({
+                by: ['brandId'],
+                where: facetBrandWhere,
+                _count: { _all: true },
+            }),
+        ]);
 
-        const total = pubTotal;
+        const facetBrandIds = brandGroups.map((b) => b.brandId).filter((v): v is string => !!v);
+        const brandRows = facetBrandIds.length
+            ? await this.prisma.brand.findMany({ where: { id: { in: facetBrandIds } }, select: { id: true, title: true } })
+            : [];
+        const brandTitleMap = new Map(brandRows.map((b) => [b.id, b.title]));
+        const brandFacets = brandGroups
+            .filter((b) => !!b.brandId)
+            .map((b) => ({
+                id: b.brandId as string,
+                title: brandTitleMap.get(b.brandId as string) || '',
+                count: (b._count as any)?._all ?? 0,
+            }))
+            .filter((b) => b.title)
+            .sort((a, b) => b.count - a.count);
 
         // ✅ category را از publication این بازار بگیر، نه از Ad snapshot
         // (قیمت‌ها همیشه داخل کش کامل می‌مانند؛ nullکردن per-user در getVitrine انجام می‌شود)
-        const adsWithCustomLabel = orderedAds.map((ad: any) => {
+        const adsWithCustomLabel = ads.map((ad: any) => {
             const pub = pubMap.get(ad.id);
             const pubCategoryId = pub?.categoryId || null;
             const selection = categoryMap.get(pubCategoryId) as any | undefined;
@@ -613,6 +693,12 @@ export class AdService {
                 limit,
                 total,
                 totalPages: Math.ceil(total / limit),
+            },
+            // ✅ فاست‌های بازار — بازهٔ قیمت از دیتابیس (min/max بازهٔ فیلتری) + برندها با کانت
+            facets: {
+                priceMin: priceAgg._min.filterPrice ?? null,
+                priceMax: priceAgg._max.filterPrice ?? null,
+                brands: brandFacets,
             },
         };
     }
@@ -691,7 +777,7 @@ export class AdService {
         const bumpExpiresAt = new Date();
         bumpExpiresAt.setDate(bumpExpiresAt.getDate() + 1);
 
-        return this.prisma.ad.update({
+        const bumped = await this.prisma.ad.update({
             where: { id },
             data: {
                 isBumped: true,
@@ -705,6 +791,9 @@ export class AdService {
                 catalog: { select: { id: true, name: true } },
             },
         });
+        // ✅ نردبان ترتیب تابلو را عوض می‌کند — کش ویترین می‌شکند
+        await this.cache.bust(VITRINE_CACHE_PREFIX);
+        return bumped;
     }
 
     // ============================================================
@@ -888,7 +977,10 @@ export class AdService {
         if ((ad.catalog as any).business.ownerUserId !== userId) {
             throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'شما اجازه حذف این آگهی را ندارید' });
         }
-        return this.prisma.ad.update({ where: { id }, data: { status: 'deleted', updatedAt: new Date() } });
+        const removed = await this.prisma.ad.update({ where: { id }, data: { status: 'deleted', updatedAt: new Date() } });
+        // ✅ آگهی حذف‌شده باید فوری از تابلوی همهٔ بازارها برود — کش ویترین می‌شکند (همان کلاس باگِ مکث کاتالوگ)
+        await this.cache.bust(VITRINE_CACHE_PREFIX);
+        return removed;
     }
 
     async getPriceHistory(id: string, userId?: string) {
@@ -917,6 +1009,8 @@ export class AdService {
             where: { status: 'active', isBumped: true, bumpExpiresAt: { lt: new Date() } },
             data: { isBumped: false, updatedAt: new Date() },
         });
+        // ✅ پایان نردبان ترتیب تابلو را عوض می‌کند — اگر چیزی منقضی شد کش ویترین می‌شکند
+        if (expired.count > 0) await this.cache.bust(VITRINE_CACHE_PREFIX);
         return { expiredCount: expired.count };
     }
 
@@ -1171,7 +1265,7 @@ export class AdService {
 
         const ads = await this.prisma.ad.findMany({
             where: { id: { in: updates.map((u) => u.id) } },
-            select: { id: true, catalogId: true, validityHours: true },
+            select: { id: true, catalogId: true, validityHours: true, singleUnitPrice: true, consumerPrice: true },
         });
         for (const ad of ads) {
             if (!catalogIds.includes(ad.catalogId)) {
@@ -1187,6 +1281,8 @@ export class AdService {
                 where: { id: update.id },
                 data: {
                     unitPrice: update.unitPrice,
+                    // ✅ فیلتر بازار — filterPrice از نو (واحد نهایی بسته به بودن consumer/single عوض می‌شود)
+                    filterPrice: this.computeFilterPrice(update.unitPrice, ad?.singleUnitPrice, ad?.consumerPrice),
                     updatedAt: now,
                     // ✅ آپدیت قیمت = قیمت تازه شد؛ اعتبار قیمت هم با همان مدتِ خودش از نو شروع می‌شود
                     priceUpdatedAt: now,
@@ -1197,6 +1293,8 @@ export class AdService {
             });
         });
         const results = await this.prisma.$transaction(updatePromises);
+        // ✅ آپدیت گروهی قیمت — تابلو باید فوری تازه شود
+        await this.cache.bust(VITRINE_CACHE_PREFIX);
         return { message: `${results.length} آگهی به‌روزرسانی شد`, updatedAds: results };
     }
 

@@ -487,6 +487,13 @@ model Ad {
     unitPrice             Float
     singleUnitPrice       Float?
     consumerPrice         Float?
+    // ✅ فیلتر بازار — قیمتِ مؤثرِ تکی (مصرف‌کننده → تکی عمده → واحد) دنرمال‌شده برای فیلتر و فاست
+    //    فیلتر بازهٔ قیمت روی قیمت مصرف‌کننده است (یک عدد پفک، نه کارتن پفک)
+    filterPrice           Float?
+    // ✅ فیلتر چک — از paymentMethods.cheque مشتق می‌شود (دنرمال برای فیلترِ دیتابیسی)
+    hasCheque             Boolean  @default(false)
+    chequeMinDays         Int?     // کمترین مهلت چک آگهی (روز)
+    chequeMaxDays         Int?     // بیشترین مهلت چک آگهی (روز)
     minQuantity           Float
     priceHistory          Json?
     availableQuantity     Float?
