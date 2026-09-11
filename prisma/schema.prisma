@@ -106,6 +106,7 @@ model User {
   creditRequests  CreditRequest[]
   armsOwned       Arm[]           @relation("ArmOwner")
   armMemberships  ArmMembership[]
+  armMembershipRequests ArmMembershipRequest[] @relation("ArmMembershipRequests")
   credits         Credit[]
   adInteractions  AdInteraction[]
   buyLeads        BuyLead[]
@@ -154,6 +155,7 @@ model Business {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
   armMemberships     ArmMembership[] @relation("BizArmMembership")
+  membershipRequests ArmMembershipRequest[] @relation("ArmMembershipRequests")
   catalogs           Catalog[]          @relation("BusinessCatalogs")
   verifications      Verification[]     @relation("BusinessVerification")
   activities         BusinessActivity[] @relation("BusinessActivity")   // ✅ از Catalog برگشت
@@ -195,6 +197,7 @@ model Catalog {
   teamMembers      TeamMember[]
   ads              Ad[]
   armMemberships   ArmMembership[]
+  membershipRequests ArmMembershipRequest[] @relation("ArmMembershipRequests")
   credits          Credit[]
   trustMetrics     TrustMetric[]
   buyLeads         BuyLead[]
@@ -355,6 +358,11 @@ model Arm {
   // ✅ انواع کاتالوگ پذیرفته‌شده در بازار (retail | wholesale | service) — خالی = بدون محدودیت
   //    ملاک گارد عضویت و فیلتر تابلوی قیمت؛ fallback لگسی: config.modules.priceTable.visibleSalesTypes
   acceptedCatalogTypes String[] @default([])
+  // ✅ بازار خصوصی (مثل کانال خصوصی تلگرام) — قیمت‌ها و امکانات فقط برای اعضای تاییدشده؛
+  //    جایگزین مفهومی قدیمی requireMembershipToViewPrices (که هنوز به‌عنوان fallback لگسی خوانده می‌شود)
+  isPrivate            Boolean  @default(false)
+  // ✅ شرایط عضویت — متن آزاد که مالک/ادمین در تنظیمات می‌نویسد و در مدال درخواست عضویت نمایش داده می‌شود
+  membershipTerms      String?
   rankingAlgorithm    String    @default("simple")
   metadata            Json?
   createdAt           DateTime  @default(now())
@@ -365,6 +373,7 @@ model Arm {
   allowedCategoryScopeTree Json?
   config              Json?
   memberships         ArmMembership[]
+  membershipRequests  ArmMembershipRequest[] @relation("ArmMembershipRequests")
   ads                 Ad[]
   adPublications      AdPublication[] @relation("ArmAdPublications")
   buyLeads            BuyLead[]
@@ -438,6 +447,39 @@ model ArmMembership {
   @@index([businessId])
   @@index([armId, status])
   @@index([armId, roleType])
+}
+
+// ============================================================
+// درخواست عضویت در بازار خصوصی — جایگزین سازوکار قدیمی «membership با status pending»:
+//   کاربر شرایط را می‌خواند، نقش (خریدار/فروشنده) و کسب‌وکار/کاتالوگ را مشخص می‌کند
+//   و درخواستش به صف بررسی مالک/ادمین بازار می‌رود.
+//   تایید → ساخت/به‌روزرسانی ArmMembership فعال؛ رد → ذخیرهٔ دلیل برای نمایش به کاربر.
+// ============================================================
+model ArmMembershipRequest {
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  armId            String    @db.ObjectId
+  arm              Arm       @relation("ArmMembershipRequests", fields: [armId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  userId           String    @db.ObjectId
+  user             User      @relation("ArmMembershipRequests", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  // ✅ نقش درخواست‌شده — خریدار (دیدن قیمت/خرید) یا فروشنده (انتشار کاتالوگ)
+  roleType         String    // 'buyer' | 'seller'
+  // خریدار: با کدام کسب‌وکار می‌خواهد خریدار شود
+  businessId       String?   @db.ObjectId
+  business         Business? @relation("ArmMembershipRequests", fields: [businessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  // فروشنده: قیمت‌های کدام کاتالوگ را می‌خواهد در بازار ببیند/بدهد
+  catalogId        String?   @db.ObjectId
+  catalog          Catalog?  @relation("ArmMembershipRequests", fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  status           String    @default("pending") // pending | approved | rejected
+  rejectReason     String?
+  reviewedByUserId String?   @db.ObjectId
+  reviewedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([armId, status])
+  @@index([userId, status])
 }
 
 

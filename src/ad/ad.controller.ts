@@ -243,24 +243,26 @@ export class AdController {
     // 12. جزئیات کامل آگهی
     // ============================================================
     @Get(':id/detail')
+    @UseGuards(OptionalJwtAuthGuard) // ✅ برای گیت بازار خصوصی
     @ApiOperation({ summary: 'جزئیات کامل آگهی' })
-    async getAdDetail(@Param('id') id: string) {
+    async getAdDetail(@Param('id') id: string, @CurrentUser() user?: any) {
         if (!ObjectId.isValid(id)) {
             throw new BadRequestException({ errorCode: 'INVALID_AD_ID', message: 'شناسه آگهی نامعتبر است' });
         }
-        return this.adService.findOne(id);
+        return this.adService.findOne(id, user?.id);
     }
 
     // ============================================================
     // 13. جزئیات ساده آگهی
     // ============================================================
     @Get(':id')
+    @UseGuards(OptionalJwtAuthGuard) // ✅ مهمان هم می‌بیند ولی برای گیت بازار خصوصی userId لازم است
     @ApiOperation({ summary: 'جزئیات ساده آگهی' })
-    async findOne(@Param('id') id: string) {
+    async findOne(@Param('id') id: string, @CurrentUser() user?: any) {
         if (!ObjectId.isValid(id)) {
             throw new BadRequestException({ errorCode: 'INVALID_AD_ID', message: 'شناسه آگهی نامعتبر است' });
         }
-        return this.adService.findOne(id);
+        return this.adService.findOne(id, user?.id);
     }
 
     // ============================================================

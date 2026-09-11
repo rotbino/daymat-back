@@ -204,6 +204,10 @@ export class AdminArmService {
             'featuresEnabled', 'rankingAlgorithm', 'metadata', 'config',
             'categoryTree',
             'allowedCategoryScopeTree',
+            // ✅ انواع کاتالوگ پذیرفته‌شده + بازار خصوصی + شرایط عضویت (فیلدهای ریشه‌ای)
+            'acceptedCatalogTypes',
+            'isPrivate',
+            'membershipTerms',
         ];
 
         const updateData: any = {};

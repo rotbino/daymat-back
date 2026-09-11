@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { ArmService } from './arm.service';
+import { MembershipRequestService } from './membership-request.service';
 import { CreateArmDto } from './dto/create-arm.dto';
 import { CurrentUser } from '../common/decorators/custom.decorators';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -26,6 +27,7 @@ export class ArmController {
     // داخل کلاس ArmController
     constructor(
         private armService: ArmService,
+        private membershipRequestService: MembershipRequestService,
         private prisma: PrismaService,   // ← اضافه کنید
     ) {}
 
@@ -78,7 +80,6 @@ export class ArmController {
     // 4. پیوستن به بازار (نیاز به احراز هویت)
     // ============================================================
 // src/arm/arm.controller.ts
-
     @Post(':slug/join')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
@@ -98,6 +99,35 @@ export class ArmController {
             body?.catalogId,   // ✅ optional chaining
             body?.businessId,  // ✅ اتصال به کسب‌وکار مشخص (قبلاً سرویس می‌گرفت ولی کنترلر پاس نمی‌داد)
         );
+    }
+
+    // ============================================================
+    // درخواست عضویت در بازار خصوصی — ثبت توسط کاربر
+    // ============================================================
+    @Post(':slug/membership-request')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'ثبت درخواست عضویت در بازار خصوصی (خریدار/فروشنده)' })
+    async createMembershipRequest(
+        @Param('slug') slug: string,
+        @CurrentUser() user: any,
+        @Body() body: { roleType: 'buyer' | 'seller'; businessId?: string; catalogId?: string; termsAccepted?: boolean },
+    ) {
+        return this.membershipRequestService.createRequest(user.id, slug, body || {} as any);
+    }
+
+    // ============================================================
+    // وضعیت آخرین درخواست عضویت من در این بازار
+    // ============================================================
+    @Get(':slug/membership-request/my')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'وضعیت آخرین درخواست عضویت من در بازار' })
+    async getMyMembershipRequest(
+        @Param('slug') slug: string,
+        @CurrentUser() user: any,
+    ) {
+        return this.membershipRequestService.getMyRequest(user.id, slug);
     }
 
     // ============================================================

@@ -89,6 +89,9 @@ export class ArmService {
                     acceptedCatalogTypes: Array.isArray(dto.acceptedCatalogTypes)
                         ? [...new Set(dto.acceptedCatalogTypes.filter((t: string) => (ARM_CATALOG_TYPES as readonly string[]).includes(t)))]
                         : [],
+                    // ✅ بازار خصوصی + شرایط عضویت (متن آزاد نمایش‌داده‌شده در مدال درخواست عضویت)
+                    isPrivate: dto.isPrivate === true,
+                    membershipTerms: (dto as any).membershipTerms?.trim() || null,
                     rankingAlgorithm: dto.rankingAlgorithm || 'simple',
                     metadata: dto.metadata || null,
                     categoryTree: [],
@@ -483,7 +486,8 @@ export class ArmService {
 
         const config = arm.config as any || {};
         const requireCatalog = config.accessRules?.requireCatalogForMembership ?? false;
-        const requireApproval = config.accessRules?.requireAdminApprovalForMembership ?? false;
+        // ✅ بازار خصوصی → همیشه نیاز به تایید مدیر دارد (مسیر جدید: درخواست عضویت)
+        const requireApproval = arm.isPrivate === true || (config.accessRules?.requireAdminApprovalForMembership ?? false);
 
         let resolvedBusinessId = businessId || null;
         if (catalogId) {

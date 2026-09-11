@@ -398,7 +398,8 @@ export class AdService {
     async getVitrine(armSlug: string, query: AdListQueryDto, userId?: string) {
         const arm = await this.prisma.arm.findUnique({
             where: { slug: armSlug },
-            select: { id: true, config: true, categoryTree: true, status: true, acceptedCatalogTypes: true },
+            // ✅ isPrivate هم لازم است — ملاک جدید گیت قیمت (بازار خصوصی)
+            select: { id: true, config: true, categoryTree: true, status: true, acceptedCatalogTypes: true, isPrivate: true },
         });
 
         if (!arm) {
@@ -409,7 +410,7 @@ export class AdService {
         const priceTableConfig = config?.modules?.priceTable || {};
 
         // ✅ چک کن آیا کاربر حق دیدن قیمت‌ها رو داره (per-user — بیرون از کش)
-        const canViewPrices = await this.canViewVitrinePrices(arm.id, userId, priceTableConfig);
+        const canViewPrices = await this.canViewVitrinePrices(arm, userId, priceTableConfig);
 
         // ✅ هستهٔ سنگین لیست — مشترک بین همهٔ کاربران → کش ۵ دقیقه‌ای
         //    باطل‌سازی از داخل CatalogPublishService انجام می‌شود (هر تغییر وضعیت انتشار کش را می‌شکند)
@@ -445,14 +446,17 @@ export class AdService {
         };
     }
 
-    /** حق دیدن قیمت — فقط وقتی بازار قفل قیمت دارد کوئری می‌زند */
-    private async canViewVitrinePrices(armId: string, userId: string | undefined, priceTableConfig: any): Promise<boolean> {
-        if (priceTableConfig.requireMembershipToViewPrices !== true) return true;
+    /** حق دیدن قیمت — فقط وقتی بازار خصوصی باشد کوئری می‌زند
+     *  ✅ ملاک جدید: Arm.isPrivate (بازار خصوصی مثل کانال خصوصی تلگرام)
+     *  fallback لگسی: config.modules.priceTable.requireMembershipToViewPrices */
+    private async canViewVitrinePrices(arm: any, userId: string | undefined, priceTableConfig: any): Promise<boolean> {
+        const isPrivate = (arm as any)?.isPrivate === true || priceTableConfig.requireMembershipToViewPrices === true;
+        if (!isPrivate) return true;
         if (!userId) return false; // مهمان
         // چک کن آیا کاربر buyer یا seller فعال در این بازار هست
         const membership = await this.prisma.armMembership.findFirst({
             where: {
-                armId,
+                armId: arm.id,
                 userId,
                 status: 'active',
                 businessStatus: 'active',
@@ -799,7 +803,7 @@ export class AdService {
     // ============================================================
     // جزئیات آگهی — همهٔ فیلدها + کاتالوگ با مالک (از مسیر نهاد)
     // ============================================================
-    async findOne(id: string) {
+    async findOne(id: string, userId?: string) {
         const ad = await this.prisma.ad.findUnique({
             where: { id },
             include: {
@@ -848,7 +852,10 @@ export class AdService {
         const bizOwner = (ad.catalog as any)?.business?.owner;
         const bizVerificationTier = (ad.catalog as any)?.business?.verificationTier ?? null;
 
-        return {
+        // ✅ گیت قیمت صفحهٔ جزئیات — آگهیِ فقط در بازار(های) خصوصی منتشرشده،
+        //    قیمت‌هایش برای غیرعضو مخفی می‌ماند (هم‌راستا با گیت ویتروین)
+        const canViewDetail = await this.canViewDetailPrices(ad, userId);
+        const result: any = {
             ...ad,
             // ✅ شکل قدیمی owner برای فرانت حفظ شد
             owner: bizOwner ? {
@@ -869,6 +876,48 @@ export class AdService {
             },
             files: ad.files,
         };
+        if (!canViewDetail) {
+            result.unitPrice = null;
+            result.singleUnitPrice = null;
+            result.consumerPrice = null;
+            result.giftPrice = null;
+            result.volumeTiers = null;
+        }
+        return result;
+    }
+
+    /** حق دیدن قیمت یک آگهی در صفحهٔ جزئیات:
+     *  اگر آگهی در بازار عمومی هم منتشر شده → آزاد؛
+     *  اگر فقط بازار(های) خصوصی است → فقط عضو فعالِ همان‌ها می‌بیند */
+    private async canViewDetailPrices(ad: any, userId?: string): Promise<boolean> {
+        const armIds = new Set<string>();
+        if (ad.armId) armIds.add(ad.armId);
+        const memberships = await this.prisma.armMembership.findMany({
+            where: { catalogId: ad.catalogId, status: 'active' },
+            select: { armId: true },
+        });
+        memberships.forEach((m) => armIds.add(m.armId));
+        if (!armIds.size) return true; // فقط در کاتالوگ خودش است
+
+        const arms = await this.prisma.arm.findMany({
+            where: { id: { in: [...armIds] } },
+            select: { id: true, isPrivate: true },
+        });
+        const privateArms = arms.filter((a) => a.isPrivate);
+        if (!privateArms.length) return true;          // همهٔ بازارها عمومی‌اند
+        if (arms.some((a) => !a.isPrivate)) return true; // در بازار عمومی هم هست
+        if (!userId) return false;                      // فقط خصوصی + مهمان
+        const membership = await this.prisma.armMembership.findFirst({
+            where: {
+                armId: { in: privateArms.map((a) => a.id) },
+                userId,
+                status: 'active',
+                businessStatus: 'active',
+                businessId: { not: null },
+            },
+            select: { id: true },
+        });
+        return !!membership;
     }
 
     // ═══════════════════════════════════════
@@ -1813,6 +1862,30 @@ export class AdService {
                 body: 'حالا قیمت‌های روز همهٔ فروشندگان این بازار را می‌بینی — مقایسه کن و مستقیم تماس بگیر',
                 action: { label: 'دیدن تابلو', href: `/${m.arm.slug}` },
                 catalogId: m.catalogId,
+            });
+        }
+
+        // ═══ ✅ NEW — نتیجهٔ درخواست عضویت در بازار خصوصی (تایید/رد با دلیل — ۷ روز) ═══
+        const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        const reviewedRequests = await this.prisma.armMembershipRequest.findMany({
+            where: { userId, status: { in: ['approved', 'rejected'] }, reviewedAt: { gte: weekAgo } },
+            orderBy: { reviewedAt: 'desc' },
+            take: 10,
+            include: { arm: { select: { name: true, slug: true } } },
+        });
+        for (const r of reviewedRequests) {
+            const approved = r.status === 'approved';
+            items.unshift({
+                id: `mreq-${r.id}`,
+                type: approved ? 'membership-request-approved' : 'membership-request-rejected',
+                severity: approved ? 'success' : 'warning',
+                title: approved
+                    ? `درخواست عضویت شما در بازار «${r.arm.name}» تایید شد 🎉`
+                    : `درخواست عضویت شما در بازار «${r.arm.name}» رد شد`,
+                body: approved
+                    ? 'حالا می‌توانید قیمت‌ها و امکانات این بازار خصوصی را ببینید'
+                    : `دلیل: ${r.rejectReason || 'ذکر نشده'}`,
+                action: { label: approved ? 'رفتن به بازار' : 'دیدن بازار', href: `/${r.arm.slug}` },
             });
         }
 

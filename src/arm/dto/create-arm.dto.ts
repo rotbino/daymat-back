@@ -13,6 +13,7 @@ import {
     IsObject,
     IsIn,
     ArrayMaxSize,
+    MaxLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -632,6 +633,25 @@ export class CreateArmDto {
     @ArrayMaxSize(3)
     @IsIn(['retail', 'wholesale', 'service'], { each: true })
     acceptedCatalogTypes?: string[];
+
+    @ApiProperty({
+        example: false,
+        description: 'بازار خصوصی — قیمت‌ها و امکانات فقط برای اعضای تاییدشده (مثل کانال خصوصی تلگرام)',
+        required: false,
+    })
+    @IsOptional()
+    @IsBoolean()
+    isPrivate?: boolean;
+
+    @ApiProperty({
+        example: 'عضویت برای سوپرمارکت‌ها و پخش‌کننده‌ها در همدان آزاد است...',
+        description: 'شرایط عضویت در بازار خصوصی — متن آزاد برای نمایش در مدال درخواست عضویت',
+        required: false,
+    })
+    @IsOptional()
+    @IsString()
+    @MaxLength(2000)
+    membershipTerms?: string;
 
     @ApiProperty({
         example: 'simple',

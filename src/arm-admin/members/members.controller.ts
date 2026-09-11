@@ -14,6 +14,7 @@ import {
     ApiQuery,
 } from '@nestjs/swagger';
 import { MembersService } from './members.service';
+import { MembershipRequestService } from '../../arm/membership-request.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ArmAdminGuard } from '../../common/guards/arm-admin.guard';
 import {CurrentUser} from "../../common/decorators/custom.decorators";
@@ -24,7 +25,46 @@ import {ArmRole} from "../../common/enums/prisma-enums"; // ← اضافه شد�
 @UseGuards(JwtAuthGuard, ArmAdminGuard)
 @ApiBearerAuth('access-token')
 export class MembersController {
-    constructor(private membersService: MembersService) {}
+    constructor(
+        private membersService: MembersService,
+        private membershipRequestService: MembershipRequestService,
+    ) {}
+
+    // ============================================================
+    // درخواست‌های عضویت بازار خصوصی — باید قبل از @Get(':userId') باشد
+    // ============================================================
+    @Get('membership-requests')
+    @ApiOperation({ summary: 'لیست درخواست‌های عضویت بازار (خصوصی)' })
+    @ApiQuery({ name: 'status', required: false, enum: ['pending', 'approved', 'rejected'] })
+    async getMembershipRequests(
+        @Param('slug') slug: string,
+        @Query('status') status?: string,
+        @Query('page') page: number = 1,
+        @Query('limit') limit: number = 20,
+    ) {
+        return this.membershipRequestService.listRequests(slug, status, Number(page), Number(limit));
+    }
+
+    @Post('membership-requests/:requestId/approve')
+    @ApiOperation({ summary: 'تایید درخواست عضویت — ساخت عضویت فعال' })
+    async approveMembershipRequest(
+        @Param('slug') slug: string,
+        @Param('requestId') requestId: string,
+        @CurrentUser() admin: any,
+    ) {
+        return this.membershipRequestService.decideRequest(slug, requestId, 'approve', admin.id);
+    }
+
+    @Post('membership-requests/:requestId/reject')
+    @ApiOperation({ summary: 'رد درخواست عضویت با دلیل' })
+    async rejectMembershipRequest(
+        @Param('slug') slug: string,
+        @Param('requestId') requestId: string,
+        @CurrentUser() admin: any,
+        @Body('reason') reason: string,
+    ) {
+        return this.membershipRequestService.decideRequest(slug, requestId, 'reject', admin.id, reason);
+    }
 
     // ============================================================
     // دریافت لیست اعضا
