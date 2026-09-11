@@ -446,16 +446,6 @@ export class ArmConfigDto {
     @IsString({ each: true })
     buyerIndustryIds?: string[];
 
-    @ApiProperty({
-        example: true,
-        description: 'آیا کاربر می‌تواند بدون تطابق صنف، نقش خود را انتخاب کند؟',
-        required: false,
-        default: true,
-    })
-    @IsOptional()
-    @IsBoolean()
-    allowManualRoleSelection?: boolean;
-
     @ApiProperty({ example: {}, description: 'تنظیمات یکپارچه‌سازی با سرویس‌های خارجی', required: false })
     @IsOptional()
     @IsObject()

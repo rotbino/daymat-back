@@ -105,15 +105,7 @@ async function main() {
             },
         },
 
-        accessRules: {
-            restrictMembershipByIndustry: true,   // فعال‌سازی محدودیت
-            allowManualRoleSelection: true,
-            requireAdminApprovalForMembership: false,
-            requirePhoneVerification: false,
-            requireCatalogVerification: false,
-            restrictMembershipByLocation: false,
-        },
-
+        // تنظیمات قدیمی accessRules حذف شدند — عضویت با isPrivate + membershipTerms + acceptedCatalogTypes اداره می‌شود
         economy: {
             daymatShare: 30,
             currency: 'IRR',

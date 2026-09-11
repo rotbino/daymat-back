@@ -361,12 +361,7 @@ export class ArmAdminService {
             }
         }
 
-        // ۲. اگر فیلدهای خاصی در خود data هست که باید توی config باشه (مثلاً allowManualRoleSelection)، اضافه کن
-        if (data.allowManualRoleSelection !== undefined) {
-            newConfig.allowManualRoleSelection = data.allowManualRoleSelection;
-        }
-
-        // ۳. فیلدهای اصلی Arm رو به‌روز کن (از خود data)
+        // ۲. فیلدهای اصلی Arm رو به‌روز کن (از خود data)
         const updateData: any = { config: newConfig };
         const armFields = ['name', 'shortName', 'slogan', 'description', 'icon', 'colorPrimary', 'colorSecondary', 'logoUrl', 'bannerUrl', 'mission', 'status', 'acceptedCatalogTypes'];
         for (const field of armFields) {

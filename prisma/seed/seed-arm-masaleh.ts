@@ -442,15 +442,7 @@ async function main() {
                         maxActiveRequestsPerUser: 5,
                     },
                 },
-                accessRules: {
-                    restrictMembershipByIndustry: true,
-                    allowManualRoleSelection: true,
-                    requireAdminApprovalForMembership: false,
-                    requirePhoneVerification: false,
-                    requireCatalogVerification: false,
-                    restrictMembershipByLocation: false,
-                    requireCatalogForMembership: true,
-                },
+                // تنظیمات قدیمی accessRules حذف شدند — عضویت با isPrivate + membershipTerms + acceptedCatalogTypes اداره می‌شود
                 economy: {
                     daymatShare: 30,
                     currency: 'IRR',

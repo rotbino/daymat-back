@@ -484,10 +484,9 @@ export class ArmService {
             });
         }
 
-        const config = arm.config as any || {};
-        const requireCatalog = config.accessRules?.requireCatalogForMembership ?? false;
-        // ✅ بازار خصوصی → همیشه نیاز به تایید مدیر دارد (مسیر جدید: درخواست عضویت)
-        const requireApproval = arm.isPrivate === true || (config.accessRules?.requireAdminApprovalForMembership ?? false);
+        // ✅ ملاکِ یگانهٔ نیاز به تایید: بازار خصوصی است یا نه
+        //    (تنظیمات قدیمی config.accessRules حذف شدند — عضویت همیشه از مسیر کسب‌وکار/کاتالوگ است)
+        const requireApproval = arm.isPrivate === true;
 
         let resolvedBusinessId = businessId || null;
         if (catalogId) {
