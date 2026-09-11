@@ -249,8 +249,16 @@ export class ArmService {
             },
         };
 
+        // ✅ لوگو/بنر همیشه در فیلد ریشه‌ای هم بیاید — تنظیمات بازار فقط config.general را
+        // می‌نویسد (ستون Arm.logoUrl را نمی‌نویسد) و مصرف‌کننده‌ها (ناو، سوییچر، پیکر)
+        // فیلد ریشه‌ای را می‌خوانند؛ بدون این ادغام لوگو در هدر بازار دیده نمی‌شد
+        const mergedLogoUrl = logoFile?.path || general.logoUrl || arm.logoUrl || null;
+        const mergedBannerUrl = bannerFile?.path || general.bannerUrl || arm.bannerUrl || null;
+
         return {
             ...arm,
+            logoUrl: mergedLogoUrl,
+            bannerUrl: mergedBannerUrl,
             config: configWithFiles,
             categoryTree,
             allowedCategoryScopeTree,
