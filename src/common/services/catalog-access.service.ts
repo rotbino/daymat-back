@@ -27,6 +27,13 @@ export class CatalogAccessService {
         if (!catalog) return false;
         if ((catalog.business as any)?.ownerUserId === userId) return true;
 
+        // ✅ ادمین کاتالوگ — توسط اونر منصوب شده و در مدیریت کاتالوگ سهیم است (تیم کاتالوگ)
+        const adminMember = await this.prisma.catalogMember.findFirst({
+            where: { catalogId, userId, role: 'catalog_admin', status: 'active' },
+            select: { id: true },
+        });
+        if (adminMember) return true;
+
         // ✅ واگذاری فعال — کاربر باید مالک/ادمینِ فعالِ یکی از بازارهایی باشد که کار کاتالوگ به آن‌ها واگذار شده
         const delegations = await this.prisma.catalogArmDelegation.findMany({
             where: { catalogId, status: 'active' },
@@ -91,6 +98,14 @@ export class CatalogAccessService {
             })
         ).map((d) => d.catalogId);
 
-        return Array.from(new Set([...ownCatalogIds, ...delegatedCatalogIds]));
+        // ✅ کاتالوگ‌هایی که ادمین‌شان هستم (تیم کاتالوگ)
+        const adminCatalogIds = (
+            await this.prisma.catalogMember.findMany({
+                where: { userId, role: 'catalog_admin', status: 'active' },
+                select: { catalogId: true },
+            })
+        ).map((m) => m.catalogId);
+
+        return Array.from(new Set([...ownCatalogIds, ...delegatedCatalogIds, ...adminCatalogIds]));
     }
 }

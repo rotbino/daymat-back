@@ -16,5 +16,5 @@ export enum ArmRole {
 export enum CatalogRole {
     catalog_owner = 'catalog_owner',
     catalog_admin = 'catalog_admin',
-    catalog_seller = 'catalog_seller',
+    catalog_member = 'catalog_member',
 }

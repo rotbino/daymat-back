@@ -34,12 +34,13 @@ enum ArmRole {
 }
 
 // ============================================================
-// نقش‌های سطح کاتالوگ (Catalog)
+// نقش‌های سطح کاتالوگ (Catalog) — نقشِ «سیستمی» (چه کسی اداره می‌کند)
+// نقش‌های «بیزینسی» (فروشنده/خریدار) لِین‌های جدا در CatalogMember هستند
 // ============================================================
 enum CatalogRole {
-  catalog_owner // مالک کاتالوگ (مدیریت کامل)
-  catalog_admin // مدیر کاتالوگ (دسترسی‌های مدیریتی به جز انتقال مالکیت)
-  catalog_seller // کاربر با دسترسی فقط مشاهده (پیش‌فرض)
+  catalog_owner  // مالک کاتالوگ (مدیر فروش آنلاین) — نشانه‌گذاری رکورد؛ ملاکِ واقعیِ اونری: Business.ownerUserId (مشتق)
+  catalog_admin  // ادمین کاتالوگ — توسط اونر منصوب می‌شود؛ در مدیریت کاتالوگ سهیم است (ویرایش محصول/قیمت/انتشار) به‌جز انتقال مالکیت
+  catalog_member // عضو عادی تیم کاتالوگ (بازاریاب یا مشتری)
 }
 
 model VerificationCode {
@@ -118,6 +119,9 @@ model User {
   searchLogs               SearchLog[]
   catalogInteractions      CatalogInteraction[]
   businesses               Business[]             @relation("BizOwner")
+  catalogMemberships       CatalogMember[]        @relation("CatMemberUser") // تیم‌های کاتالوگی که عضوشان است (بازاریاب/مشتری/ادمین)
+  catalogAssignedCustomers CatalogMember[]        @relation("CatMemberAssignee") // مشتری‌هایی که به او به‌عنوان بازاریاب منتسب شده‌اند
+  catalogTeamEvents        CatalogTeamEvent[]     @relation("CatTeamEventUser") // رویدادهای تیمیِ مربوط به کاربر
 
   @@index([status])
   @@index([role])
@@ -162,6 +166,8 @@ model Business {
   membershipRequests ArmMembershipRequest[] @relation("ArmMembershipRequests")
   leaveRequests      ArmLeaveRequest[]      @relation("ArmLeaveRequests")
   catalogs           Catalog[]              @relation("BusinessCatalogs")
+  catalogSellerLanes   CatalogMember[] @relation("CatMemberSellerBiz")   // کاتالوگ‌هایی که این کسب‌وکار از طریقشان می‌فروشد (بازاریاب)
+  catalogCustomerLanes CatalogMember[] @relation("CatMemberCustomerBiz") // کاتالوگ‌هایی که این کسب‌وکار مشتری‌شان است
   verifications      Verification[]         @relation("BusinessVerification")
   activities         BusinessActivity[]     @relation("BusinessActivity") // ✅ از Catalog برگشت
 
@@ -201,6 +207,8 @@ model Catalog {
 
   files               File[]
   teamMembers         TeamMember[]
+  members             CatalogMember[]    @relation("CatMemberCatalog") // تیم کاتالوگ (اونر/ادمین/بازاریاب/مشتری)
+  teamEvents          CatalogTeamEvent[] @relation("CatTeamEventCatalog")
   ads                 Ad[]
   armMemberships      ArmMembership[]
   membershipRequests  ArmMembershipRequest[] @relation("ArmMembershipRequests")
@@ -243,13 +251,15 @@ model Verification {
   @@index([businessId, status])
 }
 
+// ⚠️ legacy — جایگزین شده با CatalogMember (تیم کاتالوگ).
+// رکوردهای قدیمی فقط برای سازگاری نگه‌داشته شده‌اند؛ خواندن/نوشتنِ جدید ممنوع.
 model TeamMember {
   id          String      @id @default(auto()) @map("_id") @db.ObjectId
   catalogId   String      @db.ObjectId
   catalog     Catalog     @relation(fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   userId      String      @db.ObjectId
   user        User        @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  role        CatalogRole @default(catalog_seller)
+  role        CatalogRole @default(catalog_member)
   position    String?
   permissions Json?
   invitedBy   String?     @db.ObjectId
@@ -260,6 +270,88 @@ model TeamMember {
   @@unique([catalogId, userId])
   @@index([catalogId])
   @@index([userId])
+}
+
+// ============================================================
+// تیم کاتالوگ (CatalogMember) — عضویتِ کاربر در تیمِ یک کاتالوگ:
+//   سناریو: بازار پخش سوپرمارکتی — یک بازاریاب «اونر کاتالوگ» (مدیر فروش آنلاین)
+//   کاتالوگ شرکت را می‌سازد و کالاها/آگهی‌ها را اضافه می‌کند؛ بقیهٔ بازاریاب‌های شرکت
+//   به‌جای کاتالوگِ جدا، عضو همین کاتالوگ می‌شوند تا کالا تکرار نشود؛ هر سوپرمارکت
+//   (مشتری) به بازاریابِ منطقهٔ خودش منتسب می‌شود تا تماسش از آگهی به بازاریابِ خودش برسد.
+//
+//   نقش سیستمی (role):   catalog_owner (نشانه‌گذار؛ ملاک = Business.ownerUserId)
+//                        catalog_admin (منصوبِ اونر — سهیم در مدیریت) | catalog_member
+//   نقش بیزینسی (لِین‌ها): فروشندهٔ کاتالوگ (بازاریاب — sellerBusinessId + منطقه)
+//                        خریدار کاتالوگ (سوپرمارکت — customerBusinessId)
+//   یک رکورد برای هر کاربر در هر کاتالوگ — می‌تواند همزمان چند لِین داشته باشد
+//   (مثلاً اونر که خودش هم فروشنده است).
+//   همهٔ تاریخ‌ها و عامل‌ها + CatalogTeamEvent برای شکایت‌ها — هم‌راستا با ArmMembership.
+// ============================================================
+model CatalogMember {
+  id        String      @id @default(auto()) @map("_id") @db.ObjectId
+  catalogId String      @db.ObjectId
+  catalog   Catalog     @relation("CatMemberCatalog", fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  userId    String      @db.ObjectId
+  user      User        @relation("CatMemberUser", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  role        CatalogRole @default(catalog_member)
+  status      String      @default("active") // active | removed | banned — وضعیت سیستمیِ عضویت
+  position    String? // سمت نمایشی (مثل «مدیر فروش آنلاین»)
+  permissions Json?       // رزرو برای دسترسی‌های ریزدانهٔ آینده
+
+  // ── لِین فروشنده (بازاریاب) ── اونر به‌طور پیش‌فرض فروشندهٔ فعال کاتالوگ خودش است
+  sellerBusinessId String?   @db.ObjectId
+  sellerBusiness   Business? @relation("CatMemberSellerBiz", fields: [sellerBusinessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sellerStatus     String? // pending | active | removed — null = اصلاً فروشنده نیست
+  sellerJoinedAt   DateTime?
+  sellerLeftAt     DateTime?
+  sellerRegion     String? // منطقهٔ فروش آزاد (مثل «غرب تهران») — هر بازاریاب فقط از منطقهٔ خودش سفارش می‌گیرد
+
+  // ── لِین خریدار (مشتری/سوپرمارکت) ── توسط بازاریاب ثبت می‌شود؛ صاحبِ کسب‌وکار تایید می‌کند
+  customerBusinessId String?   @db.ObjectId
+  customerBusiness   Business? @relation("CatMemberCustomerBiz", fields: [customerBusinessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  customerStatus     String? // pending | active | removed — null = مشتری نیست
+  customerJoinedAt   DateTime?
+  customerLeftAt     DateTime?
+  customerAddedByUserId String? @db.ObjectId // چه کسی (بازاریاب/ادمین) ثبتش کرده
+
+  // ── انتساب مشتری به بازاریابِ خودش (مسیریابی تماس از آگهی) ──
+  assignedSellerUserId String?  @db.ObjectId
+  assignedSellerUser   User?    @relation("CatMemberAssignee", fields: [assignedSellerUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  assignedAt           DateTime?
+
+  invitedBy String?   @db.ObjectId
+  joinedAt  DateTime  @default(now()) // ورود به تیم کاتالوگ
+  leftAt    DateTime? // خروج از تیم (اگر هیچ لِینی فعال نماند)
+  leftVia   String? // member_request | owner_direct
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([catalogId, userId])
+  @@index([userId])
+  @@index([catalogId, status])
+  @@index([sellerBusinessId])
+  @@index([customerBusinessId])
+  @@index([assignedSellerUserId])
+}
+
+// تاریخچهٔ تیم کاتالوگ — هر تغییر نقش/لِین/انتساب یک رویداد با عامل ثبت می‌شود (برای شکایت‌ها)
+model CatalogTeamEvent {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  catalogId   String   @db.ObjectId
+  catalog     Catalog  @relation("CatTeamEventCatalog", fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  userId      String   @db.ObjectId // عضوی که رویداد دربارهٔ اوست
+  user        User     @relation("CatTeamEventUser", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  eventType   String // seller_requested | seller_approved | seller_rejected | seller_removed | seller_left |
+                     // admin_promoted | admin_demoted | customer_added | customer_confirmed | customer_declined |
+                     // customer_removed | customer_left | customer_reassigned | joined | left | region_set
+  actorUserId String?  @db.ObjectId // خود کاربر / اونر / ادمین — null = سیستم
+  note        String?
+  data        Json?
+  createdAt   DateTime @default(now())
+
+  @@index([catalogId, userId, createdAt])
+  @@index([catalogId, eventType])
 }
 
 // ============================================================
@@ -852,6 +944,7 @@ model CallEvent {
   ledToDeal         Boolean?
   feedbackText      String?
   source            String?
+  routedToUserId    String?   @db.ObjectId // مسیریابی تماس به بازاریابِ منتسب (تیم کاتالوگ) — null = مسیر عادی
 
   @@index([adId, initiatedAt])
 }

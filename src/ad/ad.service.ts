@@ -17,6 +17,7 @@ import { CatalogPublishService } from "../common/services/catalog-publish.servic
 import { checkMarketTypeMismatch, getArmAcceptedCatalogTypes } from '../common/utils/arm.utils';
 import { CacheHelper, VITRINE_CACHE_PREFIX } from '../common/services/cache.helper';
 import { CatalogAccessService } from '../common/services/catalog-access.service';
+import { CatalogMemberService } from '../catalog/catalog-member.service';
 
 const FA_NORMALIZE = (s: string) =>
     (s ?? '')
@@ -47,6 +48,7 @@ export class AdService {
         private creditService: CreditService,
         private cache: CacheHelper,
         private catalogAccess: CatalogAccessService,
+        private catalogMembers: CatalogMemberService,
     ) {}
 
     private getConfigValue<T>(config: any, path: string, defaultValue: T): T {
@@ -1227,16 +1229,36 @@ export class AdService {
         if (!ad) throw new NotFoundException({ errorCode: 'AD_NOT_FOUND', message: 'آگهی یافت نشد' });
         if (ad.status !== 'active') throw new BadRequestException({ errorCode: 'AD_NOT_ACTIVE', message: 'این آگهی فعال نیست' });
 
+        // ✅ مسیریابی تماس — تیم کاتالوگ (سناریوی بازار پخش):
+        //    اگر تماس‌گیرنده مشتریِ فعالِ این کاتالوگ با بازاریابِ منتسب باشد،
+        //    تماس به‌جای شمارهٔ کاتالوگ روی بازاریابِ خودش می‌افتد.
+        const route = await this.catalogMembers.resolveCallRoute(ad.catalogId, userId);
+
         await this.prisma.callEvent.create({
-            data: { adId: ad.id, callerId: userId, initiatedAt: new Date(), source: ad.armId ? 'direct' : 'catalog' },
+            data: {
+                adId: ad.id,
+                callerId: userId,
+                initiatedAt: new Date(),
+                source: ad.armId ? 'direct' : 'catalog',
+                routedToUserId: route?.sellerUserId || null,
+            },
         });
         await this.prisma.ad.update({ where: { id: adId }, data: { callCount: { increment: 1 } } });
 
         const ownerPhone = (ad.catalog as any)?.business?.owner?.phone ?? null;
+        const sellerInfo = route
+            ? {
+                  userId: route.sellerUserId,
+                  name: route.sellerName,
+                  businessName: route.sellerBusinessName,
+                  region: route.sellerRegion,
+                  phone: route.phone,
+              }
+            : null;
 
-        // ✅ آگهیِ فقط-کاتالوگی: شماره = اطلاعات عمومی کاتالوگ/نهاد — بدون چک عضویت
+        // ✅ آگهیِ فقط-کاتالوگی: شماره = بازاریابِ منتسب (اگر هست) وگرنه اطلاعات عمومی کاتالوگ/نهاد
         if (!ad.armId) {
-            const phone = ad.catalog.phone || ownerPhone;
+            const phone = route?.phone || ad.catalog.phone || ownerPhone;
             if (!phone) {
                 throw new BadRequestException({ errorCode: 'NO_CONTACT', message: 'شماره تماس ثبت نشده است' });
             }
@@ -1244,6 +1266,8 @@ export class AdService {
                 catalogName: ad.catalog.name,
                 phone,
                 ownerPhone,
+                seller: sellerInfo,
+                routedToSeller: !!route,
                 remainingCalls: null,
                 dailyLimit: null,
             };
@@ -1252,6 +1276,32 @@ export class AdService {
         // ─── مسیر بازاری ───
         const config = (ad.arm?.config as any) || {};
         const priceTableConfig = config?.modules?.priceTable || {};
+
+        // ✅ مشتریِ مسیریابی‌شده — مشتریِ خودِ این کاتالوگ است؛ از گیت عضویتِ تماس عبور می‌کند
+        //    (سقف روزانه همچنان اعمال می‌شود)
+        if (route) {
+            const dailyCallLimit = config.features?.dailyCallLimit || 20;
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const callsToday = await this.prisma.callEvent.count({
+                where: { callerId: userId, initiatedAt: { gte: today } },
+            });
+            if (callsToday >= dailyCallLimit) {
+                throw new BadRequestException({
+                    errorCode: 'DAILY_CALL_LIMIT_EXCEEDED',
+                    message: `سقف تماس روزانه ${dailyCallLimit} است.`,
+                });
+            }
+            return {
+                catalogName: ad.catalog.name,
+                phone: route.phone,
+                ownerPhone,
+                seller: sellerInfo,
+                routedToSeller: true,
+                remainingCalls: dailyCallLimit - (callsToday + 1),
+                dailyLimit: dailyCallLimit,
+            };
+        }
 
         // ✅ چک کن آیا تماس نیاز به عضویت دارد
         if (priceTableConfig.requireMembershipToCall === true) {
@@ -1296,6 +1346,8 @@ export class AdService {
             catalogName: ad.catalog.name,
             phone: ad.catalog.phone || ownerPhone,
             ownerPhone,
+            seller: null,
+            routedToSeller: false,
             remainingCalls: dailyCallLimit - (callsToday + 1),
             dailyLimit: dailyCallLimit,
         };
@@ -2080,6 +2132,131 @@ export class AdService {
                     body: 'برای اینکه در فیلترها و جستجوی بازار پیدا شوی، دسته‌بندی بازار را برای این کالاها انتخاب کن',
                     action: { label: 'تنظیم دسته‌ها', href: `/my-catalogs?catalog=${catId}&filter=uncat` },
                     catalogId: catId,
+                });
+            }
+        }
+
+        // ═══ ✅ NEW — تیم کاتالوگ: درخواست‌های فروشندگیِ در انتظار (اونر/ادمین کاتالوگ) ═══
+        const adminTeamRows = await this.prisma.catalogMember.findMany({
+            where: { userId, role: 'catalog_admin', status: 'active' },
+            select: { catalogId: true },
+        });
+        const teamManageCatalogIds = Array.from(new Set([...catalogIds, ...adminTeamRows.map((r) => r.catalogId)]));
+        if (teamManageCatalogIds.length) {
+            const pendingSellersByCat = await this.prisma.catalogMember.groupBy({
+                by: ['catalogId'],
+                where: { catalogId: { in: teamManageCatalogIds }, sellerStatus: 'pending', status: 'active' },
+                _count: true,
+            });
+            const catNameOf = new Map(catalogs.map((b) => [b.id, b.name] as [string, string]));
+            const missingNames = pendingSellersByCat.map((p) => p.catalogId).filter((id) => !catNameOf.has(id));
+            if (missingNames.length) {
+                const rows = await this.prisma.catalog.findMany({ where: { id: { in: missingNames } }, select: { id: true, name: true } });
+                for (const r of rows) catNameOf.set(r.id, r.name);
+            }
+            for (const p of pendingSellersByCat) {
+                const catName = catNameOf.get(p.catalogId) || 'کاتالوگ';
+                items.unshift({
+                    id: `cteam-sellerreq-${p.catalogId}`,
+                    type: 'catalog-team-pending-sellers',
+                    severity: 'warning',
+                    title: `${p._count.toLocaleString('fa-IR')} درخواست عضویت فروشندگی در کاتالوگ «${catName}» در انتظار بررسی شماست`,
+                    body: 'بازاریاب‌ها می‌خواهند به تیم کاتالوگ بپیوندند — تایید کنید تا مشتری‌های خودشان را ثبت کنند',
+                    action: { label: 'بررسی تیم', href: `/my-catalogs?catalog=${p.catalogId}&tab=team` },
+                    catalogId: p.catalogId,
+                });
+            }
+        }
+
+        // ═══ ✅ NEW — تیم کاتالوگ: تاییدِ مشتری‌بودنِ در انتظارِ من (صاحب سوپرمارکت) ═══
+        const myPendingCustomers = await this.prisma.catalogMember.findMany({
+            where: { userId, customerStatus: 'pending', status: 'active' },
+            take: 5,
+            orderBy: { createdAt: 'desc' },
+            include: {
+                catalog: { select: { id: true, name: true } },
+                assignedSellerUser: { select: { fullName: true } },
+            },
+        });
+        for (const c of myPendingCustomers) {
+            const sellerName = (c as any).assignedSellerUser?.fullName || 'یک بازاریاب';
+            items.unshift({
+                id: `cteam-confirm-${c.id}`,
+                type: 'catalog-team-customer-confirm',
+                severity: 'warning',
+                title: `«${sellerName}» شما را به‌عنوان مشتری کاتالوگ «${(c as any).catalog.name}» ثبت کرده`,
+                body: 'با تایید، تماس‌تان از آگهی‌های این کاتالوگ به بازاریابِ خودتان می‌رسد — اگر اشتباه است رد کنید',
+                action: { label: 'بررسی در پروفایل', href: '/profile' },
+            });
+        }
+
+        // ═══ ✅ NEW — تیم کاتالوگ: نتیجهٔ درخواست فروشندگیِ من (۷ روز) ═══
+        const mySellerEvents = await this.prisma.catalogTeamEvent.findMany({
+            where: { userId, eventType: { in: ['seller_approved', 'seller_rejected'] }, createdAt: { gte: weekAgo } },
+            orderBy: { createdAt: 'desc' },
+            take: 5,
+            include: { catalog: { select: { id: true, name: true } } },
+        });
+        for (const e of mySellerEvents) {
+            if (e.actorUserId === userId) continue;
+            const approved = e.eventType === 'seller_approved';
+            items.unshift({
+                id: `cteam-ev-${e.id}`,
+                type: approved ? 'catalog-team-seller-approved' : 'catalog-team-seller-rejected',
+                severity: approved ? 'success' : 'warning',
+                title: approved
+                    ? `درخواست فروشندگی شما در کاتالوگ «${e.catalog.name}» تایید شد 🎉`
+                    : `درخواست فروشندگی شما در کاتالوگ «${e.catalog.name}» رد شد`,
+                body: approved
+                    ? 'حالا می‌توانید مشتری‌های خودتان را در این کاتالوگ ثبت کنید — تماسشان به شما مسیریابی می‌شود'
+                    : 'برای هماهنگی با اونر کاتالوگ تماس بگیرید',
+                action: { label: 'پنل کاتالوگ', href: `/my-catalogs?catalog=${e.catalogId}&tab=team` },
+            });
+        }
+
+        // ═══ ✅ NEW — تیم کاتالوگ: خبرهای مشتری‌های منتسب به من (بازاریاب — ۷ روز) ═══
+        const mySellerRows = await this.prisma.catalogMember.findMany({
+            where: { userId, sellerStatus: 'active', status: 'active' },
+            select: { catalogId: true },
+        });
+        if (mySellerRows.length) {
+            const custEvents = await this.prisma.catalogTeamEvent.findMany({
+                where: {
+                    catalogId: { in: mySellerRows.map((r) => r.catalogId) },
+                    eventType: { in: ['customer_confirmed', 'customer_added', 'customer_reassigned', 'customer_removed', 'customer_left'] },
+                    createdAt: { gte: weekAgo },
+                },
+                orderBy: { createdAt: 'desc' },
+                take: 30,
+                include: { catalog: { select: { name: true } } },
+            });
+            for (const e of custEvents) {
+                if (e.actorUserId === userId) continue;
+                const data: any = e.data || {};
+                const isMine =
+                    e.eventType === 'customer_reassigned'
+                        ? data.to === userId
+                        : e.eventType === 'customer_removed' || e.eventType === 'customer_left'
+                            ? data.previousSellerUserId === userId
+                            : data.assignedSellerUserId === userId;
+                if (!isMine) continue;
+                const catName = (e as any).catalog?.name || 'کاتالوگ';
+                const textMap: Record<string, { title: string; severity: 'success' | 'info' | 'warning' }> = {
+                    customer_confirmed: { title: `مشتری جدیدتان در «${catName}» عضویتش را تایید کرد — تماسش به شما می‌رسد`, severity: 'success' },
+                    customer_added: { title: `یک مشتری جدید در «${catName}» به شما منتسب شد — در انتظار تایید او`, severity: 'info' },
+                    customer_reassigned: { title: `یک مشتری «${catName}» به شما منتسب شد`, severity: 'info' },
+                    customer_removed: { title: `یکی از مشتری‌های شما در «${catName}» حذف شد`, severity: 'warning' },
+                    customer_left: { title: `یکی از مشتری‌های شما در «${catName}» عضویتش را لغو کرد`, severity: 'warning' },
+                };
+                const t = textMap[e.eventType];
+                if (!t) continue;
+                items.unshift({
+                    id: `cteam-cust-${e.id}`,
+                    type: `catalog-team-${e.eventType}`,
+                    severity: t.severity,
+                    title: t.title,
+                    action: { label: 'تیم کاتالوگ', href: `/my-catalogs?catalog=${e.catalogId}&tab=team` },
+                    catalogId: e.catalogId,
                 });
             }
         }

@@ -207,14 +207,22 @@ export class CatalogService {
             },
         });
 
-        await this.prisma.teamMember.create({
+        // ✅ تیم کاتالوگ — رکورد اونر با لِین فروشندهٔ فعال (اونر خودش هم سفارش می‌گیرد)
+        // (TeamMember legacy — دیگر نوشته نمی‌شود)
+        await this.prisma.catalogMember.create({
             data: {
                 catalogId: catalog.id,
                 userId,
                 role: CatalogRole.catalog_owner,
                 status: 'active',
                 permissions: { canManageCatalog: true, canManageAds: true, canManageTeam: true },
+                sellerBusinessId: (catalog as any).businessId,
+                sellerStatus: 'active',
+                sellerJoinedAt: new Date(),
             },
+        });
+        await this.prisma.catalogTeamEvent.create({
+            data: { catalogId: catalog.id, userId, eventType: 'joined', actorUserId: userId, note: 'ساخت کاتالوگ — اونر با لِین فروشندهٔ فعال' },
         });
 
         if (dto.armSlug) {
@@ -381,7 +389,7 @@ export class CatalogService {
         const catLogoMap = new Map(catLogoFiles.map((f) => [f.relatedId, f]));
         const bizLogoMap = new Map(bizLogoFiles.map((f) => [f.relatedId, f]));
 
-        return catalogs.map((catalog: any) => {
+        const own = catalogs.map((catalog: any) => {
             const catLogo = catLogoMap.get(catalog.id) ?? null;
             const bizLogo = catLogo ? null : (bizLogoMap.get(catalog.businessId) ?? null);
             return {
@@ -392,6 +400,41 @@ export class CatalogService {
                 activeMembershipsCount: catalog._count.armMemberships,
             };
         });
+
+        // ✅ کاتالوگ‌های تیمی — بازاریاب (فروشندهٔ کاتالوگ دیگری)، ادمین کاتالوگ، یا درخواستِ در انتظار
+        //    تیم کاتالوگ: بازار پخش — بازاریاب‌ها بدون کاتالوگِ جدا در کاتالوگِ اونر کار می‌کنند
+        const teamRows = await this.prisma.catalogMember.findMany({
+            where: {
+                userId,
+                status: 'active',
+                OR: [
+                    { sellerStatus: { in: ['active', 'pending'] } },
+                    { role: 'catalog_admin' },
+                ],
+            },
+            include: {
+                catalog: {
+                    select: {
+                        id: true, name: true, slug: true, logoUrl: true, phone: true, status: true,
+                        business: { select: { id: true, name: true, logoUrl: true } },
+                    },
+                },
+            },
+        });
+        const ownIds = new Set(own.map((c) => c.id));
+        const teamEntries = teamRows
+            .filter((m: any) => m.catalog && m.catalog.status !== 'closed' && !ownIds.has(m.catalog.id))
+            .map((m: any) => ({
+                ...m.catalog,
+                logoUrl: m.catalog.logoUrl || m.catalog.business?.logoUrl || null,
+                isTeamEntry: true,
+                teamMode: m.role === 'catalog_admin' ? 'admin' : m.sellerStatus === 'active' ? 'seller' : 'pending',
+                teamMemberId: m.id,
+                teamSellerRegion: m.sellerRegion || null,
+                position: m.position || null,
+            }));
+
+        return [...own, ...teamEntries];
     }
 
     async getActiveCatalog(userId: string) {
@@ -450,7 +493,7 @@ export class CatalogService {
                     include: { arm: { select: { id: true, slug: true, name: true, icon: true, colorPrimary: true } } },
                 },
                 credits: { orderBy: { createdAt: 'desc' }, take: 10 },
-                teamMembers: { where: { userId }, select: { position: true, role: true }, take: 1 },
+                members: { where: { userId }, select: { position: true, role: true, sellerRegion: true }, take: 1 },
                 _count: {
                     select: {
                         ads: { where: { status: { not: 'deleted' } } },
@@ -464,7 +507,7 @@ export class CatalogService {
             ...catalog,
             businessId: owned.businessId,
             business: owned.business,
-            position: catalog?.teamMembers?.[0]?.position || null,
+            position: catalog?.members?.[0]?.position || null,
             activities: (catalog?.business as any)?.activities?.map((item: any) => ({
                 id: item.activityId,
                 title: item.activity.title,
@@ -531,7 +574,8 @@ export class CatalogService {
         });
 
         if (dto.position !== undefined) {
-            await this.prisma.teamMember.updateMany({
+            // ✅ سمت نمایشی روی رکورد تیم کاتالوگ (CatalogMember) — جایگزین TeamMember legacy
+            await this.prisma.catalogMember.updateMany({
                 where: { catalogId: id, userId },
                 data: { position: dto.position || null },
             });
@@ -638,7 +682,7 @@ export class CatalogService {
             throw new NotFoundException({ errorCode: 'CATALOG_NOT_FOUND', message: 'کاتالوگ یافت نشد' });
         }
 
-        const ownerTeamMember = await this.prisma.teamMember.findFirst({
+        const ownerTeamMember = await this.prisma.catalogMember.findFirst({
             where: { catalogId: catalog.id, userId: catalog.business.ownerUserId },
             select: { position: true, role: true },
         });
