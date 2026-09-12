@@ -6,7 +6,7 @@ import {
     IsEnum,
     IsArray,
     MaxLength,
-    Matches, IsIn, IsObject,
+    Matches, IsIn, IsObject, IsBoolean,
 } from 'class-validator';
 
 export class CreateCatalogDto {
@@ -26,6 +26,11 @@ export class CreateCatalogDto {
     @IsOptional()
     @IsString()
     shortDescription?: string;
+
+    @ApiPropertyOptional({ description: 'کاتالوگ خصوصی — قیمت‌ها فقط برای اعضای پذیرفته‌شده', required: false })
+    @IsOptional()
+    @IsBoolean()
+    isPrivate?: boolean;
 
     @ApiProperty({ example: 'ali-supermarket', description: 'اسلاگ (آدرس) کاتالوگ', required: false })
     @IsOptional()
@@ -155,6 +160,11 @@ export class UpdateCatalogDto {
     @IsOptional()
     @IsString()
     shortDescription?: string;
+
+    @ApiPropertyOptional({ description: 'کاتالوگ خصوصی — قیمت‌ها فقط برای اعضای پذیرفته‌شده', required: false })
+    @IsOptional()
+    @IsBoolean()
+    isPrivate?: boolean;
 
     @ApiProperty({ example: 'ali-supermarket', description: 'اسلاگ (آدرس) کاتالوگ', required: false })
     @IsOptional()

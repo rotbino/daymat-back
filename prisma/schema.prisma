@@ -209,6 +209,8 @@ model Catalog {
   phone            String
   website          String?
   logoUrl          String?
+  // ✅ کاتالوگ خصوصی — قیمت‌ها فقط برای مالک و اعضای پذیرفته‌شده (درخواست ارتباط تجاری) نمایش داده می‌شود
+  isPrivate        Boolean   @default(false)
   status           String    @default("active")
   metadata         Json?
   createdAt        DateTime  @default(now())

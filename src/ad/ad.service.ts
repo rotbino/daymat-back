@@ -942,9 +942,11 @@ export class AdService {
         const bizOwner = (ad.catalog as any)?.business?.owner;
         const bizVerificationTier = (ad.catalog as any)?.business?.verificationTier ?? null;
 
-        // ✅ گیت قیمت صفحهٔ جزئیات — آگهیِ فقط در بازار(های) خصوصی منتشرشده،
-        //    قیمت‌هایش برای غیرعضو مخفی می‌ماند (هم‌راستا با گیت ویتروین)
-        const canViewDetail = await this.canViewDetailPrices(ad, userId);
+        // ✅ گیت قیمت صفحهٔ جزئیات — ۱) کاتالوگ خصوصی ۲) آگهیِ فقط در بازار(های) خصوصی
+        const catalogPrivate = !!(ad.catalog as any)?.isPrivate;
+        const canViewDetail = catalogPrivate
+            ? await this.canViewCatalogPrices(ad.catalog, userId)
+            : await this.canViewDetailPrices(ad, userId);
         const result: any = {
             ...ad,
             // ✅ شکل قدیمی owner برای فرانت حفظ شد
@@ -972,8 +974,22 @@ export class AdService {
             result.consumerPrice = null;
             result.giftPrice = null;
             result.volumeTiers = null;
+            // ✅ علتِ مخفی‌بودن قیمت — فرانت پیام درست را نشان می‌دهد
+            result.priceGate = catalogPrivate ? 'catalog_private' : 'market_private';
         }
         return result;
+    }
+
+    /** حق دیدن قیمت‌های یک کاتالوگ خصوصی:
+     *  فقط مالک کاتالوگ یا عضو پذیرفته‌شده (درخواست ارتباط تجاری تاییدشده) */
+    private async canViewCatalogPrices(catalog: { id: string; ownerUserId?: string }, userId?: string): Promise<boolean> {
+        if (!userId) return false;
+        if (catalog?.ownerUserId && catalog.ownerUserId === userId) return true;
+        const mem = await this.prisma.catalogMember.findFirst({
+            where: { catalogId: catalog.id, userId, status: 'active' },
+            select: { id: true },
+        });
+        return !!mem;
     }
 
     /** حق دیدن قیمت یک آگهی در صفحهٔ جزئیات:
@@ -1601,12 +1617,23 @@ export class AdService {
         limit: number = 10,
         search?: string,
         statusFilter?: string,
+        userId?: string,
     ) {
         // ✅ فقط نمای عمومی (active) کش می‌شود — ۵ دقیقه، بدون باطل‌سازی (دیتای دیگران).
         //    نمای مدیریت مالک (بدون فیلتر/pending/archived) همیشه مستقیم از DB می‌آید
         //    تا تغییرات آگهی‌های خودش بلافاصله ببیند.
         const isPublicView = statusFilter === 'active';
         if (isPublicView) {
+            // ✅ کاتالوگ خصوصی — کش عمومی نمی‌شود؛ قیمت‌ها per-user ماسک می‌شوند
+            const cat = await this.prisma.catalog.findUnique({
+                where: { id: catalogId },
+                select: { isPrivate: true, ownerUserId: true },
+            });
+            if (cat?.isPrivate) {
+                const res = await this.fetchCatalogAds(catalogId, page, limit, search, statusFilter);
+                const canView = await this.canViewCatalogPrices(cat as any, userId);
+                return canView ? res : this.maskAdsPrices(res);
+            }
             return this.cache.wrap(
                 'catalog-ads',
                 [catalogId, page, limit, search ?? '_'],
@@ -1615,6 +1642,21 @@ export class AdService {
             );
         }
         return this.fetchCatalogAds(catalogId, page, limit, search, statusFilter);
+    }
+
+    /** ماسک قیمت‌ها برای غیرعضوِ کاتالوگ خصوصی — در payload لیست */
+    private maskAdsPrices(res: any): any {
+        const mask = (a: any) => ({
+            ...a,
+            unitPrice: null,
+            singleUnitPrice: null,
+            consumerPrice: null,
+            giftPrice: null,
+            volumeTiers: null,
+        });
+        if (Array.isArray(res?.ads)) return { ...res, ads: res.ads.map(mask) };
+        if (Array.isArray(res?.items)) return { ...res, items: res.items.map(mask) };
+        return res;
     }
 
     private async fetchCatalogAds(

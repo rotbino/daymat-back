@@ -220,6 +220,8 @@ export class CatalogService {
                     businessId: biz.id,
                     name: dto.name,
                     slug,
+                    // ✅ کاتالوگ خصوصی — قیمت‌ها فقط برای مالک و اعضای پذیرفته‌شده
+                    isPrivate: dto.isPrivate ?? false,
                     salesType: dto.salesType === 'retail' ? 'retail' : 'wholesale',
                     shortDescription: dto.shortDescription || null,
                     description: dto.description || '',
@@ -586,6 +588,7 @@ export class CatalogService {
                 name: dto.name,
                 ...(normalizedSlug ? { slug: normalizedSlug } : {}),
                 ...(dto.salesType ? { salesType: dto.salesType } : {}),
+                ...(dto.isPrivate !== undefined ? { isPrivate: dto.isPrivate } : {}),
                 shortDescription: dto.shortDescription,
                 type: dto.type,
                 city: dto.city,

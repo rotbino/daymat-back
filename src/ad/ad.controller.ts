@@ -386,13 +386,14 @@ export class AdController {
 
     @Get('catalog/:catalogId')
     @UseGuards(OptionalJwtAuthGuard)
-    @ApiOperation({ summary: 'لیست کالاهای یک کاتالوگ — با search و status' })
+    @ApiOperation({ summary: 'لیست کالاهای یک کاتالوگ — با search و status (کاتالوگ خصوصی: قیمت ماسک می‌شود)' })
     async getCatalogAds(
         @Param('catalogId') catalogId: string,
         @Query('page') page?: string,
         @Query('limit') limit?: string,
         @Query('search') search?: string,
         @Query('status') status?: string,
+        @CurrentUser() user?: any,
     ) {
         return this.adService.getCatalogAds(
             catalogId,
@@ -400,6 +401,7 @@ export class AdController {
             Number(limit) || 10,
             search,
             status,
+            user?.id,
         );
     }
 
