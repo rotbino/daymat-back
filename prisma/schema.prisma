@@ -38,8 +38,8 @@ enum ArmRole {
 // نقش‌های «بیزینسی» (فروشنده/خریدار) لِین‌های جدا در CatalogMember هستند
 // ============================================================
 enum CatalogRole {
-  catalog_owner  // مالک کاتالوگ (مدیر فروش آنلاین) — نشانه‌گذاری رکورد؛ ملاکِ واقعیِ اونری: Business.ownerUserId (مشتق)
-  catalog_admin  // ادمین کاتالوگ — توسط اونر منصوب می‌شود؛ در مدیریت کاتالوگ سهیم است (ویرایش محصول/قیمت/انتشار) به‌جز انتقال مالکیت
+  catalog_owner  // مالک کاتالوگ (مدیر فروش آنلاین) — نشانه‌گذاری رکورد؛ ملاکِ واقعیِ مالکی: Business.ownerUserId (مشتق)
+  catalog_admin  // ادمین کاتالوگ — توسط مالک منصوب می‌شود؛ در مدیریت کاتالوگ سهیم است (ویرایش محصول/قیمت/انتشار) به‌جز انتقال مالکیت
   catalog_member // عضو عادی کاتالوگ (همکار فروش، خریدار یا تامین‌کننده)
 }
 
@@ -298,12 +298,12 @@ model BusinessMember {
 //   ورود به همهٔ لِین‌ها از یک در: «درخواست همکاری» روی کاتالوگ + تایید مدیر (مالک کاتالوگ).
 //
 //   نقش سیستمی (role):   catalog_owner (نشانه‌گذار؛ ملاک = Business.ownerUserId)
-//                        catalog_admin (منصوبِ اونر — سهیم در مدیریت) | catalog_member
+//                        catalog_admin (منصوبِ مالک — سهیم در مدیریت) | catalog_member
 //   لِین‌های بیزینسی:     همکار فروش (فروشنده/ویزیتور — sellerBusinessId + منطقهٔ فروش)
 //                        خریدار (customerBusinessId — منتسب به مسئول فروش)
 //                        تامین‌کننده (supplierCatalogId — عضویت با کاتالوگِ خودش)
 //   یک رکورد برای هر کاربر در هر کاتالوگ — می‌تواند همزمان چند لِین داشته باشد
-//   (مثلاً اونر که خودش هم فروشنده است).
+//   (مثلاً مالک که خودش هم فروشنده است).
 //   همهٔ تاریخ‌ها و عامل‌ها + CatalogTeamEvent برای شکایت‌ها — هم‌راستا با ArmMembership.
 // ============================================================
 model CatalogMember {
@@ -318,7 +318,7 @@ model CatalogMember {
   position    String? // سمت نمایشی (مثل «مدیر فروش آنلاین»)
   permissions Json?       // رزرو برای دسترسی‌های ریزدانهٔ آینده
 
-  // ── لِین فروش ── اونر به‌طور پیش‌فرض فروشندهٔ فعال کاتالوگ خودش است
+  // ── لِین فروش ── مالک به‌طور پیش‌فرض فروشندهٔ فعال کاتالوگ خودش است
   sellerBusinessId String?   @db.ObjectId
   sellerBusiness   Business? @relation("CatMemberSellerBiz", fields: [sellerBusinessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   sellerStatus     String? // pending | active | removed — null = اصلاً در لِین فروش نیست
@@ -379,7 +379,7 @@ model CatalogTeamEvent {
                      // buyer_approved | buyer_rejected | supplier_approved | supplier_rejected |
                      // admin_promoted | admin_demoted | customer_added | customer_confirmed | customer_declined |
                      // customer_removed | customer_left | customer_reassigned | joined | left | region_set
-  actorUserId String?  @db.ObjectId // خود کاربر / اونر / ادمین — null = سیستم
+  actorUserId String?  @db.ObjectId // خود کاربر / مالک / ادمین — null = سیستم
   note        String?
   data        Json?
   createdAt   DateTime @default(now())

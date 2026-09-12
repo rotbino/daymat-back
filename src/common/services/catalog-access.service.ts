@@ -26,7 +26,7 @@ export class CatalogAccessService {
         if (!catalog) return false;
         if (catalog.ownerUserId === userId) return true;
 
-        // ✅ ادمین کاتالوگ — توسط اونر منصوب شده و در مدیریت کاتالوگ سهیم است (برگهٔ اعضا)
+        // ✅ ادمین کاتالوگ — توسط مالک منصوب شده و در مدیریت کاتالوگ سهیم است (برگهٔ اعضا)
         const adminMember = await this.prisma.catalogMember.findFirst({
             where: { catalogId, userId, role: 'catalog_admin', status: 'active' },
             select: { id: true },

@@ -187,7 +187,7 @@ export class CatalogController {
     }
 
     // ============================================================
-    // تیم کاتالوگ — اونر / مدیر / عضوِ فروش (فروشنده/ویزیتور) / مشتری
+    // تیم کاتالوگ — مالک / مدیر / عضوِ فروش (فروشنده/ویزیتور) / مشتری
     // ============================================================
 
     @Get('team/memberships')
@@ -317,7 +317,7 @@ export class CatalogController {
     @Delete(':catalogId/team/sellers/:memberId')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'حذف عضوِ فروش از کاتالوگ (اونر/مدیر)' })
+    @ApiOperation({ summary: 'حذف عضوِ فروش از کاتالوگ (مالک/مدیر)' })
     async removeSeller(
         @Param('catalogId') catalogId: string,
         @Param('memberId') memberId: string,
@@ -338,7 +338,7 @@ export class CatalogController {
     @Patch(':catalogId/team/sellers/:memberId/region')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'ثبت/ویرایش منطقهٔ فروش عضوِ فروش (اونر/مدیر/خودش)' })
+    @ApiOperation({ summary: 'ثبت/ویرایش منطقهٔ فروش عضوِ فروش (مالک/مدیر/خودش)' })
     async setSellerRegion(
         @Param('catalogId') catalogId: string,
         @Param('memberId') memberId: string,
@@ -351,7 +351,7 @@ export class CatalogController {
     @Patch(':catalogId/team/sellers/:memberId/role')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'تغییر نقش بیزینسی عضوِ فروش (فروشنده/ویزیتور) — اونر/مدیر' })
+    @ApiOperation({ summary: 'تغییر نقش بیزینسی عضوِ فروش (فروشنده/ویزیتور) — مالک/مدیر' })
     async setSellerRole(
         @Param('catalogId') catalogId: string,
         @Param('memberId') memberId: string,
@@ -366,7 +366,7 @@ export class CatalogController {
     @Post(':catalogId/team/members/:memberId/promote-admin')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'ارتقای عضو به ادمین کاتالوگ (فقط اونر)' })
+    @ApiOperation({ summary: 'ارتقای عضو به ادمین کاتالوگ (فقط مالک)' })
     async promoteToAdmin(@Param('catalogId') catalogId: string, @Param('memberId') memberId: string, @CurrentUser() user: any) {
         return this.catalogMemberService.promoteToAdmin(catalogId, memberId, user.id);
     }
@@ -374,7 +374,7 @@ export class CatalogController {
     @Post(':catalogId/team/members/:memberId/demote-admin')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'گرفتن نقش ادمین (فقط اونر)' })
+    @ApiOperation({ summary: 'گرفتن نقش ادمین (فقط مالک)' })
     async demoteToMember(@Param('catalogId') catalogId: string, @Param('memberId') memberId: string, @CurrentUser() user: any) {
         return this.catalogMemberService.demoteToMember(catalogId, memberId, user.id);
     }
@@ -426,7 +426,7 @@ export class CatalogController {
     @Patch(':catalogId/team/customers/:memberId/assign')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'تغییر مسئولِ مشتری (اونر/مدیر)' })
+    @ApiOperation({ summary: 'تغییر مسئولِ مشتری (مالک/مدیر)' })
     async assignCustomer(
         @Param('catalogId') catalogId: string,
         @Param('memberId') memberId: string,
@@ -439,7 +439,7 @@ export class CatalogController {
     @Delete(':catalogId/team/customers/:memberId')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'حذف مشتری (اونر/مدیر/مسئولِ منتسب)' })
+    @ApiOperation({ summary: 'حذف مشتری (مالک/مدیر/مسئولِ منتسب)' })
     async removeCustomer(
         @Param('catalogId') catalogId: string,
         @Param('memberId') memberId: string,

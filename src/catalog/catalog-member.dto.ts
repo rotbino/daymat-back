@@ -48,7 +48,7 @@ export class AddCustomerDto {
 
     @IsOptional()
     @Matches(/^[a-f\d]{24}$/i, { message: 'شناسه عضو فروش نامعتبر است' })
-    sellerUserId?: string; // انتساب به عضوِ فروشِ مشخص — پیش‌فرض: خود ثبت‌کننده (یا اونر)
+    sellerUserId?: string; // انتساب به عضوِ فروشِ مشخص — پیش‌فرض: خود ثبت‌کننده (یا مالک)
 
     @IsOptional()
     @IsString()

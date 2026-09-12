@@ -89,7 +89,7 @@ export class CatalogMemberService {
         return catalog as any;
     }
 
-    /** اونر = مالکِ مستقیمِ کاتالوگ (کاربری که کاتالوگ را ساخته) */
+    /** مالک = مالکِ مستقیمِ کاتالوگ (کاربری که کاتالوگ را ساخته) */
     private isOwner(catalog: any, userId: string): boolean {
         return catalog.ownerUserId === userId;
     }
@@ -136,12 +136,12 @@ export class CatalogMemberService {
         return row;
     }
 
-    /** اونر یا ادمینِ فعال — مدیرِ تیم */
+    /** مالک یا ادمینِ فعال — مدیرِ تیم */
     private async assertTeamManager(catalog: any, userId: string) {
         if (this.isOwner(catalog, userId)) return;
         const row = await this.getMemberRow(catalog.id, userId);
         if (row?.status === 'active' && row.role === 'catalog_admin') return;
-        throw new ForbiddenException({ errorCode: 'NOT_TEAM_MANAGER', message: 'فقط اونر یا ادمین کاتالوگ به این بخش دسترسی دارد' });
+        throw new ForbiddenException({ errorCode: 'NOT_TEAM_MANAGER', message: 'فقط مالک یا ادمین کاتالوگ به این بخش دسترسی دارد' });
     }
 
     /** آیا کاربر لِین فروشندهٔ فعال دارد؟ */
@@ -928,13 +928,13 @@ export class CatalogMemberService {
         return { success: true, message: 'از اعضا حذف شد' };
     }
 
-    /** حذف عضوِ فروش — اونر/مدیر؛ مشتری‌هایش بی‌مسئول می‌شوند */
+    /** حذف عضوِ فروش — مالک/مدیر؛ مشتری‌هایش بی‌مسئول می‌شوند */
     async removeSeller(catalogId: string, memberId: string, actorId: string, note?: string) {
         const catalog = await this.getCatalogOrThrow(catalogId);
         await this.assertTeamManager(catalog, actorId);
         const row = await this.getMemberById(catalog.id, memberId);
         if (row.userId === catalog.ownerUserId) {
-            throw new BadRequestException({ errorCode: 'CANNOT_REMOVE_OWNER', message: 'اونر کاتالوگ قابل حذف نیست' });
+            throw new BadRequestException({ errorCode: 'CANNOT_REMOVE_OWNER', message: 'مالک کاتالوگ قابل حذف نیست' });
         }
         if (row.role === 'catalog_admin') {
             throw new BadRequestException({ errorCode: 'IS_ADMIN', message: 'ابتدا نقش ادمین این عضو را بگیرید' });
@@ -957,7 +957,7 @@ export class CatalogMemberService {
         const catalog = await this.getCatalogOrThrow(catalogId);
         const row = await this.requireMemberRow(catalog.id, userId);
         if (this.isOwner(catalog, userId)) {
-            throw new BadRequestException({ errorCode: 'OWNER_CANNOT_LEAVE', message: 'اونر کاتالوگ نمی‌تواند فروشندگی خودش را ترک کند' });
+            throw new BadRequestException({ errorCode: 'OWNER_CANNOT_LEAVE', message: 'مالک کاتالوگ نمی‌تواند فروشندگی خودش را ترک کند' });
         }
         if (!this.hasActiveSellerLane(row)) {
             throw new ConflictException({ errorCode: 'NOT_ACTIVE_SELLER', message: 'شما عضوِ فروشِ فعال این کاتالوگ نیستید' });
@@ -973,7 +973,7 @@ export class CatalogMemberService {
         return { success: true, message: 'شما از اعضای فروش این کاتالوگ خارج شدید' };
     }
 
-    /** منطقهٔ فروش عضوِ فروش — اونر/مدیر یا خودِ عضو */
+    /** منطقهٔ فروش عضوِ فروش — مالک/مدیر یا خودِ عضو */
     async setSellerRegion(catalogId: string, memberId: string, region: string | undefined, actorId: string) {
         const catalog = await this.getCatalogOrThrow(catalogId);
         const row = await this.getMemberById(catalog.id, memberId);
@@ -987,7 +987,7 @@ export class CatalogMemberService {
         return { success: true, message: 'منطقهٔ فروش ثبت شد' };
     }
 
-    /** تغییر نقش بیزینسی عضوِ فروش (فروشنده ↔ ویزیتور) — اونر/مدیر */
+    /** تغییر نقش بیزینسی عضوِ فروش (فروشنده ↔ ویزیتور) — مالک/مدیر */
     async setSellerRole(catalogId: string, memberId: string, sellerRole: 'seller' | 'visitor', actorId: string) {
         const catalog = await this.getCatalogOrThrow(catalogId);
         await this.assertTeamManager(catalog, actorId);
@@ -1026,14 +1026,14 @@ export class CatalogMemberService {
     //  نقش ادمین کاتالوگ (سیستمی)
     // ════════════════════════════════════════════════════════════
 
-    /** ارتقای عضو به ادمین کاتالوگ — فقط اونر */
+    /** ارتقای عضو به ادمین کاتالوگ — فقط مالک */
     async promoteToAdmin(catalogId: string, memberId: string, actorId: string) {
         const catalog = await this.getCatalogOrThrow(catalogId);
         if (!this.isOwner(catalog, actorId)) {
-            throw new ForbiddenException({ errorCode: 'ONLY_OWNER', message: 'فقط اونر کاتالوگ می‌تواند ادمین منصوب کند' });
+            throw new ForbiddenException({ errorCode: 'ONLY_OWNER', message: 'فقط مالک کاتالوگ می‌تواند ادمین منصوب کند' });
         }
         const row = await this.getMemberById(catalog.id, memberId);
-        if (row.role === 'catalog_owner') throw new BadRequestException({ errorCode: 'IS_OWNER', message: 'این رکورد مال اونر کاتالوگ است' });
+        if (row.role === 'catalog_owner') throw new BadRequestException({ errorCode: 'IS_OWNER', message: 'این رکورد مال مالک کاتالوگ است' });
         if (row.status !== 'active') throw new ConflictException({ errorCode: 'NOT_ACTIVE', message: 'عضو فعال نیست' });
         if (row.role === 'catalog_admin') throw new ConflictException({ errorCode: 'ALREADY_ADMIN', message: 'این عضو قبلاً ادمین شده است' });
 
@@ -1043,11 +1043,11 @@ export class CatalogMemberService {
         return { success: true, message: 'عضو به ادمین کاتالوگ ارتقا یافت' };
     }
 
-    /** گرفتن نقش ادمین — فقط اونر */
+    /** گرفتن نقش ادمین — فقط مالک */
     async demoteToMember(catalogId: string, memberId: string, actorId: string) {
         const catalog = await this.getCatalogOrThrow(catalogId);
         if (!this.isOwner(catalog, actorId)) {
-            throw new ForbiddenException({ errorCode: 'ONLY_OWNER', message: 'فقط اونر کاتالوگ می‌تواند نقش ادمین را بگیرد' });
+            throw new ForbiddenException({ errorCode: 'ONLY_OWNER', message: 'فقط مالک کاتالوگ می‌تواند نقش ادمین را بگیرد' });
         }
         const row = await this.getMemberById(catalog.id, memberId);
         if (row.role !== 'catalog_admin') throw new ConflictException({ errorCode: 'NOT_ADMIN', message: 'این عضو ادمین نیست' });
@@ -1062,7 +1062,7 @@ export class CatalogMemberService {
     //  لِین خریدار (ثبت توسط مسئول فروش — مسیر Push)
     // ════════════════════════════════════════════════════════════
 
-    /** جست‌وجوی کسب‌وکار برای افزودن مشتری — اونر/ادمین/فروشندهٔ فعال */
+    /** جست‌وجوی کسب‌وکار برای افزودن مشتری — مالک/ادمین/فروشندهٔ فعال */
     async customerCandidates(catalogId: string, actorId: string, q?: string) {
         const catalog = await this.getCatalogOrThrow(catalogId);
         const myRow = await this.getMemberRow(catalog.id, actorId);
@@ -1243,7 +1243,7 @@ export class CatalogMemberService {
         return { success: true, message: 'ثبت مشتری رد شد' };
     }
 
-    /** حذف مشتری — اونر/ادمین هرکسی؛ فروشنده فقط منتسب‌شده‌ها را */
+    /** حذف مشتری — مالک/ادمین هرکسی؛ فروشنده فقط منتسب‌شده‌ها را */
     async removeCustomer(catalogId: string, memberId: string, actorId: string, note?: string) {
         const catalog = await this.getCatalogOrThrow(catalogId);
         const myRow = await this.getMemberRow(catalog.id, actorId);
@@ -1304,7 +1304,7 @@ export class CatalogMemberService {
         return { success: true, message: 'عضویت مشتری شما در این کاتالوگ لغو شد' };
     }
 
-    /** تغییر مسئول فروشِ مشتری — اونر/ادمین */
+    /** تغییر مسئول فروشِ مشتری — مالک/ادمین */
     async assignCustomer(catalogId: string, memberId: string, sellerUserId: string, actorId: string) {
         const catalog = await this.getCatalogOrThrow(catalogId);
         await this.assertTeamManager(catalog, actorId);

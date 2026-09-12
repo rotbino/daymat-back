@@ -243,7 +243,7 @@ export class CatalogService {
                 },
             });
 
-            // ✅ تیم کاتالوگ — رکورد اونر با لِین فروشندهٔ فعال (اونر خودش هم سفارش می‌گیرد)
+            // ✅ تیم کاتالوگ — رکورد مالک با لِین فروشندهٔ فعال (مالک خودش هم سفارش می‌گیرد)
             // (TeamMember legacy — دیگر نوشته نمی‌شود)
             await tx.catalogMember.create({
                 data: {
@@ -258,7 +258,7 @@ export class CatalogService {
                 },
             });
             await tx.catalogTeamEvent.create({
-                data: { catalogId: cat.id, userId, eventType: 'joined', actorUserId: userId, note: 'ساخت کاتالوگ — اونر با لِین فروشندهٔ فعال' },
+                data: { catalogId: cat.id, userId, eventType: 'joined', actorUserId: userId, note: 'ساخت کاتالوگ — مالک با لِین فروشندهٔ فعال' },
             });
 
             // ✅ تیمِ کسب‌وکار — کاربر با پستِ انتخابی‌اش عضو کسب‌وکارِ مرجع می‌شود
@@ -433,7 +433,7 @@ export class CatalogService {
         });
 
         // ✅ کاتالوگ‌های تیمی — عضوِ فروش (فروشنده/ویزیتور کاتالوگ دیگری)، مدیر کاتالوگ، یا درخواستِ در انتظار
-        //    تیم کاتالوگ: بازار پخش — اعضایِ فروش بدون کاتالوگِ جدا در کاتالوگِ اونر کار می‌کنند
+        //    تیم کاتالوگ: بازار پخش — اعضایِ فروش بدون کاتالوگِ جدا در کاتالوگِ مالک کار می‌کنند
         const teamRows = await this.prisma.catalogMember.findMany({
             where: {
                 userId,
