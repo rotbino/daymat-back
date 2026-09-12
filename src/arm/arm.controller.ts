@@ -15,7 +15,6 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@ne
 import { ArmService } from './arm.service';
 import { MembershipRequestService } from './membership-request.service';
 import { LeaveRequestService } from './leave-request.service';
-import { CatalogDelegationService } from './catalog-delegation.service';
 import { CreateArmDto } from './dto/create-arm.dto';
 import { CurrentUser } from '../common/decorators/custom.decorators';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -31,7 +30,6 @@ export class ArmController {
         private armService: ArmService,
         private membershipRequestService: MembershipRequestService,
         private leaveRequestService: LeaveRequestService,
-        private catalogDelegationService: CatalogDelegationService,
         private prisma: PrismaService,   // ← اضافه کنید
     ) {}
 
@@ -51,19 +49,6 @@ export class ArmController {
     @ApiResponse({ status: 409, description: 'slug تکراری است' })
     async create(@CurrentUser() user: any, @Body() dto: CreateArmDto) {
         return this.armService.create(user.id, dto);
-    }
-
-    // ============================================================
-    // کاتالوگ‌های واگذارشده به من — به‌عنوان مالک/ادمینِ بازار
-    // (کارِ کاتالوگ‌هایی که فروشنده‌ها به تیمِ بازارهای من واگذار کرده‌اند)
-    // ⚠️ باید قبل از @Get(':slug') باشد وگرنه 'delegated-catalogs' به‌عنوان slug تفسیر می‌شود
-    // ============================================================
-    @Get('delegated-catalogs')
-    @UseGuards(JwtAuthGuard)
-    @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'کاتالوگ‌های واگذارشده به تیمِ من (مالک/ادمین بازار)' })
-    async myDelegatedCatalogs(@CurrentUser() user: any) {
-        return this.catalogDelegationService.listMyDelegated(user.id);
     }
 
     // ============================================================
@@ -217,54 +202,6 @@ export class ArmController {
         @CurrentUser() user: any,
     ) {
         return this.leaveRequestService.withdrawRequest(user.id, slug);
-    }
-
-    // ============================================================
-    // واگذاری کارِ کاتالوگ به تیمِ بازار — فروشنده کارهای کاتالوگش
-    // (محصول‌ها، قیمت‌ها، انتشار) را به مالک + ادمین‌های بازار می‌سپارد
-    // ============================================================
-    @Post(':slug/catalog-delegation')
-    @UseGuards(JwtAuthGuard)
-    @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'واگذاری کارِ کاتالوگ به تیمِ بازار (فقط مالک کسب‌وکار)' })
-    async grantDelegation(
-        @Param('slug') slug: string,
-        @CurrentUser() user: any,
-        @Body() body: { catalogId: string },
-    ) {
-        return this.catalogDelegationService.grant(user.id, slug, body?.catalogId);
-    }
-
-    @Delete(':slug/catalog-delegation')
-    @UseGuards(JwtAuthGuard)
-    @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'پس‌گرفتن/لغو واگذاری (مالک کسب‌وکار یا مالک بازار)' })
-    async revokeDelegation(
-        @Param('slug') slug: string,
-        @Query('catalogId') catalogId: string,
-        @CurrentUser() user: any,
-    ) {
-        return this.catalogDelegationService.revoke(user.id, slug, catalogId, user?.role === 'system_admin');
-    }
-
-    @Get(':slug/catalog-delegation/team')
-    @UseGuards(JwtAuthGuard)
-    @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'تیمِ بازار (مالک + ادمین‌ها) — برای مودال تأییدِ واگذاری' })
-    async delegationTeam(@Param('slug') slug: string) {
-        return this.catalogDelegationService.getTeam(slug);
-    }
-
-    @Get(':slug/catalog-delegation/status')
-    @UseGuards(JwtAuthGuard)
-    @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'وضعیت واگذاری یک کاتالوگ در این بازار' })
-    async delegationStatus(
-        @Param('slug') slug: string,
-        @Query('catalogId') catalogId: string,
-        @CurrentUser() user: any,
-    ) {
-        return this.catalogDelegationService.getStatus(user.id, slug, catalogId);
     }
 
     // ============================================================

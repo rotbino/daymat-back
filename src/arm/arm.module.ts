@@ -4,7 +4,6 @@ import { ArmController } from './arm.controller';
 import { ArmService } from './arm.service';
 import { MembershipRequestService } from './membership-request.service';
 import { LeaveRequestService } from './leave-request.service';
-import { CatalogDelegationService } from './catalog-delegation.service';
 
 import { PrismaModule } from '../prisma/prisma.module';
 import { AuthModule } from '../auth/auth.module';
@@ -13,7 +12,7 @@ import {LocationService} from "../location/location.service";
 @Module({
     imports: [PrismaModule, AuthModule],
     controllers: [ArmController],
-    providers: [ArmService, LocationService, MembershipRequestService, LeaveRequestService, CatalogDelegationService],
-    exports: [ArmService, MembershipRequestService, LeaveRequestService, CatalogDelegationService],
+    providers: [ArmService, LocationService, MembershipRequestService, LeaveRequestService],
+    exports: [ArmService, MembershipRequestService, LeaveRequestService],
 })
 export class ArmModule {}

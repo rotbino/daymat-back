@@ -110,8 +110,6 @@ model User {
   armMemberships           ArmMembership[]
   armMembershipRequests    ArmMembershipRequest[] @relation("ArmMembershipRequests")
   armLeaveRequests         ArmLeaveRequest[]      @relation("ArmLeaveRequests")
-  catalogDelegationGrants  CatalogArmDelegation[] @relation("CatDelegationGranter") // کارهای کاتالوگی که به تیم بازار واگذار کرده
-  catalogDelegationRevokes CatalogArmDelegation[] @relation("CatDelegationRevoker") // واگذاری‌هایی که لغو کرده
   credits                  Credit[]
   adInteractions           AdInteraction[]
   buyLeads                 BuyLead[]
@@ -213,7 +211,6 @@ model Catalog {
   armMemberships      ArmMembership[]
   membershipRequests  ArmMembershipRequest[] @relation("ArmMembershipRequests")
   leaveRequests       ArmLeaveRequest[]      @relation("ArmLeaveRequests")
-  armDelegations      CatalogArmDelegation[] @relation("CatalogArmDelegations")
   credits             Credit[]
   trustMetrics        TrustMetric[]
   buyLeads            BuyLead[]
@@ -474,7 +471,6 @@ model Arm {
   memberships              ArmMembership[]
   membershipRequests       ArmMembershipRequest[] @relation("ArmMembershipRequests")
   leaveRequests            ArmLeaveRequest[]      @relation("ArmLeaveRequests")
-  catalogDelegations       CatalogArmDelegation[] @relation("ArmCatalogDelegations")
   ads                      Ad[]
   adPublications           AdPublication[]        @relation("ArmAdPublications")
   buyLeads                 BuyLead[]
@@ -673,34 +669,6 @@ model ArmMembershipEvent {
 //   همهٔ تاریخ‌ها و عامل‌ها + تاریخچهٔ رویدادها ثبت می‌شود — برای شفافیت و شکایت‌ها.
 //   گیتِ مدیریت آگهی‌ها (ad.service) با این رکورد باز می‌شود.
 // ============================================================
-model CatalogArmDelegation {
-  id        String  @id @default(auto()) @map("_id") @db.ObjectId
-  catalogId String  @db.ObjectId
-  catalog   Catalog @relation("CatalogArmDelegations", fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  armId     String  @db.ObjectId
-  arm       Arm     @relation("ArmCatalogDelegations", fields: [armId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  // واگذارکننده — مالکِ کسب‌وکارِ کاتالوگ
-  grantedByUserId String  @db.ObjectId
-  grantedBy       User    @relation("CatDelegationGranter", fields: [grantedByUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  // لغوکننده — خودِ فروشنده یا مالکِ بازار (null = هنوز لغو نشده)
-  revokedByUserId String? @db.ObjectId
-  revokedBy       User?   @relation("CatDelegationRevoker", fields: [revokedByUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  status    String    @default("active") // active | revoked
-  grantedAt DateTime  @default(now())
-  revokedAt DateTime?
-  // ✅ تاریخچهٔ رویدادها — [{ type: 'granted'|'revoked', at, byUserId, note }]
-  events    Json?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-
-  // ✅ یک کاتالوگ در یک بازار فقط یک رکورد واگذاری دارد (واگذاریِ مجدد = فعال‌شدنِ دوباره + رویداد)
-  @@unique([catalogId, armId])
-  @@index([armId, status])
-  @@index([catalogId, status])
-}
-
 // ============================================================
 // آگهی — عرضهٔ یک کالا/قیمت
 //   catalogId          → کاتالوگ مالک (الزامی)

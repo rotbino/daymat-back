@@ -1988,55 +1988,15 @@ export class AdService {
             }
         }
 
-        // ═══ ✅ NEW — واگذاریِ کارِ کاتالوگ به تیمِ بازار — خبرهای فروشنده (۷ روز) ═══
-        if (catalogIds.length) {
-            const recentDelegations = await this.prisma.catalogArmDelegation.findMany({
-                where: { catalogId: { in: catalogIds }, updatedAt: { gte: weekAgo } },
-                orderBy: { updatedAt: 'desc' },
-                take: 10,
-                include: {
-                    arm: { select: { name: true, slug: true } },
-                    catalog: { select: { id: true, name: true } },
-                },
-            });
-            for (const d of recentDelegations) {
-                if (d.status === 'active') {
-                    items.unshift({
-                        id: `delegation-active-${d.id}`,
-                        type: 'delegation-active',
-                        severity: 'info',
-                        title: `کارِ کاتالوگ «${d.catalog.name}» در ${d.arm.name} به تیمِ بازار واگذار شده`,
-                        body: 'مالک و ادمین‌های بازار حالا می‌توانند محصول‌ها و قیمت‌ها را به‌جایتان مدیریت کنند — هر وقت خواستید می‌توانید پس بگیرید',
-                        action: { label: 'پنل کاتالوگ', href: `/my-catalogs?catalog=${d.catalogId}` },
-                        catalogId: d.catalogId,
-                    });
-                } else if (d.revokedByUserId && d.revokedByUserId !== userId) {
-                    items.unshift({
-                        id: `delegation-revoked-${d.id}`,
-                        type: 'delegation-revoked',
-                        severity: 'warning',
-                        title: `دسترسی تیمِ بازار ${d.arm.name} به کاتالوگ «${d.catalog.name}» لغو شد`,
-                        body: 'از این به بعد مدیریت محصول‌ها و قیمت‌ها فقط با خودتان است',
-                        action: { label: 'پنل کاتالوگ', href: `/my-catalogs?catalog=${d.catalogId}` },
-                        catalogId: d.catalogId,
-                    });
-                }
-            }
-        }
-
         // ═══ ✅ NEW — اعلان‌های مالک/ادمین بازار: درخواست‌های در انتظار بررسی ═══
         const managedArms = await this.prisma.armMembership.findMany({
             where: { userId, role: { in: ['arm_owner', 'arm_admin'] }, status: 'active' },
             select: { armId: true, arm: { select: { name: true, slug: true } } },
         });
         for (const mm of managedArms) {
-            const [joinPending, leavePending, freshDelegations] = await Promise.all([
+            const [joinPending, leavePending] = await Promise.all([
                 this.prisma.armMembershipRequest.count({ where: { armId: mm.armId, status: 'pending' } }),
                 this.prisma.armLeaveRequest.count({ where: { armId: mm.armId, status: 'pending' } }),
-                // ✅ واگذاری‌های تازه — فروشنده‌ها کارِ کاتالوگشان را به تیمِ شما سپرده‌اند
-                this.prisma.catalogArmDelegation.count({
-                    where: { armId: mm.armId, status: 'active', grantedAt: { gte: weekAgo } },
-                }),
             ]);
             if (joinPending > 0) {
                 items.unshift({
@@ -2056,16 +2016,6 @@ export class AdService {
                     title: `${leavePending.toLocaleString('fa-IR')} درخواست لغو عضویت در ${mm.arm.name} در انتظار رسیدگی شماست`,
                     body: 'عضوها منتظر تصمیم شما هستند — تایید یعنی خروج، رد یعنی ماندن با ذکر دلیل',
                     action: { label: 'بررسی درخواست‌های لغو', href: '/arm-admin/leave-requests' },
-                });
-            }
-            if (freshDelegations > 0) {
-                items.unshift({
-                    id: `owner-delegation-${mm.armId}`,
-                    type: 'owner-new-delegation',
-                    severity: 'info',
-                    title: `${freshDelegations.toLocaleString('fa-IR')} کاتالوگ به تیمِ ${mm.arm.name} واگذار شده`,
-                    body: 'فروشنده‌ها کارِ کاتالوگشان (محصول و قیمت) را به شما سپرده‌اند — از پنل، کارشان را انجام دهید',
-                    action: { label: 'دیدن واگذاری‌ها', href: '/arm-admin/delegated' },
                 });
             }
         }

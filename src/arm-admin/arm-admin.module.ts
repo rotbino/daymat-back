@@ -24,7 +24,7 @@ import { AdminBrandService } from '../admin/brand/admin-brand.service';
         AuthModule,
         MembersModule,
         CreditModule, // ✅ اضافه شد تا CreditService در دسترس باشد
-        ArmModule, // ✅ CatalogDelegationService — واگذاری کارِ کاتالوگ
+        ArmModule, // ✅ سرویس‌های Arm (Location، MembershipRequest، LeaveRequest)
     ],
     controllers: [
         ArmAdminController,

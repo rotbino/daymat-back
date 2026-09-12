@@ -6,11 +6,10 @@ import { PrismaService } from '../../prisma/prisma.service';
  * گیتِ واحدِ «چه کسی می‌تواند کارِ کاتالوگ را انجام دهد؟»
  *
  *  ۱) مالکِ کسب‌وکارِ کاتالوگ — همیشه
- *  ۲) تیمِ بازاری که کارِ کاتالوگ به آن واگذار شده (CatalogArmDelegation فعال)
- *     — یعنی مالک یا ادمینِ فعالِ همان بازار
+ *  ۲) ادمینِ کاتالوگ (CatalogMember با نقش catalog_admin) — از برگهٔ اعضا منصوب می‌شود
  *
  * این سرویس جای پراکندگیِ چکِ `business.ownerUserId === userId` در سرویس‌ها را می‌گیرد
- * تا واگذاریِ کارِ کاتالوگ (محصول‌ها و قیمت‌ها) به ادمین‌های بازار بدون استثنا در همه‌جا کار کند.
+ * تا مدیریتِ کاتالوگ (محصول‌ها و قیمت‌ها) بدون استثنا در همه‌جا کار کند.
  */
 @Injectable()
 export class CatalogAccessService {
@@ -27,30 +26,12 @@ export class CatalogAccessService {
         if (!catalog) return false;
         if ((catalog.business as any)?.ownerUserId === userId) return true;
 
-        // ✅ ادمین کاتالوگ — توسط اونر منصوب شده و در مدیریت کاتالوگ سهیم است (تیم کاتالوگ)
+        // ✅ ادمین کاتالوگ — توسط اونر منصوب شده و در مدیریت کاتالوگ سهیم است (برگهٔ اعضا)
         const adminMember = await this.prisma.catalogMember.findFirst({
             where: { catalogId, userId, role: 'catalog_admin', status: 'active' },
             select: { id: true },
         });
-        if (adminMember) return true;
-
-        // ✅ واگذاری فعال — کاربر باید مالک/ادمینِ فعالِ یکی از بازارهایی باشد که کار کاتالوگ به آن‌ها واگذار شده
-        const delegations = await this.prisma.catalogArmDelegation.findMany({
-            where: { catalogId, status: 'active' },
-            select: { armId: true },
-        });
-        if (!delegations.length) return false;
-
-        const membership = await this.prisma.armMembership.findFirst({
-            where: {
-                userId,
-                armId: { in: delegations.map((d) => d.armId) },
-                role: { in: ['arm_owner', 'arm_admin'] },
-                status: 'active',
-            },
-            select: { id: true },
-        });
-        return !!membership;
+        return !!adminMember;
     }
 
     /** مثل canManageCatalog ولی به‌جای boolean، در صورت نبودِ اجازه Forbidden می‌اندازد */
@@ -68,7 +49,7 @@ export class CatalogAccessService {
         }
     }
 
-    /** شناسهٔ کاتالوگ‌هایی که کاربر مالکشان است یا به تیمِ او واگذار شده — برای چک‌های گروهی */
+    /** شناسهٔ کاتالوگ‌هایی که مالکشان هستم یا ادمین‌شان — برای چک‌های گروهی */
     async manageableCatalogIds(userId: string): Promise<string[]> {
         const bizIds = (
             await this.prisma.business.findMany({
@@ -84,21 +65,7 @@ export class CatalogAccessService {
             })
         ).map((c) => c.id);
 
-        const delegatedCatalogIds = (
-            await this.prisma.catalogArmDelegation.findMany({
-                where: {
-                    status: 'active',
-                    arm: {
-                        memberships: {
-                            some: { userId, role: { in: ['arm_owner', 'arm_admin'] }, status: 'active' },
-                        },
-                    },
-                },
-                select: { catalogId: true },
-            })
-        ).map((d) => d.catalogId);
-
-        // ✅ کاتالوگ‌هایی که ادمین‌شان هستم (تیم کاتالوگ)
+        // ✅ کاتالوگ‌هایی که ادمین‌شان هستم (برگهٔ اعضا)
         const adminCatalogIds = (
             await this.prisma.catalogMember.findMany({
                 where: { userId, role: 'catalog_admin', status: 'active' },
@@ -106,6 +73,6 @@ export class CatalogAccessService {
             })
         ).map((m) => m.catalogId);
 
-        return Array.from(new Set([...ownCatalogIds, ...delegatedCatalogIds, ...adminCatalogIds]));
+        return Array.from(new Set([...ownCatalogIds, ...adminCatalogIds]));
     }
 }
