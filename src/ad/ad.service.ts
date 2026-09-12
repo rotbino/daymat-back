@@ -142,6 +142,18 @@ export class AdService {
         // ─── ۵) اعتبار قیمت — برای یادآوری آپدیت قیمت به خود فروشنده (نه فیلتر بازار) ───
         const validityHours = dto.validityHours ?? 72;
 
+        // ─── ۵.۵) برند در سطح کالای مرجع تعیین تکلیف می‌شود — نه در فرم قیمت ───
+        // اگر آگهی کالای مرجع دارد، برندِ آگهی همیشه از خود مرجع می‌آید
+        // (فرم قیمت دیگر انتخابگر برند ندارد؛ CopyAdModal و کلاینت‌های قدیمی هم ناسازگار نمی‌شوند)
+        let effectiveBrandId: string | null = (dto as any).brandId || null;
+        if ((dto as any).productReferenceId) {
+            const ref = await this.prisma.productReference.findUnique({
+                where: { id: (dto as any).productReferenceId },
+                select: { brandId: true },
+            });
+            effectiveBrandId = ref?.brandId ?? null;
+        }
+
         // ─── ۶) ساخت آگهی — همیشه فقط-کاتالوگی؛ انتشار با مهر بعدی ───
         const ad = await this.prisma.ad.create({
             data: {
@@ -156,9 +168,9 @@ export class AdService {
                 unitId: dto.unitId,
                 title: dto.title || '',
                 productType: dto.productType || null,
-                // ✅ کالای مرجع
+                // ✅ کالای مرجع — برند از مرجع تعیین تکلیف می‌شود (۵.۵)
                 productReferenceId: (dto as any).productReferenceId || null,
-                brandId: (dto as any).brandId || null,
+                brandId: effectiveBrandId,
                 paymentMethods: (dto.paymentMethods as any) || null,
                 customFields: (dto.customFields as any) || {},
                 description: dto.description || '',
@@ -319,6 +331,21 @@ export class AdService {
         const nextConsumerPrice = dto.consumerPrice !== undefined ? (dto.consumerPrice || null) : ad.consumerPrice;
         const nextPaymentMethods = dto.paymentMethods !== undefined ? ((dto.paymentMethods as any) || null) : ad.paymentMethods;
 
+        // ✅ برند در سطح کالای مرجع تعیین تکلیف می‌شود — اگر مرجع آگهی تغییر کند، برند هم از همان می‌آید
+        let nextBrandId: string | null | undefined;
+        if ((dto as any).productReferenceId !== undefined) {
+            const refId = (dto as any).productReferenceId;
+            if (refId) {
+                const ref = await this.prisma.productReference.findUnique({
+                    where: { id: refId },
+                    select: { brandId: true },
+                });
+                nextBrandId = ref?.brandId ?? null;
+            } else {
+                nextBrandId = null;
+            }
+        }
+
         const adUpdated = await this.prisma.ad.update({
             where: { id },
             data: {
@@ -327,7 +354,7 @@ export class AdService {
                 ...(dto.title !== undefined ? { title: dto.title.trim() } : {}),
                 ...(dto.productType !== undefined ? { productType: dto.productType.trim() || null } : {}),
                 ...((dto as any).productReferenceId !== undefined ? { productReferenceId: (dto as any).productReferenceId || null } : {}),
-                ...((dto as any).brandId !== undefined ? { brandId: (dto as any).brandId || null } : {}),
+                ...(nextBrandId !== undefined ? { brandId: nextBrandId } : {}),
                 ...(dto.description !== undefined ? { description: dto.description || null } : {}),
                 ...(dto.unitPrice !== undefined ? { unitPrice: dto.unitPrice } : {}),
                 ...(dto.singleUnitPrice !== undefined ? { singleUnitPrice: dto.singleUnitPrice || null } : {}),

@@ -8,6 +8,16 @@ import { CacheHelper } from '../common/services/cache.helper';
 /** TTL کش سرچ کالا — کوتاه تا تازگی داده حفظ بشه ولی فشار تایپ سریع (typeahead) از DB برداشته بشه */
 const SEARCH_CACHE_TTL_MS = 30_000;
 
+// ✅ سلکت مشترک create/update — برندِ رابطه همیشه همراه پاسخ است
+// (نبودِ برند در پاسخ → فرانت «بدون برند» کاذب می‌بیند)
+const PRODUCT_SELECT = {
+    id: true, title: true, slug: true, brandId: true,
+    brand: { select: { id: true, title: true } },
+    category: true, imageUrl: true, thumbnailUrl: true,
+    usageCount: true, isByUser: true, isNew: true, createdByUserId: true,
+    specs: true,
+} as const;
+
 @Injectable()
 export class ProductReferenceService {
     constructor(private prisma: PrismaService, private cache: CacheHelper) {}
@@ -118,7 +128,12 @@ export class ProductReferenceService {
         // ✅ بررسی تکراری با نرمال‌سازی کامل (فاصله، ی/ی، ک/ك، اعداد و…)
         const existing = await findDuplicateTitle(this.prisma.productReference, title);
         if (existing) {
-            return { ...existing, _existed: true };
+            // ✅ برگشتِ کامل با رابطهٔ برند — وگرنه فرانت برای کالای برنددار «بدون برند» می‌بیند
+            const full = await this.prisma.productReference.findUnique({
+                where: { id: existing.id },
+                select: PRODUCT_SELECT,
+            });
+            return { ...(full ?? existing), _existed: true };
         }
 
         let slug = this.slugify(title);
@@ -139,13 +154,6 @@ export class ProductReferenceService {
 
         const autoKeywords = title.split(/\s+/).filter(w => w.length >= 2);
         const keywords = Array.from(new Set([...autoKeywords, ...(dto.keywords || [])]));
-
-        const CREATE_SELECT = {
-            id: true, title: true, brandId: true,
-            brand: { select: { id: true, title: true } },
-            category: true, imageUrl: true, thumbnailUrl: true,
-            usageCount: true, isByUser: true, isNew: true, createdByUserId: true,
-        } as const;
 
         const createData = {
             title,
@@ -171,7 +179,7 @@ export class ProductReferenceService {
         //    (مثلاً اعداد فارسی در رکورد قدیمی)، به‌جای 500: موجود برگردانده می‌شود
         //    یا اسلاگ تازه ساخته می‌شود.
         let created = await this.prisma.productReference
-            .create({ data: createData, select: CREATE_SELECT })
+            .create({ data: createData, select: PRODUCT_SELECT })
             .catch(async (e: any) => {
                 if (e?.code !== 'P2002') throw e;
                 // ⚠️ روی MongoDB فرمت meta.target رشتهٔ نام ایندکس است (مثل ProductReference_title_key)
@@ -180,7 +188,7 @@ export class ProductReferenceService {
                 if (target.includes('title')) {
                     const ex = await this.prisma.productReference.findFirst({
                         where: { title },
-                        select: CREATE_SELECT,
+                        select: PRODUCT_SELECT,
                     });
                     if (ex) return { ...ex, _existed: true };
                 }
@@ -188,7 +196,7 @@ export class ProductReferenceService {
                     return this.prisma.productReference
                         .create({
                             data: { ...createData, slug: `${slug}-${suffix++}-${Date.now() % 10000}` },
-                            select: CREATE_SELECT,
+                            select: PRODUCT_SELECT,
                         })
                         .catch(() => null);
                 }
@@ -270,6 +278,8 @@ export class ProductReferenceService {
                 ...((dto as any).specs !== undefined ? { specs: (dto as any).specs } : {}),
                 ...(dto.metadata !== undefined ? { metadata: dto.metadata } : {}),
             },
+            // ✅ برندِ رابطه در پاسخ — تا فرانت پس از ویرایش «بدون برند» کاذب نبیند
+            select: PRODUCT_SELECT,
         });
         // ✅ باطل‌سازی کش سرچ
         await this.cache.bust('prod-search');
