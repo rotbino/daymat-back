@@ -2118,7 +2118,7 @@ export class AdService {
                     id: `cteam-coopreq-${p.catalogId}`,
                     type: 'catalog-team-pending-coop',
                     severity: 'warning',
-                    title: `${p._count.toLocaleString('fa-IR')} درخواست همکاری در کاتالوگ «${catName}» در انتظار تایید شماست`,
+                    title: `${p._count.toLocaleString('fa-IR')} درخواست ارتباط تجاری در کاتالوگ «${catName}» در انتظار تایید شماست`,
                     body: 'همکار فروش، خریدار یا تامین‌کننده می‌خواهند با کاتالوگ همکاری کنند — در انتظار تایید مدیر (مالک کاتالوگ)',
                     action: { label: 'بررسی اعضا', href: `/my-catalogs?catalog=${p.catalogId}&tab=team` },
                     catalogId: p.catalogId,

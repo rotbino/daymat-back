@@ -222,12 +222,12 @@ export class CatalogController {
         return this.catalogMemberService.getMyMembership(catalogId, user.id);
     }
 
-    // ─── درخواست همکاری (یک در برای هر سه نقش بیزینسی) ───
+    // ─── درخواست ارتباط تجاری (یک در برای هر سه نقش بیزینسی) ───
 
     @Post(':catalogId/team/join')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'درخواست همکاری با کاتالوگ (همکار فروش | خریدار | تامین‌کننده)' })
+    @ApiOperation({ summary: 'درخواست ارتباط تجاری با کاتالوگ (همکار فروش | خریدار | تامین‌کننده)' })
     async joinCoop(@Param('catalogId') catalogId: string, @CurrentUser() user: any, @Body() dto: CoopJoinDto) {
         return this.catalogMemberService.joinCoop(catalogId, user.id, dto);
     }
@@ -248,7 +248,7 @@ export class CatalogController {
     @Post(':catalogId/team/sellers/:memberId/reject')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'رد درخواست همکاری (مالک/مدیر)' })
+    @ApiOperation({ summary: 'رد درخواست ارتباط تجاری (مالک/مدیر)' })
     async rejectSeller(
         @Param('catalogId') catalogId: string,
         @Param('memberId') memberId: string,
@@ -261,7 +261,7 @@ export class CatalogController {
     @Post(':catalogId/team/buyers/:memberId/approve')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'تایید درخواست همکاریِ خریدار + انتساب اختیاری به مسئول فروش (مالک/مدیر)' })
+    @ApiOperation({ summary: 'تایید درخواست ارتباط تجاریِ خریدار + انتساب اختیاری به مسئول فروش (مالک/مدیر)' })
     async approveBuyer(
         @Param('catalogId') catalogId: string,
         @Param('memberId') memberId: string,
@@ -274,7 +274,7 @@ export class CatalogController {
     @Post(':catalogId/team/buyers/:memberId/reject')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'رد درخواست همکاریِ خریدار (مالک/مدیر)' })
+    @ApiOperation({ summary: 'رد درخواست ارتباط تجاریِ خریدار (مالک/مدیر)' })
     async rejectBuyer(
         @Param('catalogId') catalogId: string,
         @Param('memberId') memberId: string,

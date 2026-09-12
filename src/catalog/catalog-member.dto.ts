@@ -1,7 +1,7 @@
 // src/catalog/catalog-member.dto.ts
 import { IsOptional, IsString, MaxLength, Matches, IsIn } from 'class-validator';
 
-/** درخواست همکاری با کاتالوگ — یک در برای هر سه نقش بیزینسی */
+/** درخواست ارتباط تجاری با کاتالوگ — یک در برای هر سه نقش بیزینسی */
 export class CoopJoinDto {
     @IsIn(['seller', 'buyer', 'supplier'])
     type!: 'seller' | 'buyer' | 'supplier'; // همکار فروش | خریدار | تامین‌کننده
@@ -30,7 +30,7 @@ export class ApproveSellerDto {
     sellerRole?: 'seller' | 'visitor'; // نقش بیزینسی هنگام تایید — پیش‌فرض: فروشنده
 }
 
-/** تایید درخواست همکاریِ خریدار — با انتساب اختیاری به عضوِ فروش */
+/** تایید درخواست ارتباط تجاریِ خریدار — با انتساب اختیاری به عضوِ فروش */
 export class ApproveBuyerDto {
     @IsOptional()
     @Matches(/^[a-f\d]{24}$/i, { message: 'شناسه عضو فروش نامعتبر است' })

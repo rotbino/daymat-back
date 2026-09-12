@@ -18,7 +18,7 @@ import { CacheHelper } from '../common/services/cache.helper';
  *                خریدار (کسب‌وکارِ ثبت‌شده — منتسب به یک مسئول فروش برای مسیریابی تماس)
  *                تامین‌کننده (عضویت با کاتالوگِ خودش — شبکه‌سازی بین کاتالوگ‌ها)
  *
- *   جریان‌ها (یک در برای همه: «درخواست همکاری» روی کاتالوگ):
+ *   جریان‌ها (یک در برای همه: «درخواست ارتباط تجاری» روی کاتالوگ):
  *   - هر سه نقش: درخواست → تایید مدیر (مالک کاتالوگ) → فعال
  *   - خریدارِ ثبت‌شده توسط مسئول فروش: تایید با صاحبِ کسب‌وکار (مسیر Push حفظ شده)
  *   - تماس از آگهی: خریدارِ فعال با مسئولِ منتسب → شمارهٔ همان عضوِ فروش (resolveCallRoute)
@@ -609,11 +609,11 @@ export class CatalogMemberService {
     }
 
     // ════════════════════════════════════════════════════════════
-    //  درخواست همکاری — یک در برای هر سه نقش بیزینسی (فروش/خرید/تامین)
+    //  درخواست ارتباط تجاری — یک در برای هر سه نقش بیزینسی (فروش/خرید/تامین)
     // ════════════════════════════════════════════════════════════
 
     /**
-     * درخواست همکاری با کاتالوگ — کاربر روی کاتالوگ دکمهٔ «درخواست همکاری» را می‌زند:
+     * درخواست ارتباط تجاری با کاتالوگ — کاربر روی کاتالوگ دکمهٔ «درخواست ارتباط تجاری» را می‌زند:
      *   type=seller   → همکار فروش (فروشنده/ویزیتور — برچسب ترجیحی؛ کسب‌وکار اختیاری)
      *   type=buyer    → خریدار (الزامی: انتخاب کسب‌وکار)
      *   type=supplier → تامین‌کننده (الزامی: انتخاب کاتالوگِ خودش)
@@ -627,7 +627,7 @@ export class CatalogMemberService {
     ) {
         const catalog = await this.getCatalogOrThrow(catalogId);
         if (this.isOwner(catalog, userId)) {
-            throw new ConflictException({ errorCode: 'IS_CATALOG_OWNER', message: 'مالک کاتالوگ به‌طور پیش‌فرض عضو است — نیازی به درخواست همکاری نیست' });
+            throw new ConflictException({ errorCode: 'IS_CATALOG_OWNER', message: 'مالک کاتالوگ به‌طور پیش‌فرض عضو است — نیازی به درخواست ارتباط تجاری نیست' });
         }
 
         const type = dto?.type;
@@ -649,7 +649,7 @@ export class CatalogMemberService {
             (type === 'buyer' && (existing?.customerStatus === 'active' || existing?.customerStatus === 'pending')) ||
             (type === 'supplier' && (existing?.supplierStatus === 'active' || existing?.supplierStatus === 'pending'));
         if (laneTaken) {
-            throw new ConflictException({ errorCode: 'ALREADY_REQUESTED', message: 'درخواست همکاری شما قبلاً ثبت شده است' });
+            throw new ConflictException({ errorCode: 'ALREADY_REQUESTED', message: 'درخواست ارتباط تجاری شما قبلاً ثبت شده است' });
         }
 
         const data: any = {
@@ -693,7 +693,7 @@ export class CatalogMemberService {
             });
         } else if (type === 'buyer') {
             if (!dto.businessId) {
-                throw new BadRequestException({ errorCode: 'BUSINESS_REQUIRED', message: 'برای درخواست همکاری به‌عنوان خریدار، ابتدا کسب‌وکار خود را انتخاب یا بسازید' });
+                throw new BadRequestException({ errorCode: 'BUSINESS_REQUIRED', message: 'برای درخواست ارتباط تجاری به‌عنوان خریدار، ابتدا کسب‌وکار خود را انتخاب یا بسازید' });
             }
             const biz = await this.prisma.business.findUnique({
                 where: { id: dto.businessId },
@@ -725,7 +725,7 @@ export class CatalogMemberService {
             });
         } else {
             if (!dto.supplierCatalogId) {
-                throw new BadRequestException({ errorCode: 'SUPPLIER_CATALOG_REQUIRED', message: 'برای درخواست همکاری به‌عنوان تامین‌کننده، ابتدا کاتالوگ خود را انتخاب یا بسازید' });
+                throw new BadRequestException({ errorCode: 'SUPPLIER_CATALOG_REQUIRED', message: 'برای درخواست ارتباط تجاری به‌عنوان تامین‌کننده، ابتدا کاتالوگ خود را انتخاب یا بسازید' });
             }
             const supCatalog = await this.prisma.catalog.findUnique({
                 where: { id: dto.supplierCatalogId },
@@ -758,7 +758,7 @@ export class CatalogMemberService {
         await this.event(catalog.id, userId, 'coop_requested', userId, dto?.note || null, { type });
         await this.bustUsersCache([userId]);
         const label = type === 'seller' ? 'همکاری در فروش' : type === 'buyer' ? 'خریدار' : 'تامین‌کننده';
-        return { success: true, requestType: type, message: `درخواست همکاری (${label}) ثبت شد — در انتظار تایید مدیر (مالک کاتالوگ)` };
+        return { success: true, requestType: type, message: `درخواست ارتباط تجاری (${label}) ثبت شد — در انتظار تایید مدیر (مالک کاتالوگ)` };
     }
 
     /** تایید درخواست همکار فروش — مالک/مدیر؛ نقش بیزینسی (فروشنده/ویزیتور) اینجا تعیین می‌شود */
@@ -783,7 +783,7 @@ export class CatalogMemberService {
         return { success: true, message: 'به اعضا اضافه شد' };
     }
 
-    /** رد درخواست همکاری (هر نقش) — مالک/مدیر */
+    /** رد درخواست ارتباط تجاری (هر نقش) — مالک/مدیر */
     async rejectSeller(catalogId: string, memberId: string, actorId: string, reason?: string) {
         const catalog = await this.getCatalogOrThrow(catalogId);
         await this.assertTeamManager(catalog, actorId);
@@ -798,10 +798,10 @@ export class CatalogMemberService {
         await this.syncOverallStatus(catalog.id, row.userId);
         await this.event(catalog.id, row.userId, 'seller_rejected', actorId, reason || null);
         await this.bustUsersCache([row.userId, actorId]);
-        return { success: true, message: 'درخواست همکاری رد شد' };
+        return { success: true, message: 'درخواست ارتباط تجاری رد شد' };
     }
 
-    /** تایید درخواست همکاریِ خریدار — مالک/مدیر؛ با انتساب اختیاری به عضوِ فروش */
+    /** تایید درخواست ارتباط تجاریِ خریدار — مالک/مدیر؛ با انتساب اختیاری به عضوِ فروش */
     async approveBuyer(catalogId: string, memberId: string, actorId: string, sellerUserId?: string) {
         const catalog = await this.getCatalogOrThrow(catalogId);
         await this.assertTeamManager(catalog, actorId);
@@ -835,7 +835,7 @@ export class CatalogMemberService {
         return { success: true, message: 'به اعضا اضافه شد' };
     }
 
-    /** رد درخواست همکاریِ خریدار — مالک/مدیر */
+    /** رد درخواست ارتباط تجاریِ خریدار — مالک/مدیر */
     async rejectBuyer(catalogId: string, memberId: string, actorId: string, reason?: string) {
         const catalog = await this.getCatalogOrThrow(catalogId);
         await this.assertTeamManager(catalog, actorId);
@@ -850,7 +850,7 @@ export class CatalogMemberService {
         await this.syncOverallStatus(catalog.id, row.userId);
         await this.event(catalog.id, row.userId, 'buyer_rejected', actorId, reason || null);
         await this.bustUsersCache([row.userId, actorId]);
-        return { success: true, message: 'درخواست همکاری رد شد' };
+        return { success: true, message: 'درخواست ارتباط تجاری رد شد' };
     }
 
     /** تایید درخواست تامین‌کننده — مالک/مدیر */
@@ -887,7 +887,7 @@ export class CatalogMemberService {
         await this.syncOverallStatus(catalog.id, row.userId);
         await this.event(catalog.id, row.userId, 'supplier_rejected', actorId, reason || null);
         await this.bustUsersCache([row.userId, actorId]);
-        return { success: true, message: 'درخواست همکاری رد شد' };
+        return { success: true, message: 'درخواست ارتباط تجاری رد شد' };
     }
 
     /** حذف تامین‌کنندهٔ فعال — مالک/مدیر */
