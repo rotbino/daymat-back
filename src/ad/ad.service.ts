@@ -198,6 +198,11 @@ export class AdService {
             },
         });
 
+        // ─── ۶.۵) تصویر کالای مرجع — وقتی کاربر عکسِ خودش برای آگهی نگذاشته ───
+        // فرانت تصویر مرجع را فقط پیش‌نمایش می‌دهد (slot بدون file) — اینجا ماندگارش می‌کنیم
+        // تا در پنل مدیریت، کاتالوگ عمومی و تابلو، آگهی بی‌تصویر دیده نشود
+        await this.syncReferenceImage(ad.id, (dto as any).productReferenceId, userId);
+
         // ─── ۷) انتشار خودکار کالای تازه — به همه بازارهایی که کاتالوگ در آن‌ها published است ───
         if (dto.publishToMarket !== false) {
             // ✅ همه membership های published این کاتالوگ را بگیر (نه فقط اولی)
@@ -248,6 +253,7 @@ export class AdService {
                 singleUnitPrice: true,
                 consumerPrice: true,
                 paymentMethods: true,
+                productReferenceId: true,  // ✅ برای همگام‌سازی تصویر مرجع
             },
         });
         if (!ad) {
@@ -358,6 +364,12 @@ export class AdService {
             },
         });
 
+        // ✅ همگام‌سازی تصویر مرجع — مرجعِ تازه بدون عکسِ کاربر → تصویر مرجع می‌نشیند
+        const effectiveRefId = (dto as any).productReferenceId !== undefined
+            ? (dto as any).productReferenceId
+            : ad.productReferenceId;
+        await this.syncReferenceImage(id, effectiveRefId, userId);
+
         // ✅ هر ویرایش آگهی (قیمت/شرایط فروش/وضعیت) باید فوری در تابلو بیفتد — کش ویترین می‌شکند
         //    (re-stamp دسته هم خودش bust می‌زند؛ اینجا برای بقیهٔ تغییرات)
         await this.cache.bust(VITRINE_CACHE_PREFIX);
@@ -386,6 +398,83 @@ export class AdService {
         }
 
         return adUpdated;
+    }
+
+    // ═══════════════════════════════════════
+    // تصویر کالای مرجع — ماندگارِ تصویر پیش‌فرض آگهی
+    // ═══════════════════════════════════════
+    /**
+     * اگر آگهی هیچ تصویر واقعی کاربر نداشته باشد، تصویرِ کالای مرجع را به‌عنوان
+     * فایل مرتبط (relatedModel='Ad'، fieldKey='ad-image-ref') ثبت می‌کند.
+     * - تصویر واقعی کاربر (ad-image-0، ad-image-new-0 و…) همیشه اولویت دارد
+     * - اگر مرجع عوض شود، همان رکورد ref به‌روز می‌شود
+     * - اگر مرجع حذف/بی‌عکس شود، فایل ref قبلی پاک می‌شود
+     */
+    private async syncReferenceImage(adId: string, productReferenceId: string | null | undefined, userId: string) {
+        try {
+            // ۱) تصویر واقعی کاربر موجود است؟ → دخالت نکن
+            const userImage = await this.prisma.file.findFirst({
+                where: {
+                    relatedModel: 'Ad',
+                    relatedId: adId,
+                    fieldKey: { startsWith: 'ad-image', not: 'ad-image-ref' },
+                },
+                select: { id: true },
+            });
+            if (userImage) return;
+
+            // ۲) تصویر مرجع
+            const ref = productReferenceId
+                ? await this.prisma.productReference.findUnique({
+                    where: { id: productReferenceId },
+                    select: { imageUrl: true, thumbnailUrl: true },
+                })
+                : null;
+            const imageUrl = ref?.imageUrl || ref?.thumbnailUrl || null;
+
+            const existingRefFile = await this.prisma.file.findFirst({
+                where: { relatedModel: 'Ad', relatedId: adId, fieldKey: 'ad-image-ref' },
+                select: { id: true, path: true },
+            });
+
+            // ۳) مرجع بی‌عکس/حذف شده → فایل ref قبلی پاک شود
+            if (!imageUrl) {
+                if (existingRefFile) {
+                    await this.prisma.file.delete({ where: { id: existingRefFile.id } });
+                }
+                return;
+            }
+
+            // ۴) مرجع عوض شد → همان رکورد به‌روز شود
+            if (existingRefFile) {
+                if (existingRefFile.path !== imageUrl) {
+                    await this.prisma.file.update({
+                        where: { id: existingRefFile.id },
+                        data: { path: imageUrl, thumbnailPath: ref.thumbnailUrl || imageUrl, updatedAt: new Date() },
+                    });
+                }
+                return;
+            }
+
+            // ۵) ثبت فایل تصویر مرجع
+            await this.prisma.file.create({
+                data: {
+                    userId,
+                    name: imageUrl.split('/').pop() || 'reference-image.jpg',
+                    mimeType: (imageUrl.toLowerCase().endsWith('.png') ? 'image/png'
+                        : imageUrl.toLowerCase().endsWith('.webp') ? 'image/webp' : 'image/jpeg'),
+                    size: 0,
+                    path: imageUrl,
+                    thumbnailPath: ref.thumbnailUrl || imageUrl,
+                    relatedModel: 'Ad',
+                    relatedId: adId,
+                    fieldKey: 'ad-image-ref',
+                },
+            });
+        } catch (err) {
+            // نباید ساخت/ویرایش آگهی به‌خاطر تصویر مرجع شکست بخورد
+            console.error('syncReferenceImage failed:', err);
+        }
     }
 
     // ═══════════════════════════════════════

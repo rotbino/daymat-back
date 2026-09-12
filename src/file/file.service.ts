@@ -234,6 +234,14 @@ export class FileService {
             );
         }
 
+        // ۴.۵) ✅ تصویر واقعی کاربر برای آگهی آپلود شد → تصویر جایگزینِ مرجع (ad-image-ref) حذف شود
+        //       (بک‌اند موقع ساخت آگهی از مرجع، تصویر مرجع را به‌عنوان پیش‌فرض می‌نشیند — عکس خودِ کاربر اولویت دارد)
+        if (model === 'Ad' && isValidObjectId && fieldKey?.startsWith('ad-image') && fieldKey !== 'ad-image-ref') {
+            await this.prisma.file.deleteMany({
+                where: { relatedModel: 'Ad', relatedId: modelId, fieldKey: 'ad-image-ref' },
+            });
+        }
+
         // ۵) ✅ همگام‌سازی User.avatarUrl / Business.logoUrl / Catalog.logoUrl
         await this.syncOwnerImageField(
             model,

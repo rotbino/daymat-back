@@ -47,6 +47,26 @@ export class AdminIndustryController {
         return this.industryService.createByUser(body.title);
     }
 
+    // ✅ endpoint عمومی برای هر EntityPicker کاربران (فرم ثبت کسب‌وکار، فیلترها و…)
+    //    قبلاً فرانت /admin/industries/search را صدا می‌زد که گارد ادمین داشت و
+    //    کاربر عادی با 403 رد می‌شد → کمبوی صنف خالی می‌ماند
+    @Get('industries/search')
+    @UseGuards(OptionalJwtAuthGuard)
+    @ApiOperation({ summary: 'جستجوی صنف‌ها با pagination — عمومی برای همه کاربران' })
+    @ApiQuery({ name: 'q', required: false })
+    @ApiQuery({ name: 'limit', required: false })
+    @ApiQuery({ name: 'offset', required: false })
+    @ApiQuery({ name: 'leavesOnly', required: false, type: Boolean })
+    async publicSearch(
+        @Query('q') q?: string,
+        @Query('limit') limit = '20',
+        @Query('offset') offset = '0',
+        @Query('leavesOnly') leavesOnly?: string,
+    ) {
+        const isLeaves = leavesOnly === 'true';
+        return this.industryService.search(q?.trim() || '', +limit, +offset, isLeaves);
+    }
+
     @Get('admin/industries/search')
     @UseGuards(JwtAuthGuard, ArmAdminOrOwnerReadGuard)
     @ApiOperation({ summary: 'جستجوی صنف‌ها با pagination' })
