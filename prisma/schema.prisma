@@ -101,7 +101,10 @@ model User {
   phoneVerifiedAt          DateTime?
   temporaryPassword        Boolean                @default(true)
   nationalId               String?
-  teamMemberships          TeamMember[]
+  teamMemberships          BusinessMember[]       @relation("BizMemberUser") // ✅ کسب‌وکارهایی که کارمند/عضوشان است (تیم کسب‌وکار)
+  businesses               Business[]             @relation("BizOwner") // ⚠️ legacy — کسب‌وکارهایی که قبلاً مالکشان بود
+  businessesCreated        Business[]             @relation("BizCreator") // ✅ کسب‌وکارهایی که ثبت‌کنندهٔ اولشان است
+  catalogsOwned            Catalog[]              @relation("CatalogOwner") // ✅ کاتالوگ‌هایی که مالکشان است
   ads                      Ad[]                   @relation("AdCreator")
   callEvents               CallEvent[]
   files                    File[]
@@ -116,7 +119,6 @@ model User {
   feedbacks                Feedback[]
   searchLogs               SearchLog[]
   catalogInteractions      CatalogInteraction[]
-  businesses               Business[]             @relation("BizOwner")
   catalogMemberships       CatalogMember[]        @relation("CatMemberUser") // کاتالوگ‌هایی که عضوشان است (همکار فروش/خریدار/تامین‌کننده/مدیر)
   catalogAssignedCustomers CatalogMember[]        @relation("CatMemberAssignee") // خریدارهایی که به او به‌عنوان مسئول فروش منتسب شده‌اند
   catalogTeamEvents        CatalogTeamEvent[]     @relation("CatTeamEventUser") // رویدادهای تیمیِ مربوط به کاربر
@@ -132,8 +134,12 @@ model User {
 // ============================================================
 model Business {
   id                 String                 @id @default(auto()) @map("_id") @db.ObjectId
-  ownerUserId        String                 @db.ObjectId
-  owner              User                   @relation("BizOwner", fields: [ownerUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  // ✅ کسب‌وکار «مرجع» است — مالکِ شخصی ندارد؛ ثبت‌کنندهٔ اول در creatorUserId ذخیره می‌شود.
+  //    ownerUserId فقط برای رکوردهای قدیمی (legacy) پر مانده و دیگر نوشته نمی‌شود.
+  ownerUserId        String?                @db.ObjectId
+  owner              User?                  @relation("BizOwner", fields: [ownerUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  creatorUserId      String?                @db.ObjectId // ثبت‌کنندهٔ اول کسب‌وکار (نه لزوماً مالک)
+  creator            User?                  @relation("BizCreator", fields: [creatorUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   name               String
   shortDescription   String?
   type               String                 @default("wholesaler") // ⚠️ legacy (deprecated) — نگه‌داشتیم برای backward-compat
@@ -164,12 +170,14 @@ model Business {
   membershipRequests ArmMembershipRequest[] @relation("ArmMembershipRequests")
   leaveRequests      ArmLeaveRequest[]      @relation("ArmLeaveRequests")
   catalogs           Catalog[]              @relation("BusinessCatalogs")
+  members            BusinessMember[]       @relation("BizMembers")           // ✅ کارکنان کسب‌وکار (تیم کسب‌وکار)
   catalogSellerLanes   CatalogMember[] @relation("CatMemberSellerBiz")   // کاتالوگ‌هایی که این کسب‌وکار از طریقشان می‌فروشد (همکار فروش)
   catalogCustomerLanes CatalogMember[] @relation("CatMemberCustomerBiz") // کاتالوگ‌هایی که این کسب‌وکار خریدارشان است
   verifications      Verification[]         @relation("BusinessVerification")
   activities         BusinessActivity[]     @relation("BusinessActivity") // ✅ از Catalog برگشت
 
   @@index([ownerUserId])
+  @@index([creatorUserId])
   @@index([type])
   @@index([businessSector])
   @@index([businessRole])
@@ -180,6 +188,9 @@ model Catalog {
   id               String    @id @default(auto()) @map("_id") @db.ObjectId
   referredByCode   String?
   referredByUserId String?   @db.ObjectId
+  // ✅ مالک مستقیم کاتالوگ — کاربری که کاتالوگ را ساخته (حتی اگر کسب‌وکارِ آن مال او نباشد)
+  ownerUserId      String    @db.ObjectId
+  owner            User      @relation("CatalogOwner", fields: [ownerUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   name             String
   shortDescription String?
   slug             String?
@@ -204,7 +215,6 @@ model Catalog {
   updatedAt        DateTime  @updatedAt
 
   files               File[]
-  teamMembers         TeamMember[]
   members             CatalogMember[]    @relation("CatMemberCatalog") // اعضای کاتالوگ (مالک/مدیر/همکار فروش/خریدار)
   supplierMemberships CatalogMember[]    @relation("CatMemberSupplierCatalog") // کاتالوگ‌هایی که این کاتالوگ ازشان تامین می‌کند
   teamEvents          CatalogTeamEvent[] @relation("CatTeamEventCatalog")
@@ -226,6 +236,7 @@ model Catalog {
   @@index([type])
   @@index([slug], map: "Catalog_slug_idx")
   @@index([businessId])
+  @@index([ownerUserId])
 }
 
 // ============================================================
@@ -249,24 +260,30 @@ model Verification {
   @@index([businessId, status])
 }
 
-// ⚠️ legacy — جایگزین شده با CatalogMember (تیم کاتالوگ).
-// رکوردهای قدیمی فقط برای سازگاری نگه‌داشته شده‌اند؛ خواندن/نوشتنِ جدید ممنوع.
-model TeamMember {
-  id          String      @id @default(auto()) @map("_id") @db.ObjectId
-  catalogId   String      @db.ObjectId
-  catalog     Catalog     @relation(fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  userId      String      @db.ObjectId
-  user        User        @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  role        CatalogRole @default(catalog_member)
-  position    String?
-  permissions Json?
-  invitedBy   String?     @db.ObjectId
-  status      String      @default("pending")
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+// ============================================================
+// تیم کسب‌وکار (BusinessMember) — کارکنان و اعضای یک کسب‌وکار:
+//   کسب‌وکار «مرجع» است و مالکِ شخصی ندارد؛ هرکس کاتالوگش را به یک کسب‌وکار
+//   وصل کند، با پست/سمتِ انتخابی‌اش به‌عنوان عضو این کسب‌وکار ثبت می‌شود.
+//   (بازنویسی‌شده از TeamMember قدیمی که اشتباهاً به Catalog وصل بود —
+//    عضویتِ تیمِ کاتالوگ حالا فقط در CatalogMember است.)
+// ============================================================
+model BusinessMember {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  businessId    String   @db.ObjectId
+  business      Business @relation("BizMembers", fields: [businessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  userId        String   @db.ObjectId
+  user          User     @relation("BizMemberUser", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  @@unique([catalogId, userId])
-  @@index([catalogId])
+  role         String   @default("member") // member — رزرو برای نقش‌های سیستمی آینده
+  position     String? // پست/سمت نمایشی در کسب‌وکار (مثل «مدیر فروش»)
+  viaCatalogId String?  @db.ObjectId // کاتالوگی که عضویت با آن ثبت شد
+  invitedBy    String?  @db.ObjectId
+  status       String   @default("active") // active | removed
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([businessId, userId])
+  @@index([businessId])
   @@index([userId])
 }
 

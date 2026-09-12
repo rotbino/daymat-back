@@ -82,7 +82,7 @@ export class MembershipRequestService {
         let catalogId: string | null = null;
 
         if (roleType === 'buyer') {
-            // ✅ خریدار: باید کسب‌وکار مشخص کند (اگر نداشت فرانت لینک ثبت می‌دهد)
+            // ✅ خریدار: باید کسب‌وکاری مشخص کند که مسئولش یا عضوِ تیمش است (کسب‌وکار مرجع مشترک است)
             if (!dto.businessId) {
                 throw new BadRequestException({
                     errorCode: 'BUSINESS_REQUIRED',
@@ -90,10 +90,15 @@ export class MembershipRequestService {
                 });
             }
             const biz = await this.prisma.business.findFirst({
-                where: { id: dto.businessId, ownerUserId: userId, status: 'active' },
-                select: { id: true },
+                where: { id: dto.businessId, status: 'active' },
+                select: { id: true, ownerUserId: true, creatorUserId: true },
             });
-            if (!biz) {
+            const isMine = biz && ((biz.ownerUserId === userId || biz.creatorUserId === userId) ||
+                !!(await this.prisma.businessMember.findFirst({
+                    where: { businessId: biz.id, userId, status: 'active' },
+                    select: { id: true },
+                })));
+            if (!biz || !isMine) {
                 throw new BadRequestException({
                     errorCode: 'BUSINESS_NOT_FOUND',
                     message: 'کسب‌وکار انتخاب‌شده یافت نشد یا متعلق به شما نیست',
@@ -126,11 +131,10 @@ export class MembershipRequestService {
             const catalog = await this.prisma.catalog.findUnique({
                 where: { id: dto.catalogId },
                 select: {
-                    id: true, status: true, salesType: true,
-                    business: { select: { id: true, ownerUserId: true } },
+                    id: true, status: true, salesType: true, ownerUserId: true, businessId: true,
                 },
             });
-            if (!catalog || (catalog.business as any).ownerUserId !== userId) {
+            if (!catalog || catalog.ownerUserId !== userId) {
                 throw new BadRequestException({
                     errorCode: 'CATALOG_NOT_FOUND',
                     message: 'کاتالوگ انتخاب‌شده یافت نشد یا متعلق به شما نیست',
@@ -148,7 +152,7 @@ export class MembershipRequestService {
                 throw new BadRequestException({ errorCode: 'MARKET_TYPE_MISMATCH', message: typeMismatch });
             }
             catalogId = catalog.id;
-            businessId = (catalog.business as any).id;
+            businessId = catalog.businessId;
 
             // همین کاتالوگ قبلاً منتشر شده؟
             if (

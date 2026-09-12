@@ -356,10 +356,14 @@ export class AdminCatalogService {
                 const docs = verificationRecord.documents as any;
                 const nationalId = docs?.nationalId;
                 if (nationalId) {
-                    await this.prisma.user.update({
-                        where: { id: business.ownerUserId },
-                        data: { nationalId },
-                    });
+                    // ✅ کاربرِ مسئولِ کسب‌وکار (مالکِ قدیمی یا ثبت‌کنندهٔ اول)
+                    const responsibleId = (business as any).ownerUserId || (business as any).creatorUserId;
+                    if (responsibleId) {
+                        await this.prisma.user.update({
+                            where: { id: responsibleId },
+                            data: { nationalId },
+                        });
+                    }
                 }
             }
 

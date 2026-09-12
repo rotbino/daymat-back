@@ -5,10 +5,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 /**
  * گیتِ واحدِ «چه کسی می‌تواند کارِ کاتالوگ را انجام دهد؟»
  *
- *  ۱) مالکِ کسب‌وکارِ کاتالوگ — همیشه
+ *  ۱) مالکِ کاتالوگ (catalog.ownerUserId — کاربری که کاتالوگ را ساخته) — همیشه
  *  ۲) ادمینِ کاتالوگ (CatalogMember با نقش catalog_admin) — از برگهٔ اعضا منصوب می‌شود
  *
- * این سرویس جای پراکندگیِ چکِ `business.ownerUserId === userId` در سرویس‌ها را می‌گیرد
+ * این سرویس جای پراکندگیِ چکِ مالکیت کاتالوگ در سرویس‌ها را می‌گیرد
  * تا مدیریتِ کاتالوگ (محصول‌ها و قیمت‌ها) بدون استثنا در همه‌جا کار کند.
  */
 @Injectable()
@@ -21,10 +21,10 @@ export class CatalogAccessService {
 
         const catalog = await this.prisma.catalog.findUnique({
             where: { id: catalogId },
-            select: { business: { select: { ownerUserId: true } } },
+            select: { ownerUserId: true },
         });
         if (!catalog) return false;
-        if ((catalog.business as any)?.ownerUserId === userId) return true;
+        if (catalog.ownerUserId === userId) return true;
 
         // ✅ ادمین کاتالوگ — توسط اونر منصوب شده و در مدیریت کاتالوگ سهیم است (برگهٔ اعضا)
         const adminMember = await this.prisma.catalogMember.findFirst({
@@ -51,16 +51,9 @@ export class CatalogAccessService {
 
     /** شناسهٔ کاتالوگ‌هایی که مالکشان هستم یا ادمین‌شان — برای چک‌های گروهی */
     async manageableCatalogIds(userId: string): Promise<string[]> {
-        const bizIds = (
-            await this.prisma.business.findMany({
-                where: { ownerUserId: userId, status: 'active' },
-                select: { id: true },
-            })
-        ).map((b) => b.id);
-
         const ownCatalogIds = (
             await this.prisma.catalog.findMany({
-                where: { businessId: { in: bizIds }, status: 'active' },
+                where: { ownerUserId: userId, status: 'active' },
                 select: { id: true },
             })
         ).map((c) => c.id);

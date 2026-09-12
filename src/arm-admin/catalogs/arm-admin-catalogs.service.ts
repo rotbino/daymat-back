@@ -130,6 +130,7 @@ export class ArmAdminCatalogsService {
                                 id: true, name: true, type: true, industryName: true,
                                 city: true, province: true, cityCode: true, provinceCode: true,
                                 owner: { select: { fullName: true, phone: true } },
+                                creator: { select: { fullName: true, phone: true } },
                             },
                         },
                     },
@@ -181,7 +182,7 @@ export class ArmAdminCatalogsService {
                 joinedAt: m.joinedAt,
                 catalog: {
                     ...(m.catalog as any),
-                    owner: (m.catalog as any)?.business?.owner ?? null,
+                    owner: (m.catalog as any)?.business?.owner ?? (m.catalog as any)?.business?.creator ?? null,
                     businessName: (m.catalog as any)?.business?.name ?? null,
                     businessIndustry: (m.catalog as any)?.business?.industryName ?? null,
                     businessType: (m.catalog as any)?.business?.type ?? null,
@@ -299,8 +300,8 @@ export class ArmAdminCatalogsService {
 
         // ✅ فیلتر business — صنف و موقعیت روی Business هست (نه Catalog)
         //    چون Catalog ممکنه industryName/cityCode قدیمی یا خالی داشته باشه
+        // ✅ فیلتر موقعیت/صنف روی Business هست (نه Catalog) — مالکیت روی خودِ کاتالوگ
         const businessFilter: any = {};
-        if (referredUserIds) businessFilter.ownerUserId = { in: referredUserIds };
         if (industry) businessFilter.industryName = { contains: industry };
         if (cityCode) businessFilter.cityCode = cityCode;
         if (provinceCode) businessFilter.provinceCode = provinceCode;
@@ -309,7 +310,9 @@ export class ArmAdminCatalogsService {
             where: {
                 status: { not: 'closed' },
                 ...(excludeCatIds.length ? { id: { notIn: excludeCatIds } } : {}),
-                // ✅ همه فیلترها از مسیر business — یکجا اعمال می‌شن
+                // ✅ کاتالوگِ کاربرِ معرفی‌شده — مالکیت مستقیم روی کاتالوگ (کسب‌وکار مرجع مشترک است)
+                ...(referredUserIds ? { ownerUserId: { in: referredUserIds } } : {}),
+                // ✅ فیلترهای صنف/موقعیت از مسیر business
                 ...(Object.keys(businessFilter).length > 0
                     ? { business: { is: businessFilter } }
                     : {}),
@@ -319,7 +322,12 @@ export class ArmAdminCatalogsService {
                             { name: { contains: q } },
                             { phone: { contains: q } },
                             { business: { is: { industryName: { contains: q } } } },
+                            // ✅ جستجو با مسئول کسب‌وکار (مالک قدیمی یا ثبت‌کنندهٔ اول)
                             { business: { is: { owner: { is: { OR: [
+                                                    { phone: { contains: q } },
+                                                    { fullName: { contains: q } },
+                                                ] } } } } },
+                            { business: { is: { creator: { is: { OR: [
                                                     { phone: { contains: q } },
                                                     { fullName: { contains: q } },
                                                 ] } } } } },
@@ -336,6 +344,7 @@ export class ArmAdminCatalogsService {
                         id: true, name: true, type: true, industryName: true,
                         city: true, province: true, cityCode: true, provinceCode: true,
                         owner: { select: { id: true, fullName: true, phone: true } },
+                        creator: { select: { id: true, fullName: true, phone: true } },
                     },
                 },
                 _count: { select: { ads: { where: { status: 'active' } } } },
@@ -358,7 +367,7 @@ export class ArmAdminCatalogsService {
                 provinceCode: (b.business as any)?.provinceCode || b.provinceCode || null,
                 logoUrl: b.logoUrl,
                 industryName: (b.business as any)?.industryName || b.industryName || null,
-                owner: (b.business as any)?.owner ?? null,
+                owner: (b.business as any)?.owner ?? (b.business as any)?.creator ?? null,
                 businessId: (b.business as any)?.id ?? null,
                 businessName: (b.business as any)?.name ?? null,
                 businessIndustry: (b.business as any)?.industryName ?? null,
@@ -389,13 +398,14 @@ export class ArmAdminCatalogsService {
 
         const catalog = await this.prisma.catalog.findFirst({
             where: { id: catalogId, status: { not: 'closed' } },
-            select: { id: true, salesType: true, business: { select: { id: true, ownerUserId: true } } },
+            select: { id: true, salesType: true, ownerUserId: true, businessId: true },
         });
         if (!catalog) {
             throw new NotFoundException({ errorCode: 'CATALOG_NOT_FOUND', message: 'کاتالوگ یافت نشد' });
         }
-        const ownerUserId = (catalog.business as any).ownerUserId;
-        const businessId = (catalog.business as any).id;
+        // ✅ مالکِ مستقیمِ کاتالوگ — کاربری که کاتالوگ را ساخته (کسب‌وکار مرجع مشترک است)
+        const ownerUserId = catalog.ownerUserId;
+        const businessId = catalog.businessId;
 
         // ✅ گارد تناسب نوع کاتالوگ با نوع بازار — تک‌فروشی در بازار عمده پذیرفته نمی‌شود و بالعکس
         const mismatch = checkMarketTypeMismatch(arm as any, (catalog as any).salesType);
@@ -653,7 +663,16 @@ export class ArmAdminCatalogsService {
             where: {
                 status: 'active',
                 ...(excludeBizIds.length ? { id: { notIn: excludeBizIds } } : {}),
-                ...(referredUserIds ? { ownerUserId: { in: referredUserIds } } : {}),
+                // ✅ کسب‌وکارِ مرتبط با کاربرِ معرفی‌شده — مسئول (مالک قدیمی/ثبت‌کننده) یا عضوِ تیم
+                ...(referredUserIds
+                    ? {
+                        OR: [
+                            { ownerUserId: { in: referredUserIds } },
+                            { creatorUserId: { in: referredUserIds } },
+                            { members: { some: { userId: { in: referredUserIds }, status: 'active' } } },
+                        ],
+                    }
+                    : {}),
                 // ✅ فیلتر صنف
                 ...(industry ? { industryName: { contains: industry } } : {}),
                 // ✅ فیلتر موقعیت
@@ -686,6 +705,7 @@ export class ArmAdminCatalogsService {
                 province: true,
                 logoUrl: true,
                 owner: { select: { id: true, fullName: true, phone: true } },
+                creator: { select: { id: true, fullName: true, phone: true } },
                 _count: { select: { catalogs: true } },
             },
             take: 20,
@@ -702,15 +722,20 @@ async addBuyer(slug: string, businessId: string) {
 
     const biz = await this.prisma.business.findFirst({
         where: { id: businessId, status: 'active' },
-        select: { id: true, ownerUserId: true, name: true },
+        select: { id: true, ownerUserId: true, creatorUserId: true, name: true },
     });
     if (!biz) {
         throw new NotFoundException({ errorCode: 'BUSINESS_NOT_FOUND', message: 'کسب‌وکار یافت نشد' });
     }
+    // ✅ کاربرِ مسئولِ کسب‌وکار (مالکِ قدیمی یا ثبت‌کنندهٔ اول) — عضویتِ خریدار با او ثبت می‌شود
+    const bizResponsible = biz.ownerUserId || biz.creatorUserId;
+    if (!bizResponsible) {
+        throw new BadRequestException({ errorCode: 'BUSINESS_NO_RESPONSIBLE', message: 'این کسب‌وکار مسئولِ ثبت‌شده‌ای ندارد' });
+    }
 
     // ✅ membership این کاربر در این بازار رو پیدا کن
     const existing = await this.prisma.armMembership.findUnique({
-        where: { armId_userId: { armId: arm.id, userId: biz.ownerUserId } },
+        where: { armId_userId: { armId: arm.id, userId: bizResponsible } },
     });
 
     // ✅ چک کن: اگه قبلاً buyer هست (فقط businessId داره) → خطا
@@ -742,7 +767,7 @@ async addBuyer(slug: string, businessId: string) {
         : await this.prisma.armMembership.create({
             data: {
                 armId: arm.id,
-                userId: biz.ownerUserId,
+                userId: bizResponsible,
                 businessId: biz.id,
                 role: 'arm_member',
                 roleType: 'buyer',
@@ -1122,13 +1147,13 @@ async getReferralStats(requesterId: string, slug: string) {
                 ? [
                     { referredByUserId: { in: scopeOwnerIds } },
                     ...(invitedIds.length
-                        ? [{ business: { is: { ownerUserId: { in: invitedIds } } } }]
+                        ? [{ ownerUserId: { in: invitedIds } }]
                         : []),
                 ]
                 : [
                     { referredByUserId: { not: null } },
                     ...(invitedIds.length
-                        ? [{ business: { is: { ownerUserId: { in: invitedIds } } } }]
+                        ? [{ ownerUserId: { in: invitedIds } }]
                         : []),
                 ],
         },
@@ -1136,7 +1161,7 @@ async getReferralStats(requesterId: string, slug: string) {
             id: true, name: true, slug: true, salesType: true, createdAt: true,
             referredByUserId: true,
             business: {
-                select: { owner: { select: { fullName: true, phone: true } } },
+                select: { owner: { select: { fullName: true, phone: true } }, creator: { select: { fullName: true, phone: true } } },
             },
         },
         orderBy: { createdAt: 'desc' },
@@ -1167,7 +1192,7 @@ async getReferralStats(requesterId: string, slug: string) {
             slug: c.slug,
             salesType: c.salesType,
             createdAt: c.createdAt,
-            owner: (c.business as any)?.owner ?? null,
+            owner: (c.business as any)?.owner ?? (c.business as any)?.creator ?? null,
             isMember: mMap.has(c.id),
             membership: mMap.get(c.id) ?? null,
         })),
@@ -1185,7 +1210,7 @@ async setOwnAdCategory(userId: string, adId: string, categoryId: string) {
             armId: true,
             catalogId: true,
             catalogCategoryId: true,
-            catalog: { select: { business: { select: { ownerUserId: true } } } },
+            catalog: { select: { id: true, ownerUserId: true } },
         },
     });
     if (!ad) {
@@ -1237,17 +1262,12 @@ async setOwnAdCategory(userId: string, adId: string, categoryId: string) {
 // ۱۰) کالاهای «کاربر» منتشرشده در بازار که دستهٔ بازاری ندارند
 // ============================================================
 async getMyNeedsCategory(userId: string) {
-    const bizIds = (await this.prisma.business.findMany({
-        where: { ownerUserId: userId, status: 'active' },
-        select: { id: true },
-    })).map((b) => b.id);
-
-    const myCatalogIds = bizIds.length
-        ? (await this.prisma.catalog.findMany({
-            where: { businessId: { in: bizIds } },
+    // ✅ کاتالوگ‌هایی که مالکشان هستم — مالکیت مستقیم روی کاتالوگ
+    const myCatalogIds = (
+        await this.prisma.catalog.findMany({
+            where: { ownerUserId: userId },
             select: { id: true },
-        })).map((c) => c.id)
-        : [];
+        })).map((c) => c.id);
 
     if (myCatalogIds.length === 0) return { items: [] };
 

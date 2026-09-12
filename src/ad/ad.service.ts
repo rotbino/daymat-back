@@ -33,11 +33,11 @@ const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const PUBLIC_LIST_CACHE_TTL_MS = 5 * 60 * 1000;
 const VITRINE_CACHE_TTL_MS = PUBLIC_LIST_CACHE_TTL_MS;
 
-/** include مشترکِ مالکیت کاتالوگ — مالک واقعی از مسیر نهاد */
-const CATALOG_OWNER_SELECT = {
+/** include مشترکِ اطلاعات کاتالوگ در آگهی — تیک از کسب‌وکارِ مرجع */
+const CATALOG_INFO_SELECT = {
     id: true,
     name: true,
-    business: { select: { id: true, ownerUserId: true, verificationTier: true } },
+    business: { select: { id: true, verificationTier: true } },
 } as const;
 
 @Injectable()
@@ -84,10 +84,7 @@ export class AdService {
         // ─── ۱) کاتالوگ مالک — الزامی؛ مالکیت از مسیر نهاد ───
         const catalog = await this.prisma.catalog.findUnique({
             where: { id: dto.catalogId },
-            select: {
-                id: true,
-                business: { select: { ownerUserId: true } },
-            },
+            select: { id: true },
         });
         if (!catalog) {
             throw new BadRequestException({
@@ -809,7 +806,7 @@ export class AdService {
                 catalog: {
                     select: {
                         id: true,
-                        business: { select: { ownerUserId: true, verificationTier: true } },
+                        business: { select: { verificationTier: true } },
                     },
                 },
             },
@@ -1024,7 +1021,7 @@ export class AdService {
                 catalog: {
                     select: {
                         id: true,
-                        business: { select: { ownerUserId: true } },
+                        business: { select: { verificationTier: true } },
                     },
                 },
             },
@@ -1114,7 +1111,7 @@ export class AdService {
         const ad = await this.prisma.ad.findUnique({
             where: { id },
             include: {
-                catalog: { select: { business: { select: { ownerUserId: true } } } },
+                catalog: { select: { id: true } },
             },
         });
         if (!ad) throw new NotFoundException({ errorCode: 'AD_NOT_FOUND', message: 'آگهی یافت نشد' });
@@ -1132,11 +1129,11 @@ export class AdService {
             where: { id },
             select: {
                 id: true, title: true, unitPrice: true, priceHistory: true,
-                catalog: { select: { business: { select: { ownerUserId: true } } } },
+                catalog: { select: { ownerUserId: true } },
             },
         });
         if (!ad) throw new NotFoundException({ errorCode: 'AD_NOT_FOUND', message: 'آگهی یافت نشد' });
-        if (userId && (ad.catalog as any)?.business?.ownerUserId === userId) {
+        if (userId && (ad.catalog as any)?.ownerUserId === userId) {
             return { currentPrice: ad.unitPrice, history: ad.priceHistory || [] };
         }
         const history = (ad.priceHistory as any[]) || [];
@@ -1181,7 +1178,7 @@ export class AdService {
                 title: true,
                 status: true,
                 catalog: {
-                    select: { business: { select: { ownerUserId: true } } },
+                    select: { id: true },
                 },
             },
         });
@@ -1279,7 +1276,7 @@ export class AdService {
                 id: true,
                 catalogId: true,
                 catalog: {
-                    select: { business: { select: { ownerUserId: true } } },
+                    select: { id: true },
                 },
             },
         });
@@ -1864,22 +1861,32 @@ export class AdService {
     // اعلان‌های مشتق
     // ═══════════════════════════════════════
     // ═══ ابزار ═══
-    /** درخواست‌های pending که درخواست‌دهنده‌شان حذف شده — بی‌معنا هستند و فقط اعلان/پنل می‌شکنند */
+    /** درخواست‌های pending بی‌معنا پاک می‌شوند:
+     *   ۱) درخواست‌دهنده حذف شده
+     *   ۲) درخواست‌دهنده دیگر عضوِ فعالِ آن بازار نیست (عضویتش قبلاً برداشته شده)
+     *   بدون این، اعلانِ «لغو عضویت در انتظار رسیدگی» بدونِ درخواستِ واقعی نشان داده می‌شد */
     private async cleanupOrphanedRequestsWithoutUser() {
         try {
             for (const model of ['armLeaveRequest', 'armMembershipRequest'] as const) {
                 const reqs = await (this.prisma as any)[model].findMany({
                     where: { status: 'pending' },
-                    select: { id: true, userId: true },
+                    select: { id: true, userId: true, armId: true },
                 });
                 if (reqs.length === 0) continue;
                 const userIds: string[] = [...new Set<string>(reqs.map((r: any) => r.userId as string))];
                 const existing = await this.prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true } });
                 const existingSet = new Set(existing.map((u) => u.id));
-                const orphanIds = reqs.filter((r: any) => !existingSet.has(r.userId)).map((r: any) => r.id as string);
+                const memberships = await this.prisma.armMembership.findMany({
+                    where: { userId: { in: userIds }, status: 'active' },
+                    select: { userId: true, armId: true },
+                });
+                const memberKey = new Set(memberships.map((m: any) => `${m.userId}:${m.armId}`));
+                const orphanIds = reqs
+                    .filter((r: any) => !existingSet.has(r.userId) || !memberKey.has(`${r.userId}:${r.armId}`))
+                    .map((r: any) => r.id as string);
                 if (orphanIds.length > 0) {
                     await (this.prisma as any)[model].deleteMany({ where: { id: { in: orphanIds } } });
-                    console.log(`🧹 ${orphanIds.length} orphaned ${model}(s) removed — requester user deleted`);
+                    console.log(`🧹 ${orphanIds.length} orphaned ${model}(s) removed — requester deleted or no longer a member`);
                 }
             }
         } catch (e: any) {
@@ -1888,13 +1895,9 @@ export class AdService {
     }
 
     async derivedNotifications(userId: string) {
-        const userBizIds = (await this.prisma.business.findMany({
-            where: { ownerUserId: userId, status: 'active' },
-            select: { id: true },
-        })).map((b) => b.id);
-
+        // ✅ مالکیت مستقیم روی کاتالوگ — کسب‌وکار مرجع مشترک است و ربطی به مالکیت ندارد
         const catalogs = await this.prisma.catalog.findMany({
-            where: { businessId: { in: userBizIds }, status: 'active' },
+            where: { ownerUserId: userId, status: 'active' },
             select: {
                 id: true, name: true, slug: true, logoUrl: true, phone: true, shortDescription: true, industryName: true,
                 businessId: true,  // ✅ برای لینک ویرایش کسب‌وکار
@@ -1902,14 +1905,36 @@ export class AdService {
             },
         });
 
+        // ✅ لوگو ممکن است به‌صورت فایل (fieldKey=logo) ذخیره شده باشد بدون sync فیلد —
+        //    زنجیرهٔ نمایش (فایل کاتالوگ → فیلد کاتالوگ → فایل کسب‌وکار → فیلد کسب‌وکار)
+        //    باید با چکِ اعلان یکی باشد وگرنه اعلانِ «لوگو ندارد» با لوگویِ نمایان می‌ماند
+        const catalogIds = catalogs.map((c) => c.id);
+        const bizIds = [...new Set(catalogs.map((c) => c.businessId))];
+        const logoFiles = await this.prisma.file.findMany({
+            where: {
+                fieldKey: 'logo',
+                OR: [
+                    { relatedModel: 'Catalog', relatedId: { in: catalogIds.length ? catalogIds : ['__none__'] } },
+                    { relatedModel: 'Business', relatedId: { in: bizIds.length ? bizIds : ['__none__'] } },
+                ],
+            },
+            select: { relatedModel: true, relatedId: true },
+        });
+        const hasCatLogoFile = new Set(logoFiles.filter((f) => f.relatedModel === 'Catalog').map((f) => f.relatedId));
+        const hasBizLogoFile = new Set(logoFiles.filter((f) => f.relatedModel === 'Business').map((f) => f.relatedId));
+
+        // ✅ مقصدِ اعلانِ لوگو — ویرایشگرِ کسب‌وکار → صفحهٔ ویرایش کسب‌وکار | بقیه → لوگوی خودِ کاتالوگ
+        const bizMeta = await this.prisma.business.findMany({
+            where: { id: { in: bizIds.length ? bizIds : ['__none__'] } },
+            select: { id: true, creatorUserId: true, ownerUserId: true },
+        });
+        const bizEditorMap = new Map(bizMeta.map((b) => [b.id, b.creatorUserId === userId || b.ownerUserId === userId]));
+
         const now = new Date();
 
         const items: any[] = [];
-        const catalogIds: string[] = [];
 
         for (const b of catalogs) {
-            catalogIds.push(b.id);
-
             // ✅ آگهی‌های با قیمت قدیمی (بیش از ۳۰ روز)
             const staleThreshold = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
             const staleAds = await this.prisma.ad.findMany({
@@ -1970,15 +1995,23 @@ export class AdService {
                     catalogId: b.id,
                 });
             }
-            // ✅ لوگو روی کاتالوگ یا کسب‌وکار — هرکدام کافی است
-            //    (ریشهٔ باگ: کاربر لوگوی کسب‌وکار را ست می‌کرد ولی اعلان فقط logoUrl کاتالوگ را می‌دید)
-            if (!b.logoUrl && !b.business?.logoUrl) {
+            // ✅ لوگو روی کاتالوگ یا کسب‌وکار — فیلد یا فایل، هرکدام کافی است
+            //    (ریشهٔ باگ: لوگو با فایل آپلود و از مسیر فایل نمایش داده می‌شد
+            //     ولی اعلان فقط فیلدهای logoUrl را می‌دید)
+            const hasLogo = !!b.logoUrl
+                || !!b.business?.logoUrl
+                || hasCatLogoFile.has(b.id)
+                || hasBizLogoFile.has(b.businessId);
+            if (!hasLogo) {
+                const canEditBiz = !!bizEditorMap.get(b.businessId);
                 items.push({
                     id: `nologo-${b.id}`,
                     type: 'incomplete',
                     severity: 'info',
                     title: `«${b.name}» لوگو ندارد — کاتالوگ با لوگو اعتماد بیشتری می‌گیرد`,
-                    action: { label: 'ویرایش کسب‌وکار', href: `/business/edit?id=${b.businessId}` },
+                    action: canEditBiz
+                        ? { label: 'ویرایش کسب‌وکار', href: `/business/edit?id=${b.businessId}` }
+                        : { label: 'تنظیم لوگوی کاتالوگ', href: `/my-catalogs?catalog=${b.id}` },
                     catalogId: b.id,
                 });
             }

@@ -1182,12 +1182,9 @@ export class ArmService {
 
         const catalog = await this.prisma.catalog.findUnique({
             where: { id: catalogId },
-            select: {
-                id: true,
-                business: { select: { ownerUserId: true } },
-            },
+            select: { id: true, ownerUserId: true },
         });
-        if (!catalog || (catalog.business as any).ownerUserId !== userId) {
+        if (!catalog || catalog.ownerUserId !== userId) {
             throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'فقط مالک کاتالوگ' });
         }
 

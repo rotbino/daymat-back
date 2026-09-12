@@ -17,9 +17,10 @@ import { checkMarketTypeMismatch } from '../common/utils/arm.utils';
 const PUBLIC_LIST_CACHE_TTL_MS = 5 * 60 * 1000;
 
 /**
- * کاتالوگ — ویترینِ یک نهاد تجاری.
- * ⚠️ مالکیت فقط از مسیر Business: catalog.business.ownerUserId
- *    (رلیشن مستقیم Catalog→User حذف شده)
+ * کاتالوگ — ویترینِ یک کسب‌وکارِ مرجع.
+ * ✅ مالکیتِ مستقیم روی کاتالوگ: catalog.ownerUserId (کاربری که کاتالوگ را ساخته)
+ *    کسب‌وکار مشترک/مرجع است و مالکِ شخصی ندارد — هر کاربری می‌تواند کاتالوگش را
+ *    روی هر کسب‌وکارِ فعالی بسازد و با پستِ خودش عضو تیمِ آن کسب‌وکار می‌شود (BusinessMember).
  * تیک اعتماد: روی نهاد (Business) — این سرویس فقط می‌خواند، نمی‌نویسد.
  * صنف: industryName (متن) روی هر دو؛ رلیشن Industry حذف شده.
  */
@@ -96,6 +97,7 @@ export class CatalogService {
                     select: {
                         id: true,
                         ownerUserId: true,
+                        creatorUserId: true,
                         name: true,
                         industryId: true,        // ✅ برای autocomplete
                         industryName: true,      // ✅ برای نمایش
@@ -119,22 +121,16 @@ export class CatalogService {
         if (!catalog) {
             throw new NotFoundException({ errorCode: 'CATALOG_NOT_FOUND', message: 'کاتالوگ یافت نشد' });
         }
-        if (catalog.business.ownerUserId !== userId) {
+        if (catalog.ownerUserId !== userId) {
             throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'شما به این کاتالوگ دسترسی ندارید' });
         }
         return catalog;
     }
 
-    private async getUserBusinessIds(userId: string): Promise<string[]> {
-        const bizs = await this.prisma.business.findMany({
-            where: { ownerUserId: userId, status: 'active' },
-            select: { id: true },
-        });
-        return bizs.map((b) => b.id);
-    }
-
     // ============================================================
-    // ثبت کاتالوگ — الزاماً برای یک نهاد
+    // ثبت کاتالوگ — روی هر کسب‌وکارِ فعال (مرجع/مشترک):
+    //   · کسب‌وکار از قبل ثبت‌شده (حتی توسط دیگری) → انتخاب و ساخت کاتالوگ
+    //   · کاربر با پستِ انتخابی‌اش عضو تیمِ کسب‌وکار می‌شود (BusinessMember)
     // ============================================================
     async create(userId: string, dto: CreateCatalogDto) {
         if (!dto.businessId) {
@@ -145,22 +141,23 @@ export class CatalogService {
         }
         const biz = await this.prisma.business.findUnique({
             where: { id: dto.businessId },
-            select: { id: true, ownerUserId: true },
+            select: { id: true, status: true, name: true },
         });
         if (!biz) {
             throw new NotFoundException({ errorCode: 'BUSINESS_NOT_FOUND', message: 'کسب‌وکار یافت نشد' });
         }
-        if (biz.ownerUserId !== userId) {
-            throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'این کسب‌وکار متعلق به شما نیست' });
+        if (biz.status !== 'active') {
+            throw new BadRequestException({ errorCode: 'BUSINESS_INACTIVE', message: 'این کسب‌وکار فعال نیست' });
         }
 
+        // ✅ نام تکراری — در کاتالوگ‌های خودِ کاربر (نه کسب‌وکار؛ کسب‌وکار مشترک است)
         const dup = await this.prisma.catalog.findFirst({
-            where: { businessId: biz.id, name: dto.name, status: 'active' },
+            where: { ownerUserId: userId, name: dto.name, status: 'active' },
         });
         if (dup) {
             throw new ConflictException({
                 errorCode: 'DUPLICATE_CATALOG_NAME',
-                message: 'برای این کسب‌وکار قبلاً کاتالوگی با این نام ساخته‌اید',
+                message: 'قبلاً کاتالوگی با این نام ساخته‌اید',
             });
         }
 
@@ -219,6 +216,7 @@ export class CatalogService {
         const catalog = await this.prisma.$transaction(async (tx) => {
             const cat = await tx.catalog.create({
                 data: {
+                    ownerUserId: userId, // ✅ مالکِ مستقیم کاتالوگ = سازندهٔ آن
                     businessId: biz.id,
                     name: dto.name,
                     slug,
@@ -259,6 +257,23 @@ export class CatalogService {
             });
             await tx.catalogTeamEvent.create({
                 data: { catalogId: cat.id, userId, eventType: 'joined', actorUserId: userId, note: 'ساخت کاتالوگ — اونر با لِین فروشندهٔ فعال' },
+            });
+
+            // ✅ تیمِ کسب‌وکار — کاربر با پستِ انتخابی‌اش عضو کسب‌وکارِ مرجع می‌شود
+            await tx.businessMember.upsert({
+                where: { businessId_userId: { businessId: biz.id, userId } },
+                create: {
+                    businessId: biz.id,
+                    userId,
+                    position: dto.position?.trim() || null,
+                    viaCatalogId: cat.id,
+                    status: 'active',
+                },
+                update: {
+                    position: dto.position?.trim() || undefined,
+                    viaCatalogId: cat.id,
+                    status: 'active',
+                },
             });
 
             if (armCtx) {
@@ -321,12 +336,8 @@ export class CatalogService {
         return catalog;
     }
 
-    async createForBusiness(userId: string, dto: CreateCatalogDto & { businessId?: string }) {
-        return this.create(userId, dto);
-    }
-
     // ============================================================
-    // لیست کاتالوگ‌های کاربر — از مسیر نهادها
+    // لیست کاتالوگ‌های کاربر — مالکیت مستقیم روی کاتالوگ
     // ⚠️ دیتای خود کاربر: کش per-user + باطل‌سازی فوری در create/update/remove/updateConfig
     // ============================================================
     async findAllByUser(userId: string) {
@@ -340,16 +351,16 @@ export class CatalogService {
     }
 
     private async fetchAllByUser(userId: string) {
-        const bizIds = await this.getUserBusinessIds(userId);
-
         const catalogs = await this.prisma.catalog.findMany({
-            where: { businessId: { in: bizIds }, status: { not: 'closed' } },
+            where: { ownerUserId: userId, status: { not: 'closed' } },
             include: {
                 // ✅ فیلدهای business — برای CatalogEditModal (صنف، لوگو، موقعیت، تماس)
                 business: {
                     select: {
                         id: true,
                         name: true,
+                        ownerUserId: true,      // ✅ برای canEdit در فرانت (ویرایش‌پذیریِ مشخصات کسب‌وکار)
+                        creatorUserId: true,    // ✅ برای canEdit در فرانت
                         industryId: true,        // ✅ برای autocomplete در مودال ویرایش
                         industryName: true,      // ✅ برای نمایش صنف ذخیره‌شده
                         phone: true,             // ✅ برای فیلد تماس
@@ -651,9 +662,9 @@ export class CatalogService {
     async isOwner(catalogId: string, userId: string): Promise<boolean> {
         const catalog = await this.prisma.catalog.findUnique({
             where: { id: catalogId },
-            select: { business: { select: { ownerUserId: true } } },
+            select: { ownerUserId: true },
         });
-        return catalog?.business?.ownerUserId === userId;
+        return catalog?.ownerUserId === userId;
     }
 
     // ============================================================
@@ -671,21 +682,6 @@ export class CatalogService {
             include: {
                 business: {
                     include: {
-                        owner: {
-                            select: {
-                                id: true,
-                                fullName: true,
-                                phone: true,
-                                avatarUrl: true,
-                                referralCode: true,
-                                files: {
-                                    where: { fieldKey: 'avatar' },
-                                    orderBy: { createdAt: 'desc' },
-                                    select: { id: true, path: true, thumbnailPath: true },
-                                    take: 1,
-                                },
-                            },
-                        },
                         activities: {
                             include: { activity: { select: { id: true, title: true, slug: true } } },
                         },
@@ -711,14 +707,31 @@ export class CatalogService {
             throw new NotFoundException({ errorCode: 'CATALOG_NOT_FOUND', message: 'کاتالوگ یافت نشد' });
         }
 
+        // ✅ کاتالوگ عمومی با آدرس — مالکِ کاتالوگ (نه مالکِ کسب‌وکارِ مشترک)
+        const ownerUser = await this.prisma.user.findUnique({
+            where: { id: catalog.ownerUserId },
+            select: {
+                id: true,
+                fullName: true,
+                phone: true,
+                avatarUrl: true,
+                referralCode: true,
+                files: {
+                    where: { fieldKey: 'avatar' },
+                    orderBy: { createdAt: 'desc' },
+                    select: { id: true, path: true, thumbnailPath: true },
+                    take: 1,
+                },
+            },
+        });
+
         const ownerTeamMember = await this.prisma.catalogMember.findFirst({
-            where: { catalogId: catalog.id, userId: catalog.business.ownerUserId },
+            where: { catalogId: catalog.id, userId: catalog.ownerUserId },
             select: { position: true, role: true },
         });
 
         const logoFile = catalog.files?.[0];
-        const bizOwner = catalog.business.owner;
-        const ownerAvatarFile = bizOwner?.files?.[0];
+        const ownerAvatarFile = ownerUser?.files?.[0];
         const bizVerification = (catalog.business as any)?.verifications?.[0];
 
         return {
@@ -727,12 +740,12 @@ export class CatalogService {
             // ✅ تیک از نهاد — شکل قدیمی برای فرانت
             verificationTier: bizVerification?.tier ?? null,
             verificationStatus: bizVerification?.status ?? null,
-            owner: bizOwner ? {
-                id: bizOwner.id,
-                fullName: bizOwner.fullName,
-                phone: bizOwner.phone,
-                avatarUrl: ownerAvatarFile?.thumbnailPath || ownerAvatarFile?.path || bizOwner.avatarUrl || null,
-                referralCode: bizOwner.referralCode,
+            owner: ownerUser ? {
+                id: ownerUser.id,
+                fullName: ownerUser.fullName,
+                phone: ownerUser.phone,
+                avatarUrl: ownerAvatarFile?.thumbnailPath || ownerAvatarFile?.path || ownerUser.avatarUrl || null,
+                referralCode: ownerUser.referralCode,
                 avatarFile: ownerAvatarFile || null,
                 position: ownerTeamMember?.position || null,
                 role: ownerTeamMember?.role || null,

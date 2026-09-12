@@ -6,7 +6,7 @@ import {
     IsString,
     MaxLength,
     IsIn,
-    IsNumber, IsArray,
+    IsNumber, IsArray, IsBoolean,
 } from 'class-validator';
 
 export class CreateBusinessDto {
@@ -120,6 +120,25 @@ export class CreateBusinessDto {
     @IsOptional()
     @IsNumber()
     businessStartYear?: number;
+
+    @ApiPropertyOptional({
+        example: false,
+        description: 'با true، هشدار کسب‌وکار مشابه نادیده گرفته می‌شود (کاربر صریحاً ثبتِ جدید را انتخاب کرده)',
+        required: false,
+    })
+    @IsOptional()
+    @IsBoolean()
+    force?: boolean;
+
+    @ApiPropertyOptional({
+        example: 'مدیر فروش',
+        description: 'پست/سمتِ ثبت‌کننده در کسب‌وکار — روی تیم کسب‌وکار (BusinessMember) ثبت می‌شود',
+        required: false,
+    })
+    @IsOptional()
+    @IsString()
+    @MaxLength(60)
+    position?: string;
 }
 
 export class UpdateBusinessDto {

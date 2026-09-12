@@ -56,17 +56,9 @@ export class CatalogController {
     @Post()
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'ثبت کاتالوگ جدید (برای یک کسب‌وکار)' })
+    @ApiOperation({ summary: 'ثبت کاتالوگ جدید (روی هر کسب‌وکارِ فعال — مرجع/مشترک)' })
     create(@CurrentUser() user: any, @Body() dto: CreateCatalogDto) {
         return this.catalogService.create(user.id, dto);
-    }
-
-    @Post('for-business')
-    @UseGuards(JwtAuthGuard)
-    @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'ساخت کاتالوگ برای یکی از کسب‌وکارهای من' })
-    async createForBusiness(@CurrentUser() user: any, @Body() dto: CreateCatalogDto) {
-        return this.catalogService.createForBusiness(user.id, dto);
     }
 
     @Get()

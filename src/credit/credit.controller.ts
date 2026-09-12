@@ -58,17 +58,10 @@ export class CreditController {
     @ApiBearerAuth('access-token')
     @ApiOperation({ summary: 'خرید اعتبار (انتخاب روش توسط کاربر)' })
     async purchase(@CurrentUser() user: any, @Body() dto: PurchaseCreditDto) {
-        // ✅ کاتالوگ‌های کاربر از مسیر نهادهایش
-        const bizIds = (await this.creditService['prisma'].business.findMany({
+        // ✅ کاتالوگ‌های کاربر — مالکیت مستقیم روی کاتالوگ
+        const catalog = await this.creditService['prisma'].catalog.findFirst({
             where: { ownerUserId: user.id, status: 'active' },
-            select: { id: true },
-        })).map((b) => b.id);
-
-        const catalog = bizIds.length
-            ? await this.creditService['prisma'].catalog.findFirst({
-                where: { businessId: { in: bizIds }, status: 'active' },
-            })
-            : null;
+        });
 
         if (!catalog) {
             throw new BadRequestException({

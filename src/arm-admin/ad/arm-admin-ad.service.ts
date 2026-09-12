@@ -178,7 +178,7 @@ export class ArmAdminAdService {
                 catalog: {
                     select: {
                         id: true,
-                        business: { select: { ownerUserId: true } },
+                        ownerUserId: true,
                     },
                 },
             },
@@ -188,7 +188,8 @@ export class ArmAdminAdService {
         if (ad.status === 'active') throw new BadRequestException({ errorCode: 'ALREADY_ACTIVE', message: 'آگهی قبلاً فعال شده است' });
 
         const config = (ad.arm?.config as any) || {};
-        const ownerUserId = (ad.catalog as any).business.ownerUserId;
+        // ✅ هزینه‌ها روی مالکِ کاتالوگ (کاربرِ سازندهٔ آن) charge می‌شود
+        const ownerUserId = (ad.catalog as any).ownerUserId;
         const updateData: any = {
             status: 'active',
             updatedAt: new Date(),

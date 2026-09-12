@@ -79,7 +79,8 @@ export class CatalogMemberService {
             where: { id: catalogId },
             select: {
                 id: true, name: true, slug: true, status: true, businessId: true, config: true,
-                business: { select: { id: true, name: true, ownerUserId: true, phone: true } },
+                ownerUserId: true, // ✅ مالکِ مستقیم کاتالوگ
+                business: { select: { id: true, name: true, ownerUserId: true, creatorUserId: true, phone: true } },
             },
         });
         if (!catalog || catalog.status === 'closed') {
@@ -88,9 +89,25 @@ export class CatalogMemberService {
         return catalog as any;
     }
 
-    /** اونر = مالکِ کسب‌وکارِ کاتالوگ (ملاک واقعی) */
+    /** اونر = مالکِ مستقیمِ کاتالوگ (کاربری که کاتالوگ را ساخته) */
     private isOwner(catalog: any, userId: string): boolean {
-        return catalog.business.ownerUserId === userId;
+        return catalog.ownerUserId === userId;
+    }
+
+    /** کاربرِ مسئولِ کسب‌وکار — مالکِ قدیمی یا ثبت‌کنندهٔ اول */
+    private responsibleUserId(biz: { ownerUserId?: string | null; creatorUserId?: string | null } | null | undefined): string | null {
+        return biz?.ownerUserId || biz?.creatorUserId || null;
+    }
+
+    /** «کسب‌وکارِ من» — مسئولِ کسب‌وکار (مالک قدیمی/ثبت‌کننده) یا عضوِ فعالِ تیمِ آن */
+    private async isMyBusiness(biz: { id: string; ownerUserId?: string | null; creatorUserId?: string | null } | null, userId: string): Promise<boolean> {
+        if (!biz) return false;
+        if (this.responsibleUserId(biz) === userId) return true;
+        const m = await this.prisma.businessMember.findFirst({
+            where: { businessId: biz.id, userId, status: 'active' },
+            select: { id: true },
+        });
+        return !!m;
     }
 
     private async getMemberRow(catalogId: string, userId: string) {
@@ -237,7 +254,7 @@ export class CatalogMemberService {
 
     /** کارت‌های «کادر» کاتالوگ: مالک (اگر در هیچ لِین فعالی دیده نمی‌شود) + مدیرهای خالص (بدون لِین) */
     private async buildStaffCards(catalog: any, rows: any[], canManage: boolean, armSlugByBiz?: Map<string, string>) {
-        const ownerUserId = catalog.business.ownerUserId;
+        const ownerUserId = catalog.ownerUserId;
         const ownerVisible = rows.some(
             (r) => r.userId === ownerUserId && r.status === 'active' &&
                 (r.sellerStatus === 'active' || r.customerStatus === 'active' || r.customerStatus === 'pending' ||
@@ -311,7 +328,7 @@ export class CatalogMemberService {
         const isPendingSeller = myRow?.status === 'active' && myRow.sellerStatus === 'pending';
 
         const settings = await this.getEffectiveCatalogSettings(catalog.id);
-        const ownerUserId = catalog.business.ownerUserId;
+        const ownerUserId = catalog.ownerUserId;
 
         // ── نمای عمومی (کاربر لاگین‌شدهٔ غیرعضو) — همکاران فروش + تامین‌کننده‌ها، بدون شماره تماس ──
         if (!isOwner && !isAdmin && !isSeller && !isPendingSeller) {
@@ -668,14 +685,14 @@ export class CatalogMemberService {
                     message: 'همکاری در فروش برای این کاتالوگ فعال نیست — فقط مالک کاتالوگ فروشنده است',
                 });
             }
-            // کسب‌وکار اختیاری برای همکار فروش — اگر داد باید مال خودش باشد
+            // کسب‌وکار اختیاری برای همکار فروش — اگر داد باید عضو/مسئولِ آن باشد (کسب‌وکار مرجع مشترک است)
             let businessId: string | null = null;
             if (dto.businessId) {
                 const biz = await this.prisma.business.findUnique({
                     where: { id: dto.businessId },
-                    select: { id: true, ownerUserId: true, status: true, city: true, province: true },
+                    select: { id: true, ownerUserId: true, creatorUserId: true, status: true, city: true, province: true },
                 });
-                if (!biz || biz.ownerUserId !== userId || biz.status !== 'active') {
+                if (!biz || biz.status !== 'active' || !(await this.isMyBusiness(biz, userId))) {
                     throw new BadRequestException({ errorCode: 'INVALID_BUSINESS', message: 'کسب‌وکار انتخابی معتبر نیست' });
                 }
                 businessId = biz.id;
@@ -697,9 +714,9 @@ export class CatalogMemberService {
             }
             const biz = await this.prisma.business.findUnique({
                 where: { id: dto.businessId },
-                select: { id: true, ownerUserId: true, status: true, city: true, province: true },
+                select: { id: true, ownerUserId: true, creatorUserId: true, status: true, city: true, province: true },
             });
-            if (!biz || biz.ownerUserId !== userId || biz.status !== 'active') {
+            if (!biz || biz.status !== 'active' || !(await this.isMyBusiness(biz, userId))) {
                 throw new BadRequestException({ errorCode: 'INVALID_BUSINESS', message: 'کسب‌وکار انتخابی معتبر نیست' });
             }
             if (biz.id === catalog.businessId) {
@@ -729,9 +746,9 @@ export class CatalogMemberService {
             }
             const supCatalog = await this.prisma.catalog.findUnique({
                 where: { id: dto.supplierCatalogId },
-                select: { id: true, businessId: true, status: true, city: true, province: true, business: { select: { ownerUserId: true } } },
+                select: { id: true, businessId: true, status: true, city: true, province: true, ownerUserId: true },
             });
-            if (!supCatalog || supCatalog.status === 'closed' || supCatalog.business.ownerUserId !== userId) {
+            if (!supCatalog || supCatalog.status === 'closed' || supCatalog.ownerUserId !== userId) {
                 throw new BadRequestException({ errorCode: 'INVALID_SUPPLIER_CATALOG', message: 'کاتالوگ انتخابی معتبر نیست' });
             }
             if (supCatalog.id === catalog.id) {
@@ -895,7 +912,7 @@ export class CatalogMemberService {
         const catalog = await this.getCatalogOrThrow(catalogId);
         await this.assertTeamManager(catalog, actorId);
         const row = await this.getMemberById(catalog.id, memberId);
-        if (row.userId === catalog.business.ownerUserId) {
+        if (row.userId === catalog.ownerUserId) {
             throw new BadRequestException({ errorCode: 'CANNOT_REMOVE_OWNER', message: 'مالک کاتالوگ قابل حذف نیست' });
         }
         if (row.supplierStatus !== 'active') {
@@ -916,7 +933,7 @@ export class CatalogMemberService {
         const catalog = await this.getCatalogOrThrow(catalogId);
         await this.assertTeamManager(catalog, actorId);
         const row = await this.getMemberById(catalog.id, memberId);
-        if (row.userId === catalog.business.ownerUserId) {
+        if (row.userId === catalog.ownerUserId) {
             throw new BadRequestException({ errorCode: 'CANNOT_REMOVE_OWNER', message: 'اونر کاتالوگ قابل حذف نیست' });
         }
         if (row.role === 'catalog_admin') {
@@ -1068,7 +1085,6 @@ export class CatalogMemberService {
             where: {
                 status: 'active',
                 id: { notIn: [...takenBizIds, catalog.businessId] },
-                ownerUserId: { not: catalog.business.ownerUserId },
                 OR: [
                     { name: { contains: term } },
                     { phone: { contains: term } },
@@ -1101,19 +1117,20 @@ export class CatalogMemberService {
 
         const biz = await this.prisma.business.findUnique({
             where: { id: dto.businessId },
-            select: { id: true, name: true, ownerUserId: true, status: true },
+            select: { id: true, name: true, ownerUserId: true, creatorUserId: true, status: true },
         });
         if (!biz || biz.status !== 'active') {
             throw new NotFoundException({ errorCode: 'BUSINESS_NOT_FOUND', message: 'کسب‌وکار مشتری یافت نشد' });
         }
-        if (biz.ownerUserId === actorId) {
+        const bizResponsible = this.responsibleUserId(biz);
+        if (bizResponsible === actorId) {
             throw new BadRequestException({ errorCode: 'OWN_BUSINESS', message: 'نمی‌توانید کسب‌وکار خودتان را مشتری ثبت کنید' });
         }
-        if (biz.ownerUserId === catalog.business.ownerUserId) {
-            throw new BadRequestException({ errorCode: 'CATALOG_OWNER_BUSINESS', message: 'کسب‌وکار اونر کاتالوگ فروشنده است — مشتری نیست' });
+        if (bizResponsible && bizResponsible === catalog.ownerUserId) {
+            throw new BadRequestException({ errorCode: 'CATALOG_OWNER_BUSINESS', message: 'کسب‌وکارِ مالِ کاتالوگ فروشنده است — مشتری نیست' });
         }
 
-        // انتساب: صریح → خود ثبت‌کننده (اگر فروشنده است) → اونر
+        // انتساب: صریح → خود ثبت‌کننده (اگر فروشنده است) → مالکِ کاتالوگ
         let assignedSellerUserId = dto.sellerUserId || null;
         if (assignedSellerUserId) {
             const sellerRow = await this.getMemberRow(catalog.id, assignedSellerUserId);
@@ -1123,7 +1140,7 @@ export class CatalogMemberService {
         } else if (isSeller) {
             assignedSellerUserId = actorId;
         } else {
-            assignedSellerUserId = catalog.business.ownerUserId; // اونر همیشه فروشندهٔ فعال است
+            assignedSellerUserId = catalog.ownerUserId; // مالکِ کاتالوگ همیشه فروشندهٔ فعال است
         }
 
         const dup = await this.prisma.catalogMember.findFirst({
@@ -1133,8 +1150,11 @@ export class CatalogMemberService {
             throw new ConflictException({ errorCode: 'ALREADY_CUSTOMER', message: 'این کسب‌وکار قبلاً به‌عنوان مشتری ثبت شده است' });
         }
 
-        // رکورد کاربرِ صاحب کسب‌وکار — ممکن است از قبل (مثلاً به‌عنوان عضوِ فروش) وجود داشته باشد
-        const existingRow = await this.getMemberRow(catalog.id, biz.ownerUserId);
+        // رکورد کاربرِ مسئولِ کسب‌وکارِ مشتری — ممکن است از قبل (مثلاً به‌عنوان عضوِ فروش) وجود داشته باشد
+        if (!bizResponsible) {
+            throw new BadRequestException({ errorCode: 'BUSINESS_NO_RESPONSIBLE', message: 'این کسب‌وکار مسئولِ ثبت‌شده‌ای ندارد' });
+        }
+        const existingRow = await this.getMemberRow(catalog.id, bizResponsible);
         let memberId: string;
         if (existingRow) {
             await this.prisma.catalogMember.update({
@@ -1156,7 +1176,7 @@ export class CatalogMemberService {
             const created = await this.prisma.catalogMember.create({
                 data: {
                     catalogId: catalog.id,
-                    userId: biz.ownerUserId,
+                    userId: bizResponsible,
                     customerBusinessId: biz.id,
                     customerStatus: 'pending',
                     customerVia: 'owner_add',
@@ -1168,12 +1188,12 @@ export class CatalogMemberService {
             memberId = created.id;
         }
 
-        await this.event(catalog.id, biz.ownerUserId, 'customer_added', actorId, dto?.note || null, {
+        await this.event(catalog.id, bizResponsible, 'customer_added', actorId, dto?.note || null, {
             businessId: biz.id,
             businessName: biz.name,
             assignedSellerUserId,
         });
-        await this.bustUsersCache([biz.ownerUserId, actorId]);
+        await this.bustUsersCache([bizResponsible, actorId]);
         return {
             success: true,
             memberId,
@@ -1184,12 +1204,12 @@ export class CatalogMemberService {
     /** تایید مشتری‌بودن — فقط صاحبِ کسب‌وکارِ مشتری */
     async confirmCustomer(catalogId: string, memberId: string, actorId: string) {
         const catalog = await this.getCatalogOrThrow(catalogId);
-        const row = await this.getMemberById(catalog.id, memberId, { customerBusiness: { select: { id: true, ownerUserId: true, name: true } } });
+        const row = await this.getMemberById(catalog.id, memberId, { customerBusiness: { select: { id: true, ownerUserId: true, creatorUserId: true, name: true } } });
         if (row.customerStatus !== 'pending') {
             throw new ConflictException({ errorCode: 'NOT_PENDING', message: 'چیزی برای تایید نیست' });
         }
-        if ((row.customerBusiness as any)?.ownerUserId !== actorId) {
-            throw new ForbiddenException({ errorCode: 'NOT_BUSINESS_OWNER', message: 'فقط صاحب کسب‌وکار می‌تواند این ثبت را تایید کند' });
+        if (this.responsibleUserId(row.customerBusiness as any) !== actorId) {
+            throw new ForbiddenException({ errorCode: 'NOT_BUSINESS_OWNER', message: 'فقط مسئول کسب‌وکار می‌تواند این ثبت را تایید کند' });
         }
         await this.prisma.catalogMember.update({
             where: { id: row.id },
@@ -1206,12 +1226,12 @@ export class CatalogMemberService {
     /** ردِ ثبت مشتری — صاحبِ کسب‌وکار (قبل از تایید) */
     async declineCustomer(catalogId: string, memberId: string, actorId: string, reason?: string) {
         const catalog = await this.getCatalogOrThrow(catalogId);
-        const row = await this.getMemberById(catalog.id, memberId, { customerBusiness: { select: { ownerUserId: true } } });
+        const row = await this.getMemberById(catalog.id, memberId, { customerBusiness: { select: { ownerUserId: true, creatorUserId: true } } });
         if (row.customerStatus !== 'pending') {
             throw new ConflictException({ errorCode: 'NOT_PENDING', message: 'چیزی برای رد کردن نیست' });
         }
-        if ((row.customerBusiness as any)?.ownerUserId !== actorId) {
-            throw new ForbiddenException({ errorCode: 'NOT_BUSINESS_OWNER', message: 'فقط صاحب کسب‌وکار می‌تواند این ثبت را رد کند' });
+        if (this.responsibleUserId(row.customerBusiness as any) !== actorId) {
+            throw new ForbiddenException({ errorCode: 'NOT_BUSINESS_OWNER', message: 'فقط مسئول کسب‌وکار می‌تواند این ثبت را رد کند' });
         }
         await this.prisma.catalogMember.update({
             where: { id: row.id },
@@ -1327,12 +1347,21 @@ export class CatalogMemberService {
         phone: string;
     } | null> {
         if (!catalogId || !callerUserId) return null;
-        const bizIds = (
-            await this.prisma.business.findMany({
-                where: { ownerUserId: callerUserId, status: 'active' },
+        // ✅ کسب‌وکارهایی که caller در آنها مسئول یا عضوِ تیم است (کسب‌وکار مرجع مشترک است)
+        const [ownedBizs, memberBizs] = await Promise.all([
+            this.prisma.business.findMany({
+                where: {
+                    status: 'active',
+                    OR: [{ ownerUserId: callerUserId }, { creatorUserId: callerUserId }],
+                },
                 select: { id: true },
-            })
-        ).map((b) => b.id);
+            }),
+            this.prisma.businessMember.findMany({
+                where: { userId: callerUserId, status: 'active' },
+                select: { businessId: true },
+            }),
+        ]);
+        const bizIds = [...new Set([...ownedBizs.map((b) => b.id), ...memberBizs.map((m) => m.businessId)])];
         if (!bizIds.length) return null;
 
         const cm = await this.prisma.catalogMember.findFirst({
