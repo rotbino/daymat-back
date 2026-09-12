@@ -40,7 +40,7 @@ enum ArmRole {
 enum CatalogRole {
   catalog_owner  // مالک کاتالوگ (مدیر فروش آنلاین) — نشانه‌گذاری رکورد؛ ملاکِ واقعیِ اونری: Business.ownerUserId (مشتق)
   catalog_admin  // ادمین کاتالوگ — توسط اونر منصوب می‌شود؛ در مدیریت کاتالوگ سهیم است (ویرایش محصول/قیمت/انتشار) به‌جز انتقال مالکیت
-  catalog_member // عضو عادی تیم کاتالوگ (بازاریاب یا مشتری)
+  catalog_member // عضو عادی کاتالوگ (همکار فروش، خریدار یا تامین‌کننده)
 }
 
 model VerificationCode {
@@ -117,8 +117,8 @@ model User {
   searchLogs               SearchLog[]
   catalogInteractions      CatalogInteraction[]
   businesses               Business[]             @relation("BizOwner")
-  catalogMemberships       CatalogMember[]        @relation("CatMemberUser") // تیم‌های کاتالوگی که عضوشان است (بازاریاب/مشتری/ادمین)
-  catalogAssignedCustomers CatalogMember[]        @relation("CatMemberAssignee") // مشتری‌هایی که به او به‌عنوان بازاریاب منتسب شده‌اند
+  catalogMemberships       CatalogMember[]        @relation("CatMemberUser") // کاتالوگ‌هایی که عضوشان است (همکار فروش/خریدار/تامین‌کننده/مدیر)
+  catalogAssignedCustomers CatalogMember[]        @relation("CatMemberAssignee") // خریدارهایی که به او به‌عنوان مسئول فروش منتسب شده‌اند
   catalogTeamEvents        CatalogTeamEvent[]     @relation("CatTeamEventUser") // رویدادهای تیمیِ مربوط به کاربر
 
   @@index([status])
@@ -164,8 +164,8 @@ model Business {
   membershipRequests ArmMembershipRequest[] @relation("ArmMembershipRequests")
   leaveRequests      ArmLeaveRequest[]      @relation("ArmLeaveRequests")
   catalogs           Catalog[]              @relation("BusinessCatalogs")
-  catalogSellerLanes   CatalogMember[] @relation("CatMemberSellerBiz")   // کاتالوگ‌هایی که این کسب‌وکار از طریقشان می‌فروشد (بازاریاب)
-  catalogCustomerLanes CatalogMember[] @relation("CatMemberCustomerBiz") // کاتالوگ‌هایی که این کسب‌وکار مشتری‌شان است
+  catalogSellerLanes   CatalogMember[] @relation("CatMemberSellerBiz")   // کاتالوگ‌هایی که این کسب‌وکار از طریقشان می‌فروشد (همکار فروش)
+  catalogCustomerLanes CatalogMember[] @relation("CatMemberCustomerBiz") // کاتالوگ‌هایی که این کسب‌وکار خریدارشان است
   verifications      Verification[]         @relation("BusinessVerification")
   activities         BusinessActivity[]     @relation("BusinessActivity") // ✅ از Catalog برگشت
 
@@ -205,7 +205,8 @@ model Catalog {
 
   files               File[]
   teamMembers         TeamMember[]
-  members             CatalogMember[]    @relation("CatMemberCatalog") // تیم کاتالوگ (اونر/ادمین/بازاریاب/مشتری)
+  members             CatalogMember[]    @relation("CatMemberCatalog") // اعضای کاتالوگ (مالک/مدیر/همکار فروش/خریدار)
+  supplierMemberships CatalogMember[]    @relation("CatMemberSupplierCatalog") // کاتالوگ‌هایی که این کاتالوگ ازشان تامین می‌کند
   teamEvents          CatalogTeamEvent[] @relation("CatTeamEventCatalog")
   ads                 Ad[]
   armMemberships      ArmMembership[]
@@ -271,15 +272,17 @@ model TeamMember {
 
 // ============================================================
 // تیم کاتالوگ (CatalogMember) — عضویتِ کاربر در تیمِ یک کاتالوگ:
-//   سناریو: بازار پخش سوپرمارکتی — یک بازاریاب «اونر کاتالوگ» (مدیر فروش آنلاین)
-//   کاتالوگ شرکت را می‌سازد و کالاها/آگهی‌ها را اضافه می‌کند؛ بقیهٔ بازاریاب‌های شرکت
-//   به‌جای کاتالوگِ جدا، عضو همین کاتالوگ می‌شوند تا کالا تکرار نشود؛ هر سوپرمارکت
-//   (مشتری) به بازاریابِ منطقهٔ خودش منتسب می‌شود تا تماسش از آگهی به بازاریابِ خودش برسد.
+//   کاتالوگ ابزار ارتباطات تجاری در هر دسته‌بندی کالاست (پخش فقط یک نمونه است):
+//   مالک کاتالوگ اعضا را مدیریت می‌کند؛ همکاران فروش (فروشنده/ویزیتور) کالا تکرار نمی‌کنند
+//   و خریدارها به مسئول فروشِ خودشان منتسب می‌شوند تا تماسشان مسیریابی شود؛
+//   تامین‌کننده‌ها با کاتالوگِ خودشان عضو می‌شوند (شبکه‌سازی بین کاتالوگ‌ها).
+//   ورود به همهٔ لِین‌ها از یک در: «درخواست همکاری» روی کاتالوگ + تایید مدیر (مالک کاتالوگ).
 //
 //   نقش سیستمی (role):   catalog_owner (نشانه‌گذار؛ ملاک = Business.ownerUserId)
 //                        catalog_admin (منصوبِ اونر — سهیم در مدیریت) | catalog_member
-//   نقش بیزینسی (لِین‌ها): فروشندهٔ کاتالوگ (بازاریاب — sellerBusinessId + منطقه)
-//                        خریدار کاتالوگ (سوپرمارکت — customerBusinessId)
+//   لِین‌های بیزینسی:     همکار فروش (فروشنده/ویزیتور — sellerBusinessId + منطقهٔ فروش)
+//                        خریدار (customerBusinessId — منتسب به مسئول فروش)
+//                        تامین‌کننده (supplierCatalogId — عضویت با کاتالوگِ خودش)
 //   یک رکورد برای هر کاربر در هر کاتالوگ — می‌تواند همزمان چند لِین داشته باشد
 //   (مثلاً اونر که خودش هم فروشنده است).
 //   همهٔ تاریخ‌ها و عامل‌ها + CatalogTeamEvent برای شکایت‌ها — هم‌راستا با ArmMembership.
@@ -305,18 +308,30 @@ model CatalogMember {
   sellerLeftAt     DateTime?
   sellerRegion     String? // منطقهٔ فروش آزاد (مثل «غرب تهران») — هر عضوِ فروش فقط از منطقهٔ خودش سفارش می‌گیرد
 
-  // ── لِین خریدار (مشتری/سوپرمارکت) ── توسط عضوِ فروش ثبت می‌شود؛ صاحبِ کسب‌وکار تایید می‌کند
+  // ── لِین خریدار ── دو مسیر: ثبتِ توسط عضوِ فروش (تایید با صاحبِ کسب‌وکار) یا درخواست همکاریِ خودِ خریدار (تایید با مدیر)
   customerBusinessId String?   @db.ObjectId
   customerBusiness   Business? @relation("CatMemberCustomerBiz", fields: [customerBusinessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  customerStatus     String? // pending | active | removed — null = مشتری نیست
+  customerStatus     String? // pending | active | removed — null = خریدار نیست
   customerJoinedAt   DateTime?
   customerLeftAt     DateTime?
-  customerAddedByUserId String? @db.ObjectId // چه کسی (عضوِ فروش/مدیر) ثبتش کرده
+  customerAddedByUserId String? @db.ObjectId // چه کسی ثبتش کرده (عضوِ فروش/مدیر)
+  customerVia        String? // owner_add | self_request — مسیر ورود به لِین خریدار
 
-  // ── انتساب مشتری به مسئولِ خودش (مسیریابی تماس از آگهی) ──
+  // ── انتساب خریدار به مسئولِ خودش (مسیریابی تماس از آگهی) ──
   assignedSellerUserId String?  @db.ObjectId
   assignedSellerUser   User?    @relation("CatMemberAssignee", fields: [assignedSellerUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   assignedAt           DateTime?
+
+  // ── لِین تامین‌کننده ── عضویت با کاتالوگِ خودِ تامین‌کننده (شبکه‌سازی بین کاتالوگ‌ها)
+  supplierCatalogId String?  @db.ObjectId
+  supplierCatalog   Catalog? @relation("CatMemberSupplierCatalog", fields: [supplierCatalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  supplierStatus    String? // pending | active | removed — null = تامین‌کننده نیست
+  supplierJoinedAt  DateTime?
+  supplierLeftAt    DateTime?
+
+  // ── شهر/استانِ لحظهٔ درخواست همکاری — مالک کاتالوگ می‌بیند
+  memberCity     String?
+  memberProvince String?
 
   invitedBy String?   @db.ObjectId
   joinedAt  DateTime  @default(now()) // ورود به تیم کاتالوگ
@@ -331,6 +346,7 @@ model CatalogMember {
   @@index([sellerBusinessId])
   @@index([customerBusinessId])
   @@index([assignedSellerUserId])
+  @@index([supplierCatalogId])
 }
 
 // تاریخچهٔ تیم کاتالوگ — هر تغییر نقش/لِین/انتساب یک رویداد با عامل ثبت می‌شود (برای شکایت‌ها)
@@ -340,7 +356,8 @@ model CatalogTeamEvent {
   catalog     Catalog  @relation("CatTeamEventCatalog", fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   userId      String   @db.ObjectId // عضوی که رویداد دربارهٔ اوست
   user        User     @relation("CatTeamEventUser", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  eventType   String // seller_requested | seller_approved | seller_rejected | seller_removed | seller_left |
+  eventType   String // coop_requested | seller_requested | seller_approved | seller_rejected | seller_removed | seller_left |
+                     // buyer_approved | buyer_rejected | supplier_approved | supplier_rejected |
                      // admin_promoted | admin_demoted | customer_added | customer_confirmed | customer_declined |
                      // customer_removed | customer_left | customer_reassigned | joined | left | region_set
   actorUserId String?  @db.ObjectId // خود کاربر / اونر / ادمین — null = سیستم
@@ -913,7 +930,7 @@ model CallEvent {
   ledToDeal         Boolean?
   feedbackText      String?
   source            String?
-  routedToUserId    String?   @db.ObjectId // مسیریابی تماس به بازاریابِ منتسب (تیم کاتالوگ) — null = مسیر عادی
+  routedToUserId    String?   @db.ObjectId // مسیریابی تماس به مسئول فروشِ منتسب (اعضای کاتالوگ) — null = مسیر عادی
 
   @@index([adId, initiatedAt])
 }

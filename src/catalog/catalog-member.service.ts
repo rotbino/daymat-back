@@ -10,17 +10,18 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CacheHelper } from '../common/services/cache.helper';
 
 /**
- * تیم کاتالوگ — عضویت کاربران در تیمِ یک کاتالوگ (سناریوی بازار پخش سوپرمارکتی):
+ * اعضای کاتالوگ — ابزار ارتباطات تجاری برای هر دسته‌بندی کالا (پخش فقط یک نمونه است):
  *
- *   نقش سیستمی:  اونر (= مالکِ کسب‌وکارِ کاتالوگ — مشتق، بالاترین دسترسی)
- *                ادمین (منصوبِ اونر — سهیم در مدیریت) | ممبر
- *   لِین بیزینسی: فروشنده/ویزیتور کاتالوگ (با منطقهٔ فروش)
- *                خریدار کاتالوگ (سوپرمارکت — منتسب به یک عضوِ فروش برای مسیریابی تماس)
+ *   نقش سیستمی:  مالک (= مالکِ کسب‌وکارِ کاتالوگ — مشتق، بالاترین دسترسی)
+ *                مدیر (منصوبِ مالک — سهیم در مدیریت) | عضو
+ *   لِین بیزینسی: همکار فروش (فروشنده/ویزیتور — با منطقهٔ فروش)
+ *                خریدار (کسب‌وکارِ ثبت‌شده — منتسب به یک مسئول فروش برای مسیریابی تماس)
+ *                تامین‌کننده (عضویت با کاتالوگِ خودش — شبکه‌سازی بین کاتالوگ‌ها)
  *
- *   جریان‌ها:
- *   - فروش/ویزیتور: درخواست عضویت → تایید مدیر (مالک کاتالوگ) → فعال
- *   - مشتری: عضوِ فروش ثبتش می‌کند (pending) → صاحب سوپرمارکت تایید می‌کند → فعال
- *   - تماس از آگهی: مشتریِ فعال با مسئولِ منتسب → شمارهٔ همان عضوِ فروش (resolveCallRoute)
+ *   جریان‌ها (یک در برای همه: «درخواست همکاری» روی کاتالوگ):
+ *   - هر سه نقش: درخواست → تایید مدیر (مالک کاتالوگ) → فعال
+ *   - خریدارِ ثبت‌شده توسط مسئول فروش: تایید با صاحبِ کسب‌وکار (مسیر Push حفظ شده)
+ *   - تماس از آگهی: خریدارِ فعال با مسئولِ منتسب → شمارهٔ همان عضوِ فروش (resolveCallRoute)
  *
  *   همهٔ تغییرها: تاریخ دقیق + عامل + رویداد CatalogTeamEvent — برای شکایت‌ها.
  */
@@ -133,7 +134,12 @@ export class CatalogMemberService {
 
     /** آیا رکورد هنوز لِین فعالی دارد؟ (برای تعیین status کلی) */
     private hasAnyActiveLane(row: any): boolean {
-        return row.status === 'active' || row.sellerStatus === 'active' || row.customerStatus === 'active';
+        return (
+            row.status === 'active' ||
+            row.sellerStatus === 'active' ||
+            row.customerStatus === 'active' ||
+            row.supplierStatus === 'active'
+        );
     }
 
     private async syncOverallStatus(catalogId: string, userId: string) {
@@ -200,6 +206,13 @@ export class CatalogMemberService {
                 ? { id: row.customerBusiness.id, name: row.customerBusiness.name, phone: row.customerBusiness.phone, city: row.customerBusiness.city || null, slug: slugFor(row.customerBusiness.id) }
                 : null,
             customerJoinedAt: row.customerJoinedAt || null,
+            supplierStatus: row.supplierStatus || null,
+            supplierCatalog: row.supplierCatalog
+                ? { id: row.supplierCatalog.id, name: row.supplierCatalog.name, slug: row.supplierCatalog.slug, logoUrl: row.supplierCatalog.logoUrl || null }
+                : null,
+            supplierJoinedAt: row.supplierJoinedAt || null,
+            memberCity: row.memberCity || null,
+            memberProvince: row.memberProvince || null,
             assignedSellerUserId: row.assignedSellerUserId || null,
             assignedAt: row.assignedAt || null,
             joinedAt: row.joinedAt,
@@ -227,9 +240,12 @@ export class CatalogMemberService {
         const ownerUserId = catalog.business.ownerUserId;
         const ownerVisible = rows.some(
             (r) => r.userId === ownerUserId && r.status === 'active' &&
-                (r.sellerStatus === 'active' || r.customerStatus === 'active' || r.customerStatus === 'pending' || r.role === 'catalog_admin'),
+                (r.sellerStatus === 'active' || r.customerStatus === 'active' || r.customerStatus === 'pending' ||
+                    r.supplierStatus === 'active' || r.role === 'catalog_admin'),
         );
-        const adminRows = rows.filter((r) => r.role === 'catalog_admin' && r.status === 'active' && !r.sellerStatus && !r.customerStatus);
+        const adminRows = rows.filter(
+            (r) => r.role === 'catalog_admin' && r.status === 'active' && !r.sellerStatus && !r.customerStatus && !r.supplierStatus,
+        );
         const cards: any[] = adminRows.map((r) => ({
             ...this.memberCard(r, armSlugByBiz),
             phone: canManage ? r.user?.phone || null : null,
@@ -259,6 +275,11 @@ export class CatalogMemberService {
                     customerStatus: null,
                     customerBusiness: null,
                     customerJoinedAt: null,
+                    supplierStatus: null,
+                    supplierCatalog: null,
+                    supplierJoinedAt: null,
+                    memberCity: null,
+                    memberProvince: null,
                     assignedSellerUserId: null,
                     assignedAt: null,
                     joinedAt: null,
@@ -271,9 +292,10 @@ export class CatalogMemberService {
     }
 
     private readonly MEMBER_INCLUDE = {
-        user: { select: { id: true, fullName: true, phone: true, avatarUrl: true } },
-        sellerBusiness: { select: { id: true, name: true, phone: true } },
+        user: { select: { id: true, fullName: true, phone: true, avatarUrl: true, city: true, province: true } },
+        sellerBusiness: { select: { id: true, name: true, phone: true, city: true } },
         customerBusiness: { select: { id: true, name: true, phone: true, city: true } },
+        supplierCatalog: { select: { id: true, name: true, slug: true, logoUrl: true } },
     } as const;
 
     // ════════════════════════════════════════════════════════════
@@ -291,25 +313,35 @@ export class CatalogMemberService {
         const settings = await this.getEffectiveCatalogSettings(catalog.id);
         const ownerUserId = catalog.business.ownerUserId;
 
-        // ── نمای عمومی (کاربر لاگین‌شدهٔ غیرعضو) — فهرست اعضای فروش بدون شماره تماس ──
+        // ── نمای عمومی (کاربر لاگین‌شدهٔ غیرعضو) — همکاران فروش + تامین‌کننده‌ها، بدون شماره تماس ──
         if (!isOwner && !isAdmin && !isSeller && !isPendingSeller) {
             const publicRows = await this.prisma.catalogMember.findMany({
-                where: { catalogId: catalog.id, sellerStatus: 'active' },
+                where: { catalogId: catalog.id, OR: [{ sellerStatus: 'active' }, { supplierStatus: 'active' }] },
                 include: this.MEMBER_INCLUDE,
-                orderBy: { sellerJoinedAt: 'asc' },
+                orderBy: { createdAt: 'asc' },
             });
             const armSlugs = await this.armSlugMap([
                 ...publicRows.flatMap((r) => [r.sellerBusinessId, r.customerBusinessId]),
                 catalog.businessId,
             ]);
-            const publicSellers = publicRows.map((r) => ({
-                ...this.memberCard(r, armSlugs),
-                phone: null,
-                isOwner: r.userId === ownerUserId,
-                isAdmin: r.role === 'catalog_admin',
-                customersCount: 0,
-            }));
-            // کادر (مالک + مدیرهای خالص) — بدون لِین فروش فعال
+            const publicSellers = publicRows
+                .filter((r) => r.sellerStatus === 'active')
+                .map((r) => ({
+                    ...this.memberCard(r, armSlugs),
+                    phone: null,
+                    isOwner: r.userId === ownerUserId,
+                    isAdmin: r.role === 'catalog_admin',
+                    customersCount: 0,
+                }));
+            const publicSuppliers = publicRows
+                .filter((r) => r.supplierStatus === 'active')
+                .map((r) => ({
+                    ...this.memberCard(r, armSlugs),
+                    phone: null,
+                    isOwner: r.userId === ownerUserId,
+                    isAdmin: r.role === 'catalog_admin',
+                }));
+            // کادر (مالک + مدیرهای خالص) — بدون لِین فعال
             const staffRows = await this.prisma.catalogMember.findMany({
                 where: { catalogId: catalog.id, role: 'catalog_admin', status: 'active' },
                 include: this.MEMBER_INCLUDE,
@@ -338,10 +370,11 @@ export class CatalogMemberService {
                 },
                 staff,
                 sellers: publicSellers,
-                pendingSellers: [],
+                suppliers: publicSuppliers,
+                pendingRequests: [],
                 customers: [],
                 events: [],
-                stats: { sellers: publicSellers.length, pendingSellers: 0, customers: 0 },
+                stats: { sellers: publicSellers.length, suppliers: publicSuppliers.length, pendingRequests: 0, customers: 0 },
                 settings,
             };
         }
@@ -354,6 +387,7 @@ export class CatalogMemberService {
                 OR: [
                     { sellerStatus: { in: ['active', 'pending'] } },
                     { customerStatus: { in: ['active', 'pending'] } },
+                    { supplierStatus: { in: ['active', 'pending'] } },
                     { role: 'catalog_admin', status: 'active' },
                 ],
             },
@@ -367,7 +401,7 @@ export class CatalogMemberService {
             catalog.businessId,
         ]);
 
-        // شمارش مشتری‌های هر عضوِ فروش
+        // شمارش خریدارهای هر عضوِ فروش
         const customerCounts = new Map<string, number>();
         for (const r of rows) {
             if (r.customerStatus === 'active' && r.assignedSellerUserId) {
@@ -384,8 +418,34 @@ export class CatalogMemberService {
                 customersCount: customerCounts.get(r.userId) || 0,
             }));
 
-        const pendingSellers = canManage
-            ? rows.filter((r) => r.sellerStatus === 'pending').map((r) => ({ ...this.memberCard(r, armSlugs), note: null }))
+        const suppliers = rows
+            .filter((r) => r.supplierStatus === 'active')
+            .map((r) => ({
+                ...this.memberCard(r, armSlugs),
+                isOwner: r.userId === ownerUserId,
+                isAdmin: r.role === 'catalog_admin',
+            }));
+
+        // درخواست‌های همکاریِ در انتظار تایید مدیر — تایپ‌دار برای UI
+        const pendingRequests = canManage
+            ? rows
+                  .filter((r) => r.sellerStatus === 'pending' || r.customerStatus === 'pending' || r.supplierStatus === 'pending')
+                  .map((r) => {
+                      const card = this.memberCard(r, armSlugs);
+                      if (r.sellerStatus === 'pending') {
+                          return { ...card, requestType: 'seller' as const, pendingGate: 'manager' as const, note: null };
+                      }
+                      if (r.supplierStatus === 'pending') {
+                          return { ...card, requestType: 'supplier' as const, pendingGate: 'manager' as const, note: null };
+                      }
+                      // لِین خریدار — دو مسیر: درخواستِ خودِ خریدار (تایید با مدیر) یا ثبتِ توسط فروشنده (تایید با صاحبِ کسب‌وکار)
+                      return {
+                          ...card,
+                          requestType: 'buyer' as const,
+                          pendingGate: (r.customerVia === 'self_request' ? 'manager' : 'business_owner') as 'manager' | 'business_owner',
+                          note: null,
+                      };
+                  })
             : [];
 
         let customers = rows
@@ -414,7 +474,7 @@ export class CatalogMemberService {
             return { ...c, sellerName: s ? (s.fullName || s.businessName) : null };
         });
 
-        // فروشندهٔ عادی فقط مشتری‌های خودش را می‌بیند
+        // عضوِ فروش فقط خریدارهای خودش را می‌بیند
         const scopedCustomers = canManage ? customers : customers.filter((c) => c.assignedSellerUserId === actorId);
         const scopedSellers = canManage
             ? sellers
@@ -457,12 +517,14 @@ export class CatalogMemberService {
             },
             staff,
             sellers: scopedSellers,
-            pendingSellers,
+            suppliers,
+            pendingRequests,
             customers: scopedCustomers,
             events,
             stats: {
                 sellers: sellers.length,
-                pendingSellers: canManage ? pendingSellers.length : undefined,
+                suppliers: suppliers.length,
+                pendingRequests: canManage ? pendingRequests.length : undefined,
                 activeCustomers: customers.filter((c) => c.customerStatus === 'active').length,
                 pendingCustomers: customers.filter((c) => c.customerStatus === 'pending').length,
             },
@@ -480,7 +542,7 @@ export class CatalogMemberService {
         };
     }
 
-    /** همهٔ عضویت‌های تیمی من در سراسر کاتالوگ‌ها — پروفایل و سوییچر */
+    /** همهٔ عضویت‌های من در سراسر کاتالوگ‌ها — پروفایل و سوییچر */
     async getMyMemberships(userId: string) {
         const rows = await this.prisma.catalogMember.findMany({
             where: {
@@ -489,6 +551,7 @@ export class CatalogMemberService {
                 OR: [
                     { sellerStatus: { in: ['active', 'pending'] } },
                     { customerStatus: { in: ['active', 'pending'] } },
+                    { supplierStatus: { in: ['active', 'pending'] } },
                     { role: 'catalog_admin' },
                 ],
             },
@@ -535,6 +598,9 @@ export class CatalogMemberService {
                 customerStatus: r.customerStatus || null,
                 customerBusinessName: r.customerBusiness?.name || null,
                 customerJoinedAt: r.customerJoinedAt || null,
+                supplierStatus: r.supplierStatus || null,
+                supplierCatalogName: r.supplierCatalog?.name || null,
+                supplierJoinedAt: r.supplierJoinedAt || null,
                 assignedSeller: seller
                     ? { userId: r.assignedSellerUserId, fullName: seller.fullName, businessName: seller.businessName, phone: seller.phone }
                     : null,
@@ -543,56 +609,145 @@ export class CatalogMemberService {
     }
 
     // ════════════════════════════════════════════════════════════
-    //  لِین فروش (فروشنده/ویزیتور)
+    //  درخواست همکاری — یک در برای هر سه نقش بیزینسی (فروش/خرید/تامین)
     // ════════════════════════════════════════════════════════════
 
-    /** درخواست عضویت در لِین فروش کاتالوگ — عضوِ شرکت */
-    async joinAsSeller(catalogId: string, userId: string, dto: { sellerBusinessId?: string; note?: string; sellerRole?: 'seller' | 'visitor' }) {
+    /**
+     * درخواست همکاری با کاتالوگ — کاربر روی کاتالوگ دکمهٔ «درخواست همکاری» را می‌زند:
+     *   type=seller   → همکار فروش (فروشنده/ویزیتور — برچسب ترجیحی؛ کسب‌وکار اختیاری)
+     *   type=buyer    → خریدار (الزامی: انتخاب کسب‌وکار)
+     *   type=supplier → تامین‌کننده (الزامی: انتخاب کاتالوگِ خودش)
+     * همهٔ درخواست‌ها pending می‌مانند تا تایید مدیر (مالک کاتالوگ).
+     * شهر/استانِ لحظهٔ درخواست روی رکورد اسنپ‌شات می‌شود تا مالک ببیند.
+     */
+    async joinCoop(
+        catalogId: string,
+        userId: string,
+        dto: { type: 'seller' | 'buyer' | 'supplier'; sellerRole?: 'seller' | 'visitor'; businessId?: string; supplierCatalogId?: string; note?: string },
+    ) {
         const catalog = await this.getCatalogOrThrow(catalogId);
         if (this.isOwner(catalog, userId)) {
-            throw new ConflictException({ errorCode: 'IS_CATALOG_OWNER', message: 'اونر کاتالوگ به‌طور پیش‌فرض فروشنده است — نیازی به درخواست نیست' });
+            throw new ConflictException({ errorCode: 'IS_CATALOG_OWNER', message: 'مالک کاتالوگ به‌طور پیش‌فرض عضو است — نیازی به درخواست همکاری نیست' });
         }
 
-        // گیتِ چندفروشندگی — از تنظیمات بازار (با اورایت اختصاصی کاتالوگ)
-        const settings = await this.getEffectiveCatalogSettings(catalog.id);
-        if (!settings.multiSeller) {
-            throw new ForbiddenException({
-                errorCode: 'MULTI_SELLER_DISABLED',
-                message: 'چندفروشندگی برای این کاتالوگ فعال نیست — فقط اونر کاتالوگ فروشنده است',
+        const type = dto?.type;
+        if (!['seller', 'buyer', 'supplier'].includes(type)) {
+            throw new BadRequestException({ errorCode: 'INVALID_TYPE', message: 'نوع همکاری نامعتبر است' });
+        }
+
+        // شهر/استان — از کسب‌وکار/کاتالوگ انتخابی، وگرنه از پروفایل کاربر
+        const me = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: { id: true, city: true, province: true },
+        });
+        let memberCity = me?.city || null;
+        let memberProvince = me?.province || null;
+
+        const existing = await this.getMemberRow(catalog.id, userId);
+        const laneTaken =
+            (type === 'seller' && (existing?.sellerStatus === 'active' || existing?.sellerStatus === 'pending')) ||
+            (type === 'buyer' && (existing?.customerStatus === 'active' || existing?.customerStatus === 'pending')) ||
+            (type === 'supplier' && (existing?.supplierStatus === 'active' || existing?.supplierStatus === 'pending'));
+        if (laneTaken) {
+            throw new ConflictException({ errorCode: 'ALREADY_REQUESTED', message: 'درخواست همکاری شما قبلاً ثبت شده است' });
+        }
+
+        const data: any = {
+            status: 'active' as const,
+            leftAt: null as Date | null,
+            memberCity,
+            memberProvince,
+        };
+
+        if (type === 'seller') {
+            // گیتِ چندفروشندگی — از تنظیمات بازار (با اورایت اختصاصی کاتالوگ)
+            const settings = await this.getEffectiveCatalogSettings(catalog.id);
+            if (!settings.multiSeller) {
+                throw new ForbiddenException({
+                    errorCode: 'MULTI_SELLER_DISABLED',
+                    message: 'همکاری در فروش برای این کاتالوگ فعال نیست — فقط مالک کاتالوگ فروشنده است',
+                });
+            }
+            // کسب‌وکار اختیاری برای همکار فروش — اگر داد باید مال خودش باشد
+            let businessId: string | null = null;
+            if (dto.businessId) {
+                const biz = await this.prisma.business.findUnique({
+                    where: { id: dto.businessId },
+                    select: { id: true, ownerUserId: true, status: true, city: true, province: true },
+                });
+                if (!biz || biz.ownerUserId !== userId || biz.status !== 'active') {
+                    throw new BadRequestException({ errorCode: 'INVALID_BUSINESS', message: 'کسب‌وکار انتخابی معتبر نیست' });
+                }
+                businessId = biz.id;
+                memberCity = biz.city || memberCity;
+                memberProvince = biz.province || memberProvince;
+            }
+            Object.assign(data, {
+                sellerBusinessId: businessId,
+                sellerStatus: 'pending' as const,
+                sellerRole: (dto.sellerRole === 'visitor' ? 'visitor' : 'seller') as string,
+                sellerJoinedAt: null as Date | null,
+                sellerLeftAt: null as Date | null,
+                memberCity,
+                memberProvince,
             });
-        }
-
-        // کسب‌وکار فروشنده — پیش‌فرض: اولین کسب‌وکار فعال
-        let businessId = dto?.sellerBusinessId;
-        if (businessId) {
-            const biz = await this.prisma.business.findUnique({ where: { id: businessId }, select: { id: true, ownerUserId: true, status: true } });
+        } else if (type === 'buyer') {
+            if (!dto.businessId) {
+                throw new BadRequestException({ errorCode: 'BUSINESS_REQUIRED', message: 'برای درخواست همکاری به‌عنوان خریدار، ابتدا کسب‌وکار خود را انتخاب یا بسازید' });
+            }
+            const biz = await this.prisma.business.findUnique({
+                where: { id: dto.businessId },
+                select: { id: true, ownerUserId: true, status: true, city: true, province: true },
+            });
             if (!biz || biz.ownerUserId !== userId || biz.status !== 'active') {
                 throw new BadRequestException({ errorCode: 'INVALID_BUSINESS', message: 'کسب‌وکار انتخابی معتبر نیست' });
             }
-        } else {
-            const mine = await this.prisma.business.findFirst({
-                where: { ownerUserId: userId, status: 'active' },
-                orderBy: { createdAt: 'asc' },
-                select: { id: true },
+            if (biz.id === catalog.businessId) {
+                throw new BadRequestException({ errorCode: 'OWN_CATALOG_BUSINESS', message: 'این کسب‌وکار مالِ همین کاتالوگ است' });
+            }
+            // این کسب‌وکار از قبل خریدار همین کاتالوگ نباشد (حتی از رکورد کاربر دیگری)
+            const dup = await this.prisma.catalogMember.findFirst({
+                where: { catalogId: catalog.id, customerBusinessId: biz.id, customerStatus: { in: ['active', 'pending'] } },
             });
-            if (!mine) throw new BadRequestException({ errorCode: 'NO_BUSINESS', message: 'ابتدا یک کسب‌وکار بسازید' });
-            businessId = mine.id;
+            if (dup) {
+                throw new ConflictException({ errorCode: 'ALREADY_CUSTOMER', message: 'این کسب‌وکار قبلاً به‌عنوان خریدار ثبت شده است' });
+            }
+            memberCity = biz.city || memberCity;
+            memberProvince = biz.province || memberProvince;
+            Object.assign(data, {
+                customerBusinessId: biz.id,
+                customerStatus: 'pending' as const,
+                customerVia: 'self_request' as const,
+                customerJoinedAt: null as Date | null,
+                customerLeftAt: null as Date | null,
+                memberCity,
+                memberProvince,
+            });
+        } else {
+            if (!dto.supplierCatalogId) {
+                throw new BadRequestException({ errorCode: 'SUPPLIER_CATALOG_REQUIRED', message: 'برای درخواست همکاری به‌عنوان تامین‌کننده، ابتدا کاتالوگ خود را انتخاب یا بسازید' });
+            }
+            const supCatalog = await this.prisma.catalog.findUnique({
+                where: { id: dto.supplierCatalogId },
+                select: { id: true, businessId: true, status: true, city: true, province: true, business: { select: { ownerUserId: true } } },
+            });
+            if (!supCatalog || supCatalog.status === 'closed' || supCatalog.business.ownerUserId !== userId) {
+                throw new BadRequestException({ errorCode: 'INVALID_SUPPLIER_CATALOG', message: 'کاتالوگ انتخابی معتبر نیست' });
+            }
+            if (supCatalog.id === catalog.id) {
+                throw new BadRequestException({ errorCode: 'SELF_SUPPLIER', message: 'کاتالوگ نمی‌تواند تامین‌کنندهٔ خودش باشد' });
+            }
+            memberCity = supCatalog.city || memberCity;
+            memberProvince = supCatalog.province || memberProvince;
+            Object.assign(data, {
+                supplierCatalogId: supCatalog.id,
+                supplierStatus: 'pending' as const,
+                supplierJoinedAt: null as Date | null,
+                supplierLeftAt: null as Date | null,
+                memberCity,
+                memberProvince,
+            });
         }
-
-        const existing = await this.getMemberRow(catalog.id, userId);
-        if (existing && (existing.sellerStatus === 'active' || existing.sellerStatus === 'pending')) {
-            throw new ConflictException({ errorCode: 'ALREADY_SELLER', message: 'درخواست فروشندگی شما قبلاً ثبت شده است' });
-        }
-
-        const data = {
-            sellerBusinessId: businessId,
-            sellerStatus: 'pending' as const,
-            sellerRole: (dto?.sellerRole === 'visitor' ? 'visitor' : 'seller') as string,
-            sellerJoinedAt: null as Date | null,
-            sellerLeftAt: null as Date | null,
-            status: 'active' as const,
-            leftAt: null as Date | null,
-        };
 
         if (existing) {
             await this.prisma.catalogMember.update({ where: { id: existing.id }, data });
@@ -600,12 +755,13 @@ export class CatalogMemberService {
             await this.prisma.catalogMember.create({ data: { catalogId: catalog.id, userId, ...data } });
         }
 
-        await this.event(catalog.id, userId, 'seller_requested', userId, dto?.note || null, { businessId });
+        await this.event(catalog.id, userId, 'coop_requested', userId, dto?.note || null, { type });
         await this.bustUsersCache([userId]);
-        return { success: true, message: 'درخواست عضویت شما ثبت شد — در انتظار تایید مدیر (مالک کاتالوگ)' };
+        const label = type === 'seller' ? 'همکاری در فروش' : type === 'buyer' ? 'خریدار' : 'تامین‌کننده';
+        return { success: true, requestType: type, message: `درخواست همکاری (${label}) ثبت شد — در انتظار تایید مدیر (مالک کاتالوگ)` };
     }
 
-    /** تایید درخواست عضویت در لِین فروش — اونر/مدیر؛ نقش بیزینسی (فروشنده/ویزیتور) اینجا تعیین می‌شود */
+    /** تایید درخواست همکار فروش — مالک/مدیر؛ نقش بیزینسی (فروشنده/ویزیتور) اینجا تعیین می‌شود */
     async approveSeller(catalogId: string, memberId: string, actorId: string, sellerRole?: 'seller' | 'visitor') {
         const catalog = await this.getCatalogOrThrow(catalogId);
         await this.assertTeamManager(catalog, actorId);
@@ -627,7 +783,7 @@ export class CatalogMemberService {
         return { success: true, message: 'به اعضا اضافه شد' };
     }
 
-    /** رد درخواست فروشندگی — اونر/ادمین */
+    /** رد درخواست همکاری (هر نقش) — مالک/مدیر */
     async rejectSeller(catalogId: string, memberId: string, actorId: string, reason?: string) {
         const catalog = await this.getCatalogOrThrow(catalogId);
         await this.assertTeamManager(catalog, actorId);
@@ -642,7 +798,117 @@ export class CatalogMemberService {
         await this.syncOverallStatus(catalog.id, row.userId);
         await this.event(catalog.id, row.userId, 'seller_rejected', actorId, reason || null);
         await this.bustUsersCache([row.userId, actorId]);
-        return { success: true, message: 'درخواست فروشندگی رد شد' };
+        return { success: true, message: 'درخواست همکاری رد شد' };
+    }
+
+    /** تایید درخواست همکاریِ خریدار — مالک/مدیر؛ با انتساب اختیاری به عضوِ فروش */
+    async approveBuyer(catalogId: string, memberId: string, actorId: string, sellerUserId?: string) {
+        const catalog = await this.getCatalogOrThrow(catalogId);
+        await this.assertTeamManager(catalog, actorId);
+        const row = await this.getMemberById(catalog.id, memberId, { customerBusiness: { select: { id: true, name: true } } });
+        if (row.customerStatus !== 'pending' || row.customerVia !== 'self_request') {
+            throw new ConflictException({ errorCode: 'NOT_PENDING', message: 'این درخواست در انتظار تایید مدیر نیست' });
+        }
+        let assignedSellerUserId = row.assignedSellerUserId || null;
+        if (sellerUserId) {
+            const sellerRow = await this.getMemberRow(catalog.id, sellerUserId);
+            if (!this.hasActiveSellerLane(sellerRow)) {
+                throw new BadRequestException({ errorCode: 'INVALID_SELLER', message: 'مسئول فروشِ انتخابی فعال نیست' });
+            }
+            assignedSellerUserId = sellerUserId;
+        }
+        await this.prisma.catalogMember.update({
+            where: { id: row.id },
+            data: {
+                customerStatus: 'active',
+                customerJoinedAt: new Date(),
+                customerLeftAt: null,
+                assignedSellerUserId,
+                assignedAt: assignedSellerUserId ? new Date() : null,
+            },
+        });
+        await this.event(catalog.id, row.userId, 'buyer_approved', actorId, null, {
+            businessId: (row.customerBusiness as any)?.id,
+            assignedSellerUserId,
+        });
+        await this.bustUsersCache([row.userId, actorId]);
+        return { success: true, message: 'به اعضا اضافه شد' };
+    }
+
+    /** رد درخواست همکاریِ خریدار — مالک/مدیر */
+    async rejectBuyer(catalogId: string, memberId: string, actorId: string, reason?: string) {
+        const catalog = await this.getCatalogOrThrow(catalogId);
+        await this.assertTeamManager(catalog, actorId);
+        const row = await this.getMemberById(catalog.id, memberId);
+        if (row.customerStatus !== 'pending' || row.customerVia !== 'self_request') {
+            throw new ConflictException({ errorCode: 'NOT_PENDING', message: 'این درخواست در انتظار تایید مدیر نیست' });
+        }
+        await this.prisma.catalogMember.update({
+            where: { id: row.id },
+            data: { customerStatus: 'removed', customerLeftAt: new Date(), assignedSellerUserId: null, assignedAt: null },
+        });
+        await this.syncOverallStatus(catalog.id, row.userId);
+        await this.event(catalog.id, row.userId, 'buyer_rejected', actorId, reason || null);
+        await this.bustUsersCache([row.userId, actorId]);
+        return { success: true, message: 'درخواست همکاری رد شد' };
+    }
+
+    /** تایید درخواست تامین‌کننده — مالک/مدیر */
+    async approveSupplier(catalogId: string, memberId: string, actorId: string) {
+        const catalog = await this.getCatalogOrThrow(catalogId);
+        await this.assertTeamManager(catalog, actorId);
+        const row = await this.getMemberById(catalog.id, memberId, { supplierCatalog: { select: { id: true, name: true } } });
+        if (row.supplierStatus !== 'pending') {
+            throw new ConflictException({ errorCode: 'NOT_PENDING', message: 'این درخواست در انتظار تایید نیست' });
+        }
+        await this.prisma.catalogMember.update({
+            where: { id: row.id },
+            data: { supplierStatus: 'active', supplierJoinedAt: new Date(), supplierLeftAt: null },
+        });
+        await this.event(catalog.id, row.userId, 'supplier_approved', actorId, null, {
+            supplierCatalogId: (row.supplierCatalog as any)?.id,
+        });
+        await this.bustUsersCache([row.userId, actorId]);
+        return { success: true, message: 'به اعضا اضافه شد' };
+    }
+
+    /** رد درخواست تامین‌کننده — مالک/مدیر */
+    async rejectSupplier(catalogId: string, memberId: string, actorId: string, reason?: string) {
+        const catalog = await this.getCatalogOrThrow(catalogId);
+        await this.assertTeamManager(catalog, actorId);
+        const row = await this.getMemberById(catalog.id, memberId);
+        if (row.supplierStatus !== 'pending') {
+            throw new ConflictException({ errorCode: 'NOT_PENDING', message: 'این درخواست در انتظار تایید نیست' });
+        }
+        await this.prisma.catalogMember.update({
+            where: { id: row.id },
+            data: { supplierStatus: 'removed', supplierLeftAt: new Date() },
+        });
+        await this.syncOverallStatus(catalog.id, row.userId);
+        await this.event(catalog.id, row.userId, 'supplier_rejected', actorId, reason || null);
+        await this.bustUsersCache([row.userId, actorId]);
+        return { success: true, message: 'درخواست همکاری رد شد' };
+    }
+
+    /** حذف تامین‌کنندهٔ فعال — مالک/مدیر */
+    async removeSupplier(catalogId: string, memberId: string, actorId: string, note?: string) {
+        const catalog = await this.getCatalogOrThrow(catalogId);
+        await this.assertTeamManager(catalog, actorId);
+        const row = await this.getMemberById(catalog.id, memberId);
+        if (row.userId === catalog.business.ownerUserId) {
+            throw new BadRequestException({ errorCode: 'CANNOT_REMOVE_OWNER', message: 'مالک کاتالوگ قابل حذف نیست' });
+        }
+        if (row.supplierStatus !== 'active') {
+            throw new ConflictException({ errorCode: 'NOT_ACTIVE_SUPPLIER', message: 'این عضو تامین‌کنندهٔ فعال نیست' });
+        }
+        await this.prisma.catalogMember.update({
+            where: { id: row.id },
+            data: { supplierStatus: 'removed', supplierLeftAt: new Date() },
+        });
+        await this.syncOverallStatus(catalog.id, row.userId);
+        await this.event(catalog.id, row.userId, 'supplier_removed', actorId, note || null);
+        await this.bustUsersCache([row.userId, actorId]);
+        return { success: true, message: 'از اعضا حذف شد' };
     }
 
     /** حذف عضوِ فروش — اونر/مدیر؛ مشتری‌هایش بی‌مسئول می‌شوند */
@@ -776,7 +1042,7 @@ export class CatalogMemberService {
     }
 
     // ════════════════════════════════════════════════════════════
-    //  لِین خریدار (مشتری — سوپرمارکت)
+    //  لِین خریدار (ثبت توسط مسئول فروش — مسیر Push)
     // ════════════════════════════════════════════════════════════
 
     /** جست‌وجوی کسب‌وکار برای افزودن مشتری — اونر/ادمین/فروشندهٔ فعال */
@@ -820,7 +1086,7 @@ export class CatalogMemberService {
     }
 
     /**
-     * ثبت مشتری (سوپرمارکت) در کاتالوگ — توسط عضوِ فروش/مدیر/اونر.
+     * ثبت خریدار در کاتالوگ — توسط مسئول فروش/مدیر/مالک.
      * مشتریِ ثبت‌شده pending است تا صاحب کسب‌وکارش تایید کند.
      */
     async addCustomer(catalogId: string, actorId: string, dto: { businessId: string; sellerUserId?: string; note?: string }) {
@@ -876,6 +1142,7 @@ export class CatalogMemberService {
                 data: {
                     customerBusinessId: biz.id,
                     customerStatus: 'pending',
+                    customerVia: 'owner_add',
                     customerLeftAt: null,
                     customerAddedByUserId: actorId,
                     assignedSellerUserId,
@@ -892,6 +1159,7 @@ export class CatalogMemberService {
                     userId: biz.ownerUserId,
                     customerBusinessId: biz.id,
                     customerStatus: 'pending',
+                    customerVia: 'owner_add',
                     customerAddedByUserId: actorId,
                     assignedSellerUserId,
                     assignedAt: new Date(),

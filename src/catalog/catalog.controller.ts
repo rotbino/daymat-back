@@ -6,7 +6,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger'
 import { CatalogService } from './catalog.service';
 import { CatalogMemberService } from './catalog-member.service';
 import { CreateCatalogDto, UpdateCatalogDto, SaveVisitCardDto } from './catalog.dto';
-import { JoinSellerDto, AddCustomerDto, AssignCustomerDto, RejectSellerDto, DeclineCustomerDto, RegionDto, ApproveSellerDto, SellerRoleDto } from './catalog-member.dto';
+import { CoopJoinDto, AddCustomerDto, AssignCustomerDto, RejectCoopDto, DeclineCustomerDto, RegionDto, ApproveSellerDto, ApproveBuyerDto, SellerRoleDto } from './catalog-member.dto';
 import { CurrentUser } from '../common/decorators/custom.decorators';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../common/guards/optional-jwt-auth.guard';
@@ -222,20 +222,20 @@ export class CatalogController {
         return this.catalogMemberService.getMyMembership(catalogId, user.id);
     }
 
-    // ─── لِین فروش (فروشنده/ویزیتور) ───
+    // ─── درخواست همکاری (یک در برای هر سه نقش بیزینسی) ───
 
-    @Post(':catalogId/team/join-seller')
+    @Post(':catalogId/team/join')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'درخواست عضویت در لِین فروش کاتالوگ' })
-    async joinAsSeller(@Param('catalogId') catalogId: string, @CurrentUser() user: any, @Body() dto: JoinSellerDto) {
-        return this.catalogMemberService.joinAsSeller(catalogId, user.id, dto || {});
+    @ApiOperation({ summary: 'درخواست همکاری با کاتالوگ (همکار فروش | خریدار | تامین‌کننده)' })
+    async joinCoop(@Param('catalogId') catalogId: string, @CurrentUser() user: any, @Body() dto: CoopJoinDto) {
+        return this.catalogMemberService.joinCoop(catalogId, user.id, dto);
     }
 
     @Post(':catalogId/team/sellers/:memberId/approve')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'تایید درخواست عضویت در لِین فروش + تعیین نقش بیزینسی (اونر/مدیر)' })
+    @ApiOperation({ summary: 'تایید درخواست همکار فروش + تعیین نقش بیزینسی (مالک/مدیر)' })
     async approveSeller(
         @Param('catalogId') catalogId: string,
         @Param('memberId') memberId: string,
@@ -248,14 +248,78 @@ export class CatalogController {
     @Post(':catalogId/team/sellers/:memberId/reject')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'رد درخواست فروشندگی (اونر/ادمین)' })
+    @ApiOperation({ summary: 'رد درخواست همکاری (مالک/مدیر)' })
     async rejectSeller(
         @Param('catalogId') catalogId: string,
         @Param('memberId') memberId: string,
         @CurrentUser() user: any,
-        @Body() dto: RejectSellerDto,
+        @Body() dto: RejectCoopDto,
     ) {
         return this.catalogMemberService.rejectSeller(catalogId, memberId, user.id, dto?.reason);
+    }
+
+    @Post(':catalogId/team/buyers/:memberId/approve')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'تایید درخواست همکاریِ خریدار + انتساب اختیاری به مسئول فروش (مالک/مدیر)' })
+    async approveBuyer(
+        @Param('catalogId') catalogId: string,
+        @Param('memberId') memberId: string,
+        @CurrentUser() user: any,
+        @Body() dto: ApproveBuyerDto,
+    ) {
+        return this.catalogMemberService.approveBuyer(catalogId, memberId, user.id, dto?.sellerUserId);
+    }
+
+    @Post(':catalogId/team/buyers/:memberId/reject')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'رد درخواست همکاریِ خریدار (مالک/مدیر)' })
+    async rejectBuyer(
+        @Param('catalogId') catalogId: string,
+        @Param('memberId') memberId: string,
+        @CurrentUser() user: any,
+        @Body() dto: RejectCoopDto,
+    ) {
+        return this.catalogMemberService.rejectBuyer(catalogId, memberId, user.id, dto?.reason);
+    }
+
+    @Post(':catalogId/team/suppliers/:memberId/approve')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'تایید درخواست تامین‌کننده (مالک/مدیر)' })
+    async approveSupplier(
+        @Param('catalogId') catalogId: string,
+        @Param('memberId') memberId: string,
+        @CurrentUser() user: any,
+    ) {
+        return this.catalogMemberService.approveSupplier(catalogId, memberId, user.id);
+    }
+
+    @Post(':catalogId/team/suppliers/:memberId/reject')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'رد درخواست تامین‌کننده (مالک/مدیر)' })
+    async rejectSupplier(
+        @Param('catalogId') catalogId: string,
+        @Param('memberId') memberId: string,
+        @CurrentUser() user: any,
+        @Body() dto: RejectCoopDto,
+    ) {
+        return this.catalogMemberService.rejectSupplier(catalogId, memberId, user.id, dto?.reason);
+    }
+
+    @Delete(':catalogId/team/suppliers/:memberId')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'حذف تامین‌کنندهٔ فعال از کاتالوگ (مالک/مدیر)' })
+    async removeSupplier(
+        @Param('catalogId') catalogId: string,
+        @Param('memberId') memberId: string,
+        @CurrentUser() user: any,
+        @Query('note') note?: string,
+    ) {
+        return this.catalogMemberService.removeSupplier(catalogId, memberId, user.id, note);
     }
 
     @Delete(':catalogId/team/sellers/:memberId')
@@ -341,7 +405,7 @@ export class CatalogController {
     @Post(':catalogId/team/customers')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'ثبت مشتری (سوپرمارکت) — pending تا تایید صاحب کسب‌وکار' })
+    @ApiOperation({ summary: 'ثبت خریدار توسط مسئول فروش — pending تا تایید صاحب کسب‌وکار' })
     async addCustomer(@Param('catalogId') catalogId: string, @CurrentUser() user: any, @Body() dto: AddCustomerDto) {
         return this.catalogMemberService.addCustomer(catalogId, user.id, dto);
     }

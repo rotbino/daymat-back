@@ -2086,39 +2086,47 @@ export class AdService {
             }
         }
 
-        // ═══ ✅ NEW — تیم کاتالوگ: درخواست‌های فروشندگیِ در انتظار (اونر/ادمین کاتالوگ) ═══
+        // ═══ ✅ NEW — اعضای کاتالوگ: درخواست‌های همکاریِ در انتظار تایید (مالک/مدیر کاتالوگ) ═══
         const adminTeamRows = await this.prisma.catalogMember.findMany({
             where: { userId, role: 'catalog_admin', status: 'active' },
             select: { catalogId: true },
         });
         const teamManageCatalogIds = Array.from(new Set([...catalogIds, ...adminTeamRows.map((r) => r.catalogId)]));
         if (teamManageCatalogIds.length) {
-            const pendingSellersByCat = await this.prisma.catalogMember.groupBy({
+            const pendingCoopByCat = await this.prisma.catalogMember.groupBy({
                 by: ['catalogId'],
-                where: { catalogId: { in: teamManageCatalogIds }, sellerStatus: 'pending', status: 'active' },
+                where: {
+                    catalogId: { in: teamManageCatalogIds },
+                    status: 'active',
+                    OR: [
+                        { sellerStatus: 'pending' },
+                        { customerStatus: 'pending', customerVia: 'self_request' },
+                        { supplierStatus: 'pending' },
+                    ],
+                },
                 _count: true,
             });
             const catNameOf = new Map(catalogs.map((b) => [b.id, b.name] as [string, string]));
-            const missingNames = pendingSellersByCat.map((p) => p.catalogId).filter((id) => !catNameOf.has(id));
+            const missingNames = pendingCoopByCat.map((p) => p.catalogId).filter((id) => !catNameOf.has(id));
             if (missingNames.length) {
                 const rows = await this.prisma.catalog.findMany({ where: { id: { in: missingNames } }, select: { id: true, name: true } });
                 for (const r of rows) catNameOf.set(r.id, r.name);
             }
-            for (const p of pendingSellersByCat) {
+            for (const p of pendingCoopByCat) {
                 const catName = catNameOf.get(p.catalogId) || 'کاتالوگ';
                 items.unshift({
-                    id: `cteam-sellerreq-${p.catalogId}`,
-                    type: 'catalog-team-pending-sellers',
+                    id: `cteam-coopreq-${p.catalogId}`,
+                    type: 'catalog-team-pending-coop',
                     severity: 'warning',
-                    title: `${p._count.toLocaleString('fa-IR')} درخواست عضویت فروشندگی در کاتالوگ «${catName}» در انتظار بررسی شماست`,
-                    body: 'اعضای فروش می‌خواهند به کاتالوگ بپیوندند — در انتظار تایید مدیر (مالک کاتالوگ) تا مشتری‌هایشان را ثبت کنند',
-                    action: { label: 'بررسی تیم', href: `/my-catalogs?catalog=${p.catalogId}&tab=team` },
+                    title: `${p._count.toLocaleString('fa-IR')} درخواست همکاری در کاتالوگ «${catName}» در انتظار تایید شماست`,
+                    body: 'همکار فروش، خریدار یا تامین‌کننده می‌خواهند با کاتالوگ همکاری کنند — در انتظار تایید مدیر (مالک کاتالوگ)',
+                    action: { label: 'بررسی اعضا', href: `/my-catalogs?catalog=${p.catalogId}&tab=team` },
                     catalogId: p.catalogId,
                 });
             }
         }
 
-        // ═══ ✅ NEW — تیم کاتالوگ: تاییدِ مشتری‌بودنِ در انتظارِ من (صاحب سوپرمارکت) ═══
+        // ═══ ✅ NEW — اعضای کاتالوگ: تاییدِ خریداربودنِ در انتظارِ من (صاحب کسب‌وکار) ═══
         const myPendingCustomers = await this.prisma.catalogMember.findMany({
             where: { userId, customerStatus: 'pending', status: 'active' },
             take: 5,
@@ -2164,7 +2172,7 @@ export class AdService {
             });
         }
 
-        // ═══ ✅ NEW — تیم کاتالوگ: خبرهای مشتری‌های منتسب به من (مسئول فروش — ۷ روز) ═══
+        // ═══ ✅ NEW — اعضای کاتالوگ: خبرهای خریدارهای منتسب به من (مسئول فروش — ۷ روز) ═══
         const mySellerRows = await this.prisma.catalogMember.findMany({
             where: { userId, sellerStatus: 'active', status: 'active' },
             select: { catalogId: true },

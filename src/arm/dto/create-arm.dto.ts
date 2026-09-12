@@ -634,7 +634,7 @@ export class CreateArmDto {
     isPrivate?: boolean;
 
     @ApiProperty({
-        example: 'عضویت برای سوپرمارکت‌ها و پخش‌کننده‌ها در همدان آزاد است...',
+        example: 'عضویت برای کسب‌وکار‌ها و پخش‌کننده‌ها در همدان آزاد است...',
         description: 'شرایط عضویت در بازار خصوصی — متن آزاد برای نمایش در مدال درخواست عضویت',
         required: false,
     })
