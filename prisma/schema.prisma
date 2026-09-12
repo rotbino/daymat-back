@@ -296,23 +296,24 @@ model CatalogMember {
   position    String? // سمت نمایشی (مثل «مدیر فروش آنلاین»)
   permissions Json?       // رزرو برای دسترسی‌های ریزدانهٔ آینده
 
-  // ── لِین فروشنده (بازاریاب) ── اونر به‌طور پیش‌فرض فروشندهٔ فعال کاتالوگ خودش است
+  // ── لِین فروش ── اونر به‌طور پیش‌فرض فروشندهٔ فعال کاتالوگ خودش است
   sellerBusinessId String?   @db.ObjectId
   sellerBusiness   Business? @relation("CatMemberSellerBiz", fields: [sellerBusinessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  sellerStatus     String? // pending | active | removed — null = اصلاً فروشنده نیست
+  sellerStatus     String? // pending | active | removed — null = اصلاً در لِین فروش نیست
+  sellerRole       String? @default("seller") // seller | visitor — نقش بیزینسی لِین فروش (فروشنده/ویزیتور)
   sellerJoinedAt   DateTime?
   sellerLeftAt     DateTime?
-  sellerRegion     String? // منطقهٔ فروش آزاد (مثل «غرب تهران») — هر بازاریاب فقط از منطقهٔ خودش سفارش می‌گیرد
+  sellerRegion     String? // منطقهٔ فروش آزاد (مثل «غرب تهران») — هر عضوِ فروش فقط از منطقهٔ خودش سفارش می‌گیرد
 
-  // ── لِین خریدار (مشتری/سوپرمارکت) ── توسط بازاریاب ثبت می‌شود؛ صاحبِ کسب‌وکار تایید می‌کند
+  // ── لِین خریدار (مشتری/سوپرمارکت) ── توسط عضوِ فروش ثبت می‌شود؛ صاحبِ کسب‌وکار تایید می‌کند
   customerBusinessId String?   @db.ObjectId
   customerBusiness   Business? @relation("CatMemberCustomerBiz", fields: [customerBusinessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   customerStatus     String? // pending | active | removed — null = مشتری نیست
   customerJoinedAt   DateTime?
   customerLeftAt     DateTime?
-  customerAddedByUserId String? @db.ObjectId // چه کسی (بازاریاب/ادمین) ثبتش کرده
+  customerAddedByUserId String? @db.ObjectId // چه کسی (عضوِ فروش/مدیر) ثبتش کرده
 
-  // ── انتساب مشتری به بازاریابِ خودش (مسیریابی تماس از آگهی) ──
+  // ── انتساب مشتری به مسئولِ خودش (مسیریابی تماس از آگهی) ──
   assignedSellerUserId String?  @db.ObjectId
   assignedSellerUser   User?    @relation("CatMemberAssignee", fields: [assignedSellerUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   assignedAt           DateTime?

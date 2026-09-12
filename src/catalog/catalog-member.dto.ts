@@ -1,5 +1,5 @@
 // src/catalog/catalog-member.dto.ts
-import { IsOptional, IsString, MaxLength, Matches } from 'class-validator';
+import { IsOptional, IsString, MaxLength, Matches, IsIn } from 'class-validator';
 
 export class JoinSellerDto {
     @IsOptional()
@@ -7,9 +7,24 @@ export class JoinSellerDto {
     sellerBusinessId?: string; // پیش‌فرض: اولین کسب‌وکار فعال کاربر
 
     @IsOptional()
+    @IsIn(['seller', 'visitor'])
+    sellerRole?: 'seller' | 'visitor'; // ترجیح نقش بیزینسی — تصمیم نهایی با مدیرِ تاییدکننده است
+
+    @IsOptional()
     @IsString()
     @MaxLength(200)
     note?: string;
+}
+
+export class ApproveSellerDto {
+    @IsOptional()
+    @IsIn(['seller', 'visitor'])
+    sellerRole?: 'seller' | 'visitor'; // نقش بیزینسی هنگام تایید — پیش‌فرض: فروشنده
+}
+
+export class SellerRoleDto {
+    @IsIn(['seller', 'visitor'])
+    sellerRole!: 'seller' | 'visitor';
 }
 
 export class AddCustomerDto {
@@ -17,8 +32,8 @@ export class AddCustomerDto {
     businessId!: string; // کسب‌وکار مشتری (سوپرمارکت)
 
     @IsOptional()
-    @Matches(/^[a-f\d]{24}$/i, { message: 'شناسه بازاریاب نامعتبر است' })
-    sellerUserId?: string; // انتساب به بازاریابِ مشخص — پیش‌فرض: خود ثبت‌کننده (یا اونر)
+    @Matches(/^[a-f\d]{24}$/i, { message: 'شناسه عضو فروش نامعتبر است' })
+    sellerUserId?: string; // انتساب به عضوِ فروشِ مشخص — پیش‌فرض: خود ثبت‌کننده (یا اونر)
 
     @IsOptional()
     @IsString()
@@ -27,8 +42,8 @@ export class AddCustomerDto {
 }
 
 export class AssignCustomerDto {
-    @Matches(/^[a-f\d]{24}$/i, { message: 'شناسه بازاریاب نامعتبر است' })
-    sellerUserId!: string; // بازاریابِ جدیدِ مشتری
+    @Matches(/^[a-f\d]{24}$/i, { message: 'شناسه عضو فروش نامعتبر است' })
+    sellerUserId!: string; // مسئولِ جدیدِ مشتری
 }
 
 export class RejectSellerDto {

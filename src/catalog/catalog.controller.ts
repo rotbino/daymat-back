@@ -6,7 +6,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger'
 import { CatalogService } from './catalog.service';
 import { CatalogMemberService } from './catalog-member.service';
 import { CreateCatalogDto, UpdateCatalogDto, SaveVisitCardDto } from './catalog.dto';
-import { JoinSellerDto, AddCustomerDto, AssignCustomerDto, RejectSellerDto, DeclineCustomerDto, RegionDto } from './catalog-member.dto';
+import { JoinSellerDto, AddCustomerDto, AssignCustomerDto, RejectSellerDto, DeclineCustomerDto, RegionDto, ApproveSellerDto, SellerRoleDto } from './catalog-member.dto';
 import { CurrentUser } from '../common/decorators/custom.decorators';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../common/guards/optional-jwt-auth.guard';
@@ -195,7 +195,7 @@ export class CatalogController {
     }
 
     // ============================================================
-    // تیم کاتالوگ — اونر / ادمین / بازاریاب / مشتری
+    // تیم کاتالوگ — اونر / مدیر / عضوِ فروش (فروشنده/ویزیتور) / مشتری
     // ============================================================
 
     @Get('team/memberships')
@@ -222,12 +222,12 @@ export class CatalogController {
         return this.catalogMemberService.getMyMembership(catalogId, user.id);
     }
 
-    // ─── لِین فروشنده (بازاریاب) ───
+    // ─── لِین فروش (فروشنده/ویزیتور) ───
 
     @Post(':catalogId/team/join-seller')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'درخواست عضویت فروشندگی در کاتالوگ (بازاریاب)' })
+    @ApiOperation({ summary: 'درخواست عضویت در لِین فروش کاتالوگ' })
     async joinAsSeller(@Param('catalogId') catalogId: string, @CurrentUser() user: any, @Body() dto: JoinSellerDto) {
         return this.catalogMemberService.joinAsSeller(catalogId, user.id, dto || {});
     }
@@ -235,9 +235,14 @@ export class CatalogController {
     @Post(':catalogId/team/sellers/:memberId/approve')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'تایید درخواست فروشندگی (اونر/ادمین)' })
-    async approveSeller(@Param('catalogId') catalogId: string, @Param('memberId') memberId: string, @CurrentUser() user: any) {
-        return this.catalogMemberService.approveSeller(catalogId, memberId, user.id);
+    @ApiOperation({ summary: 'تایید درخواست عضویت در لِین فروش + تعیین نقش بیزینسی (اونر/مدیر)' })
+    async approveSeller(
+        @Param('catalogId') catalogId: string,
+        @Param('memberId') memberId: string,
+        @CurrentUser() user: any,
+        @Body() dto: ApproveSellerDto,
+    ) {
+        return this.catalogMemberService.approveSeller(catalogId, memberId, user.id, dto?.sellerRole);
     }
 
     @Post(':catalogId/team/sellers/:memberId/reject')
@@ -256,7 +261,7 @@ export class CatalogController {
     @Delete(':catalogId/team/sellers/:memberId')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'حذف بازاریاب از تیم (اونر/ادمین)' })
+    @ApiOperation({ summary: 'حذف عضوِ فروش از کاتالوگ (اونر/مدیر)' })
     async removeSeller(
         @Param('catalogId') catalogId: string,
         @Param('memberId') memberId: string,
@@ -269,7 +274,7 @@ export class CatalogController {
     @Post(':catalogId/team/leave-seller')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'خروج خودِ بازاریاب از تیم فروش' })
+    @ApiOperation({ summary: 'خروج خودِ عضوِ فروش از کاتالوگ' })
     async leaveAsSeller(@Param('catalogId') catalogId: string, @CurrentUser() user: any) {
         return this.catalogMemberService.leaveAsSeller(catalogId, user.id);
     }
@@ -277,7 +282,7 @@ export class CatalogController {
     @Patch(':catalogId/team/sellers/:memberId/region')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'ثبت/ویرایش منطقهٔ فروش بازاریاب (اونر/ادمین/خودش)' })
+    @ApiOperation({ summary: 'ثبت/ویرایش منطقهٔ فروش عضوِ فروش (اونر/مدیر/خودش)' })
     async setSellerRegion(
         @Param('catalogId') catalogId: string,
         @Param('memberId') memberId: string,
@@ -285,6 +290,19 @@ export class CatalogController {
         @Body() dto: RegionDto,
     ) {
         return this.catalogMemberService.setSellerRegion(catalogId, memberId, dto?.region, user.id);
+    }
+
+    @Patch(':catalogId/team/sellers/:memberId/role')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'تغییر نقش بیزینسی عضوِ فروش (فروشنده/ویزیتور) — اونر/مدیر' })
+    async setSellerRole(
+        @Param('catalogId') catalogId: string,
+        @Param('memberId') memberId: string,
+        @CurrentUser() user: any,
+        @Body() dto: SellerRoleDto,
+    ) {
+        return this.catalogMemberService.setSellerRole(catalogId, memberId, dto.sellerRole, user.id);
     }
 
     // ─── نقش ادمین کاتالوگ ───
@@ -352,7 +370,7 @@ export class CatalogController {
     @Patch(':catalogId/team/customers/:memberId/assign')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'تغییر بازاریابِ مشتری (اونر/ادمین)' })
+    @ApiOperation({ summary: 'تغییر مسئولِ مشتری (اونر/مدیر)' })
     async assignCustomer(
         @Param('catalogId') catalogId: string,
         @Param('memberId') memberId: string,
@@ -365,7 +383,7 @@ export class CatalogController {
     @Delete(':catalogId/team/customers/:memberId')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'حذف مشتری (اونر/ادمین/بازاریابِ منتسب)' })
+    @ApiOperation({ summary: 'حذف مشتری (اونر/مدیر/مسئولِ منتسب)' })
     async removeCustomer(
         @Param('catalogId') catalogId: string,
         @Param('memberId') memberId: string,
