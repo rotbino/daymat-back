@@ -181,82 +181,94 @@ export class CatalogService {
             }
         }
 
-        const catalog = await this.prisma.catalog.create({
-            data: {
-                businessId: biz.id,
-                name: dto.name,
-                slug,
-                salesType: dto.salesType === 'retail' ? 'retail' : 'wholesale',
-                shortDescription: dto.shortDescription || null,
-                description: dto.description || '',
-                type: dto.type,
-                countryCode: dto.countryCode || '98',
-                province: dto.province || '',
-                city: dto.city || '',
-                provinceCode: dto.provinceCode || null,
-                cityCode: dto.cityCode || null,
-                phone: dto.phone || '',
-                logoUrl: dto.logoUrl || '',
-                address: dto.address || '',
-                website: dto.website || '',
-                // ✅ industryId حذف — صنف فقط متن آزاد (industryName)
-                industryName: dto.industryName || null,
-                referredByCode: refCode,
-                referredByUserId: refUserId,
-                status: 'active',
-            },
-        });
-
-        // ✅ تیم کاتالوگ — رکورد اونر با لِین فروشندهٔ فعال (اونر خودش هم سفارش می‌گیرد)
-        // (TeamMember legacy — دیگر نوشته نمی‌شود)
-        await this.prisma.catalogMember.create({
-            data: {
-                catalogId: catalog.id,
-                userId,
-                role: CatalogRole.catalog_owner,
-                status: 'active',
-                permissions: { canManageCatalog: true, canManageAds: true, canManageTeam: true },
-                sellerBusinessId: (catalog as any).businessId,
-                sellerStatus: 'active',
-                sellerJoinedAt: new Date(),
-            },
-        });
-        await this.prisma.catalogTeamEvent.create({
-            data: { catalogId: catalog.id, userId, eventType: 'joined', actorUserId: userId, note: 'ساخت کاتالوگ — اونر با لِین فروشندهٔ فعال' },
-        });
-
+        // ✅ ناوردی بازار — «قبل از هر نوشتنی» چک می‌شود تا کاتالوگ یتیم نسازد:
+        //    • عضویتِ فعال با کاتالوگِ واقعیِ دیگر → خطا (بدون ساخت کاتالوگ)
+        //    • ارجاعِ یتیم (کاتالوگ حذف/بسته شده) → مانع نیست؛ عضویت با کاتالوگ تازه repoint می‌شود
+        let armCtx: { id: string; categoryTree: any } | null = null;
         if (dto.armSlug) {
             const arm = await this.prisma.arm.findUnique({
                 where: { slug: dto.armSlug },
                 select: { id: true, categoryTree: true, config: true },
             });
             if (arm) {
-                // ✅ همان ناوردهای addSeller: یک کاتالوگِ فعال در این بازار + مهر خودکار کالاها
                 const existing = await this.prisma.armMembership.findUnique({
                     where: { armId_userId: { armId: arm.id, userId } },
+                    select: { catalogId: true },
                 });
-                if (existing?.catalogId && existing.catalogId !== catalog.id) {
-                    // ✅ بی‌سروصدا نادیده گرفته نمی‌شود — همان قاعدهٔ BUSINESS_HAS_OTHER_CATALOG
-                    throw new ConflictException({
-                        errorCode: 'BUSINESS_HAS_OTHER_CATALOG',
-                        message: 'کسب‌وکار شما با کاتالوگ دیگری در این بازار فعال است',
+                if (existing?.catalogId) {
+                    const existingCat = await this.prisma.catalog.findUnique({
+                        where: { id: existing.catalogId },
+                        select: { status: true },
                     });
+                    if (existingCat?.status === 'active') {
+                        throw new ConflictException({
+                            errorCode: 'BUSINESS_HAS_OTHER_CATALOG',
+                            message: 'شما در این بازار با کاتالوگ دیگری فعال هستید — ابتدا آن کاتالوگ را حذف یا اتصالش را از پنل بازار قطع کنید',
+                        });
+                    }
                 }
-                const salesType = (await this.prisma.catalog.findUnique({
-                    where: { id: catalog.id },
-                    select: { salesType: true },
-                }))?.salesType;
-                const typeMismatch = checkMarketTypeMismatch(arm, salesType);
+                const typeMismatch = checkMarketTypeMismatch(arm, dto.salesType === 'retail' ? 'retail' : 'wholesale');
                 if (typeMismatch) {
                     throw new BadRequestException({ errorCode: 'MARKET_TYPE_MISMATCH', message: typeMismatch });
                 }
-                await this.prisma.armMembership.upsert({
-                    where: { armId_userId: { armId: arm.id, userId } },
+                armCtx = { id: arm.id, categoryTree: arm.categoryTree };
+            }
+        }
+
+        // ✅ همهٔ نوشته‌ها در یک تراکنش — یا همه ثبت می‌شود یا هیچ‌کدام؛ خطای وسطِ راه دیگر کاتالوگ یتیم جا نمی‌گذارد
+        const catalog = await this.prisma.$transaction(async (tx) => {
+            const cat = await tx.catalog.create({
+                data: {
+                    businessId: biz.id,
+                    name: dto.name,
+                    slug,
+                    salesType: dto.salesType === 'retail' ? 'retail' : 'wholesale',
+                    shortDescription: dto.shortDescription || null,
+                    description: dto.description || '',
+                    type: dto.type,
+                    countryCode: dto.countryCode || '98',
+                    province: dto.province || '',
+                    city: dto.city || '',
+                    provinceCode: dto.provinceCode || null,
+                    cityCode: dto.cityCode || null,
+                    phone: dto.phone || '',
+                    logoUrl: dto.logoUrl || '',
+                    address: dto.address || '',
+                    website: dto.website || '',
+                    // ✅ industryId حذف — صنف فقط متن آزاد (industryName)
+                    industryName: dto.industryName || null,
+                    referredByCode: refCode,
+                    referredByUserId: refUserId,
+                    status: 'active',
+                },
+            });
+
+            // ✅ تیم کاتالوگ — رکورد اونر با لِین فروشندهٔ فعال (اونر خودش هم سفارش می‌گیرد)
+            // (TeamMember legacy — دیگر نوشته نمی‌شود)
+            await tx.catalogMember.create({
+                data: {
+                    catalogId: cat.id,
+                    userId,
+                    role: CatalogRole.catalog_owner,
+                    status: 'active',
+                    permissions: { canManageCatalog: true, canManageAds: true, canManageTeam: true },
+                    sellerBusinessId: (cat as any).businessId,
+                    sellerStatus: 'active',
+                    sellerJoinedAt: new Date(),
+                },
+            });
+            await tx.catalogTeamEvent.create({
+                data: { catalogId: cat.id, userId, eventType: 'joined', actorUserId: userId, note: 'ساخت کاتالوگ — اونر با لِین فروشندهٔ فعال' },
+            });
+
+            if (armCtx) {
+                await tx.armMembership.upsert({
+                    where: { armId_userId: { armId: armCtx.id, userId } },
                     create: {
-                        armId: arm.id,
+                        armId: armCtx.id,
                         userId,
-                        businessId: catalog.businessId,
-                        catalogId: catalog.id,
+                        businessId: cat.businessId,
+                        catalogId: cat.id,
                         role: 'arm_member',
                         roleType: 'seller',
                         status: 'active',
@@ -264,36 +276,42 @@ export class CatalogService {
                         source: 'manual',
                     },
                     update: {
-                        catalogId: catalog.id,
+                        catalogId: cat.id,
                         status: 'active',
                         publishState: 'published',
                         roleType: 'seller',
-                        businessId: catalog.businessId,
+                        businessId: cat.businessId,
                     },
                 });
                 // ✅ انتشار پیش‌فرض: همهٔ آگهی‌های کاتالوگ تازه به این بازار مهر می‌خورند
-                await this.prisma.ad.updateMany({
-                    where: { catalogId: catalog.id, status: 'active', publishToMarket: false },
+                await tx.ad.updateMany({
+                    where: { catalogId: cat.id, status: 'active', publishToMarket: false },
                     data: { publishToMarket: true },
                 });
-                try {
-                    await this.catalogPublish.stampCatalogAds(arm as any, catalog.id, undefined, userId);
-                } catch (err) {
-                    console.error(`catalog create: stampCatalogAds failed for arm ${arm.id}:`, err);
+            }
+
+            if (refUserId) {
+                const me = await tx.user.findUnique({
+                    where: { id: userId },
+                    select: { referredByUserId: true },
+                });
+                if (!me?.referredByUserId) {
+                    await tx.user.update({
+                        where: { id: userId },
+                        data: { referredByUserId: refUserId, referredAt: new Date() },
+                    });
                 }
             }
-        }
 
-        if (refUserId) {
-            const me = await this.prisma.user.findUnique({
-                where: { id: userId },
-                select: { referredByUserId: true },
-            });
-            if (!me?.referredByUserId) {
-                await this.prisma.user.update({
-                    where: { id: userId },
-                    data: { referredByUserId: refUserId, referredAt: new Date() },
-                });
+            return cat;
+        });
+
+        // ✅ مهرِ دسته‌بندی آگهی‌ها — سرویسِ جدا و غیربحرانی؛ بعد از commit اجرا می‌شود
+        if (armCtx) {
+            try {
+                await this.catalogPublish.stampCatalogAds(armCtx as any, catalog.id, undefined, userId);
+            } catch (err) {
+                console.error(`catalog create: stampCatalogAds failed for arm ${armCtx.id}:`, err);
             }
         }
 
@@ -605,6 +623,17 @@ export class CatalogService {
             });
         }
         const closed = await this.prisma.catalog.update({ where: { id }, data: { status: 'closed', updatedAt: new Date() } });
+
+        // ✅ آزادسازی اتصال بازارها — رهاکردن catalogId یتیم، ساخت کاتالوگ بعدی در همان بازار را قفل نمی‌کند
+        //    (عضویتِ خریدارِ بازار دست‌نخورده می‌ماند؛ فقط لینکِ فروشنده آزاد می‌شود)
+        await this.prisma.armMembership.updateMany({
+            where: { catalogId: id, roleType: 'seller' },
+            data: { catalogId: null, status: 'inactive', publishState: 'draft' },
+        });
+        await this.prisma.armMembership.updateMany({
+            where: { catalogId: id },
+            data: { catalogId: null, publishState: 'draft' },
+        });
 
         // ⚠️ کش لیست مالک + صفحهٔ عمومی کاتالوگ باطل شود
         await this.bustUserCatalogs(userId);
