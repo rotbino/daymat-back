@@ -932,7 +932,7 @@ export class CatalogMemberService {
             assignedSellerUserId: row.assignedSellerUserId,
         });
         await this.bustUsersCache([row.userId, actorId, row.assignedSellerUserId]);
-        return { success: true, message: 'عضویت مشتری تایید شد — تماس شما به بازاریاب خودتان مسیریابی می‌شود' };
+        return { success: true, message: 'عضویت مشتری تایید شد — تماس شما به مسئول فروش خودتان مسیریابی می‌شود' };
     }
 
     /** ردِ ثبت مشتری — صاحبِ کسب‌وکار (قبل از تایید) */
@@ -1016,7 +1016,7 @@ export class CatalogMemberService {
         return { success: true, message: 'عضویت مشتری شما در این کاتالوگ لغو شد' };
     }
 
-    /** تغییر بازاریابِ مشتری — اونر/ادمین */
+    /** تغییر مسئول فروشِ مشتری — اونر/ادمین */
     async assignCustomer(catalogId: string, memberId: string, sellerUserId: string, actorId: string) {
         const catalog = await this.getCatalogOrThrow(catalogId);
         await this.assertTeamManager(catalog, actorId);
@@ -1026,10 +1026,10 @@ export class CatalogMemberService {
         }
         const sellerRow = await this.getMemberRow(catalog.id, sellerUserId);
         if (!this.hasActiveSellerLane(sellerRow)) {
-            throw new BadRequestException({ errorCode: 'INVALID_SELLER', message: 'بازاریابِ انتخابی فعال نیست' });
+            throw new BadRequestException({ errorCode: 'INVALID_SELLER', message: 'مسئول فروشِ انتخابی فعال نیست' });
         }
         if (row.assignedSellerUserId === sellerUserId) {
-            throw new ConflictException({ errorCode: 'SAME_ASSIGNEE', message: 'این مشتری قبلاً به همین بازاریاب منتسب شده است' });
+            throw new ConflictException({ errorCode: 'SAME_ASSIGNEE', message: 'این مشتری قبلاً به همین مسئول فروش منتسب شده است' });
         }
         await this.prisma.catalogMember.update({
             where: { id: row.id },
@@ -1040,7 +1040,7 @@ export class CatalogMemberService {
             to: sellerUserId,
         });
         await this.bustUsersCache([row.userId, actorId, sellerUserId, row.assignedSellerUserId]);
-        return { success: true, message: 'مشتری به بازاریاب جدید منتسب شد' };
+        return { success: true, message: 'مشتری به مسئول فروش جدید منتسب شد' };
     }
 
     // ════════════════════════════════════════════════════════════
@@ -1048,8 +1048,8 @@ export class CatalogMemberService {
     // ════════════════════════════════════════════════════════════
 
     /**
-     * اگر تماس‌گیرنده مشتریِ فعالِ این کاتالوگ با بازاریابِ منتسب باشد،
-     * مشخصات بازاریاب (نام + شماره) برمی‌گردد — وگرنه null (مسیر عادی).
+     * اگر تماس‌گیرنده مشتریِ فعالِ این کاتالوگ با مسئول فروشِ منتسب باشد،
+     * مشخصات مسئول فروش (نام + شماره) برمی‌گردد — وگرنه null (مسیر عادی).
      */
     async resolveCallRoute(catalogId: string, callerUserId: string): Promise<{
         sellerUserId: string;

@@ -1229,9 +1229,9 @@ export class AdService {
         if (!ad) throw new NotFoundException({ errorCode: 'AD_NOT_FOUND', message: 'آگهی یافت نشد' });
         if (ad.status !== 'active') throw new BadRequestException({ errorCode: 'AD_NOT_ACTIVE', message: 'این آگهی فعال نیست' });
 
-        // ✅ مسیریابی تماس — تیم کاتالوگ (سناریوی بازار پخش):
-        //    اگر تماس‌گیرنده مشتریِ فعالِ این کاتالوگ با بازاریابِ منتسب باشد،
-        //    تماس به‌جای شمارهٔ کاتالوگ روی بازاریابِ خودش می‌افتد.
+        // ✅ مسیریابی تماس — اعضای کاتالوگ (سناریوی بازار پخش):
+        //    اگر تماس‌گیرنده مشتریِ فعالِ این کاتالوگ با مسئول فروشِ منتسب باشد،
+        //    تماس به‌جای شمارهٔ کاتالوگ روی مسئول فروشِ خودش می‌افتد.
         const route = await this.catalogMembers.resolveCallRoute(ad.catalogId, userId);
 
         await this.prisma.callEvent.create({
@@ -1256,7 +1256,7 @@ export class AdService {
               }
             : null;
 
-        // ✅ آگهیِ فقط-کاتالوگی: شماره = بازاریابِ منتسب (اگر هست) وگرنه اطلاعات عمومی کاتالوگ/نهاد
+        // ✅ آگهیِ فقط-کاتالوگی: شماره = مسئول فروشِ منتسب (اگر هست) وگرنه اطلاعات عمومی کاتالوگ/نهاد
         if (!ad.armId) {
             const phone = route?.phone || ad.catalog.phone || ownerPhone;
             if (!phone) {
@@ -2111,7 +2111,7 @@ export class AdService {
                     type: 'catalog-team-pending-sellers',
                     severity: 'warning',
                     title: `${p._count.toLocaleString('fa-IR')} درخواست عضویت فروشندگی در کاتالوگ «${catName}» در انتظار بررسی شماست`,
-                    body: 'بازاریاب‌ها می‌خواهند به تیم کاتالوگ بپیوندند — تایید کنید تا مشتری‌های خودشان را ثبت کنند',
+                    body: 'اعضای فروش می‌خواهند به کاتالوگ بپیوندند — در انتظار تایید مدیر (مالک کاتالوگ) تا مشتری‌هایشان را ثبت کنند',
                     action: { label: 'بررسی تیم', href: `/my-catalogs?catalog=${p.catalogId}&tab=team` },
                     catalogId: p.catalogId,
                 });
@@ -2129,13 +2129,13 @@ export class AdService {
             },
         });
         for (const c of myPendingCustomers) {
-            const sellerName = (c as any).assignedSellerUser?.fullName || 'یک بازاریاب';
+            const sellerName = (c as any).assignedSellerUser?.fullName || 'یک مسئول فروش';
             items.unshift({
                 id: `cteam-confirm-${c.id}`,
                 type: 'catalog-team-customer-confirm',
                 severity: 'warning',
                 title: `«${sellerName}» شما را به‌عنوان مشتری کاتالوگ «${(c as any).catalog.name}» ثبت کرده`,
-                body: 'با تایید، تماس‌تان از آگهی‌های این کاتالوگ به بازاریابِ خودتان می‌رسد — اگر اشتباه است رد کنید',
+                body: 'با تایید، تماس‌تان از آگهی‌های این کاتالوگ به مسئول فروشِ خودتان می‌رسد — اگر اشتباه است رد کنید',
                 action: { label: 'بررسی در پروفایل', href: '/profile' },
             });
         }
@@ -2164,7 +2164,7 @@ export class AdService {
             });
         }
 
-        // ═══ ✅ NEW — تیم کاتالوگ: خبرهای مشتری‌های منتسب به من (بازاریاب — ۷ روز) ═══
+        // ═══ ✅ NEW — تیم کاتالوگ: خبرهای مشتری‌های منتسب به من (مسئول فروش — ۷ روز) ═══
         const mySellerRows = await this.prisma.catalogMember.findMany({
             where: { userId, sellerStatus: 'active', status: 'active' },
             select: { catalogId: true },
