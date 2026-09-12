@@ -240,6 +240,36 @@ export class MembershipRequestService {
     // ============================================================
     // لیست درخواست‌های عضویت — پنل مالک/ادمین بازار
     // ============================================================
+    // ============================================================
+    // ✅ پاکسازی درخواست‌های یتیم — درخواست‌دهنده حذف شده
+    // (مانند leave-request.service — رابطهٔ required user با کاربرِ حذف‌شده
+    //  include را به 500 می‌کشاند و اعلان countِ نادرست می‌زند)
+    // ============================================================
+    private async cleanupOrphanedRequests(armId?: string) {
+        try {
+            const reqs = await this.prisma.armMembershipRequest.findMany({
+                where: { ...(armId ? { armId } : {}), status: 'pending' },
+                select: { id: true, userId: true },
+            });
+            if (reqs.length === 0) return 0;
+            const userIds = [...new Set(reqs.map((r) => r.userId))];
+            const existing = await this.prisma.user.findMany({
+                where: { id: { in: userIds } },
+                select: { id: true },
+            });
+            const existingSet = new Set(existing.map((u) => u.id));
+            const orphanIds = reqs.filter((r) => !existingSet.has(r.userId)).map((r) => r.id);
+            if (orphanIds.length > 0) {
+                await this.prisma.armMembershipRequest.deleteMany({ where: { id: { in: orphanIds } } });
+                console.log(`🧹 ${orphanIds.length} orphaned membership request(s) removed — requester user deleted`);
+            }
+            return orphanIds.length;
+        } catch (e: any) {
+            console.warn('⚠️ cleanupOrphanedRequests failed (non-blocking):', e?.message);
+            return 0;
+        }
+    }
+
     async listRequests(slug: string, status?: string, page = 1, limit = 20) {
         const arm = await this.prisma.arm.findUnique({
             where: { slug },
@@ -248,6 +278,9 @@ export class MembershipRequestService {
         if (!arm) {
             throw new NotFoundException({ errorCode: 'ARM_NOT_FOUND', message: 'بازار یافت نشد' });
         }
+
+        // ✅ یتیم‌ها اول پاک شوند تا include user با کاربرِ حذف‌شده 500 ندهد
+        await this.cleanupOrphanedRequests(arm.id);
 
         const where: any = { armId: arm.id };
         if (status && ['pending', 'approved', 'rejected'].includes(status)) {

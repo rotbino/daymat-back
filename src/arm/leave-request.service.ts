@@ -223,6 +223,37 @@ export class LeaveRequestService {
     }
 
     // ============================================================
+    // ✅ پاکسازی درخواست‌های یتیم — درخواست‌دهنده حذف شده
+    // ریشهٔ باگ «اعلان لغو عضویت بی‌مبنا»: کاربر حذف می‌شد ولی ArmLeaveRequest
+    // می‌ماند → اعلان مالک count می‌زد، ولی پنل با include user به 500 می‌خورد
+    // (Prisma: Inconsistent query result — رابطهٔ required user null برمی‌گشت)
+    // ============================================================
+    async cleanupOrphanedRequests(armId?: string) {
+        try {
+            const reqs = await this.prisma.armLeaveRequest.findMany({
+                where: { ...(armId ? { armId } : {}), status: 'pending' },
+                select: { id: true, userId: true },
+            });
+            if (reqs.length === 0) return 0;
+            const userIds = [...new Set(reqs.map((r) => r.userId))];
+            const existing = await this.prisma.user.findMany({
+                where: { id: { in: userIds } },
+                select: { id: true },
+            });
+            const existingSet = new Set(existing.map((u) => u.id));
+            const orphanIds = reqs.filter((r) => !existingSet.has(r.userId)).map((r) => r.id);
+            if (orphanIds.length > 0) {
+                await this.prisma.armLeaveRequest.deleteMany({ where: { id: { in: orphanIds } } });
+                console.log(`🧹 ${orphanIds.length} orphaned leave request(s) removed — requester user deleted`);
+            }
+            return orphanIds.length;
+        } catch (e: any) {
+            console.warn('⚠️ cleanupOrphanedRequests failed (non-blocking):', e?.message);
+            return 0;
+        }
+    }
+
+    // ============================================================
     // لیست درخواست‌های لغو عضویت — پنل مالک/ادمین بازار
     // ============================================================
     async listRequests(slug: string, status?: string, page = 1, limit = 20) {
@@ -233,6 +264,9 @@ export class LeaveRequestService {
         if (!arm) {
             throw new NotFoundException({ errorCode: 'ARM_NOT_FOUND', message: 'بازار یافت نشد' });
         }
+
+        // ✅ یتیم‌ها اول پاک شوند تا include user با کاربرِ حذف‌شده 500 ندهد
+        await this.cleanupOrphanedRequests(arm.id);
 
         const where: any = { armId: arm.id };
         if (status && ['pending', 'approved', 'rejected', 'withdrawn'].includes(status)) {

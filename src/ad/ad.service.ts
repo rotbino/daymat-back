@@ -1863,6 +1863,30 @@ export class AdService {
     // ═══════════════════════════════════════
     // اعلان‌های مشتق
     // ═══════════════════════════════════════
+    // ═══ ابزار ═══
+    /** درخواست‌های pending که درخواست‌دهنده‌شان حذف شده — بی‌معنا هستند و فقط اعلان/پنل می‌شکنند */
+    private async cleanupOrphanedRequestsWithoutUser() {
+        try {
+            for (const model of ['armLeaveRequest', 'armMembershipRequest'] as const) {
+                const reqs = await (this.prisma as any)[model].findMany({
+                    where: { status: 'pending' },
+                    select: { id: true, userId: true },
+                });
+                if (reqs.length === 0) continue;
+                const userIds: string[] = [...new Set<string>(reqs.map((r: any) => r.userId as string))];
+                const existing = await this.prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true } });
+                const existingSet = new Set(existing.map((u) => u.id));
+                const orphanIds = reqs.filter((r: any) => !existingSet.has(r.userId)).map((r: any) => r.id as string);
+                if (orphanIds.length > 0) {
+                    await (this.prisma as any)[model].deleteMany({ where: { id: { in: orphanIds } } });
+                    console.log(`🧹 ${orphanIds.length} orphaned ${model}(s) removed — requester user deleted`);
+                }
+            }
+        } catch (e: any) {
+            console.warn('⚠️ cleanupOrphanedRequestsWithoutUser failed (non-blocking):', e?.message);
+        }
+    }
+
     async derivedNotifications(userId: string) {
         const userBizIds = (await this.prisma.business.findMany({
             where: { ownerUserId: userId, status: 'active' },
@@ -1871,7 +1895,11 @@ export class AdService {
 
         const catalogs = await this.prisma.catalog.findMany({
             where: { businessId: { in: userBizIds }, status: 'active' },
-            select: { id: true, name: true, slug: true, logoUrl: true, phone: true, shortDescription: true, industryName: true },
+            select: {
+                id: true, name: true, slug: true, logoUrl: true, phone: true, shortDescription: true, industryName: true,
+                businessId: true,  // ✅ برای لینک ویرایش کسب‌وکار
+                business: { select: { logoUrl: true } },  // ✅ لوگوی کسب‌وکار هم ملاک است
+            },
         });
 
         const now = new Date();
@@ -1942,13 +1970,15 @@ export class AdService {
                     catalogId: b.id,
                 });
             }
-            if (!b.logoUrl) {
+            // ✅ لوگو روی کاتالوگ یا کسب‌وکار — هرکدام کافی است
+            //    (ریشهٔ باگ: کاربر لوگوی کسب‌وکار را ست می‌کرد ولی اعلان فقط logoUrl کاتالوگ را می‌دید)
+            if (!b.logoUrl && !b.business?.logoUrl) {
                 items.push({
                     id: `nologo-${b.id}`,
                     type: 'incomplete',
                     severity: 'info',
                     title: `«${b.name}» لوگو ندارد — کاتالوگ با لوگو اعتماد بیشتری می‌گیرد`,
-                    action: { label: 'افزودن لوگو', href: `/my-catalogs?catalog=${b.id}` },
+                    action: { label: 'ویرایش کسب‌وکار', href: `/business/edit?id=${b.businessId}` },
                     catalogId: b.id,
                 });
             }
@@ -2078,6 +2108,9 @@ export class AdService {
         }
 
         // ═══ ✅ NEW — اعلان‌های مالک/ادمین بازار: درخواست‌های در انتظار بررسی ═══
+        // ✅ یتیم‌ها اول پاک شوند — درخواستِ کاربرِ حذف‌شده نباید اعلانِ بی‌مبنا بسازد
+        //    و includeِ user در پنل مالک را به 500 بکاند (ریشهٔ اعلانِ «لغو عضویت» بی‌مبنا)
+        await this.cleanupOrphanedRequestsWithoutUser();
         const managedArms = await this.prisma.armMembership.findMany({
             where: { userId, role: { in: ['arm_owner', 'arm_admin'] }, status: 'active' },
             select: { armId: true, arm: { select: { name: true, slug: true } } },
