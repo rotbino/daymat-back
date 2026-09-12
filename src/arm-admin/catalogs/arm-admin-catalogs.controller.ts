@@ -114,6 +114,26 @@ export class ArmAdminCatalogsController {
         return this.catalogsService.setCatalogPaused(slug, catalogId, paused === true);
     }
 
+    @Get('sellers/:catalogId/settings')
+    @ApiOperation({ summary: 'تنظیمات اختصاصی کاتالوگ در این بازار (ارث‌بری + اورایت)' })
+    async getCatalogSettings(
+        @Param('slug') slug: string,
+        @Param('catalogId') catalogId: string,
+    ) {
+        return this.catalogsService.getCatalogSettings(slug, catalogId);
+    }
+
+    @Patch('sellers/:catalogId/settings')
+    @ApiOperation({ summary: 'اورایت چندفروشندگی برای یک کاتالوگ خاص (فقط مالک بازار)' })
+    async setCatalogSettings(
+        @Param('slug') slug: string,
+        @Param('catalogId') catalogId: string,
+        @CurrentUser() user: any,
+        @Body() body: { multiSeller?: boolean | 'inherit' },
+    ) {
+        return this.catalogsService.setCatalogMultiSellerOverride(slug, catalogId, user.id, body?.multiSeller);
+    }
+
     @Delete('sellers/:catalogId')
     @ApiOperation({ summary: 'حذف فروشنده از بازار' })
     async removeSeller(

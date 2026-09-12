@@ -32,6 +32,41 @@ export class CatalogMemberService {
     ) {}
 
     // ════════════════════════════════════════════════════════════
+    //  تنظیمات ماژول کاتالوگ — ارث از بازار + اورایت اختصاصی کاتالوگ
+    //  همهٔ کاتالوگ‌ها «چندفروشندگی» را از config.modules.catalog بازار می‌برند؛
+    //  مالک بازار می‌تواند برای کاتالوگ خاصی در config.settings.multiSeller اورایت کند.
+    // ════════════════════════════════════════════════════════════
+    async getEffectiveCatalogSettings(catalogId: string) {
+        const catalog = await this.getCatalogOrThrow(catalogId);
+        const memberships = await this.prisma.armMembership.findMany({
+            where: { catalogId: catalog.id, status: 'active' },
+            orderBy: { joinedAt: 'asc' },
+            select: { armId: true },
+            take: 20,
+        });
+        const armId = memberships.find((m) => !!m.armId)?.armId || null;
+        let armModule: any = {};
+        if (armId) {
+            const arm = await this.prisma.arm.findUnique({ where: { id: armId }, select: { config: true } });
+            armModule = (arm?.config as any)?.modules?.catalog ?? {};
+        }
+        const override = (catalog.config as any)?.settings?.multiSeller;
+        const multiSeller =
+            typeof override === 'boolean'
+                ? override
+                : typeof armModule.multiSeller === 'boolean'
+                    ? armModule.multiSeller
+                    : true; // پیش‌فرض: فعال
+        return {
+            enabled: armModule.enabled !== false,
+            freeAdLimit: Number.isFinite(armModule.freeAdLimit) ? Number(armModule.freeAdLimit) : 0,
+            multiSeller,
+            armId,
+            source: typeof override === 'boolean' ? 'catalog' : typeof armModule.multiSeller === 'boolean' ? 'arm' : 'default',
+        };
+    }
+
+    // ════════════════════════════════════════════════════════════
     //  resolve helpers
     // ════════════════════════════════════════════════════════════
 
@@ -42,7 +77,7 @@ export class CatalogMemberService {
         const catalog = await this.prisma.catalog.findUnique({
             where: { id: catalogId },
             select: {
-                id: true, name: true, slug: true, status: true, businessId: true,
+                id: true, name: true, slug: true, status: true, businessId: true, config: true,
                 business: { select: { id: true, name: true, ownerUserId: true, phone: true } },
             },
         });
@@ -187,8 +222,50 @@ export class CatalogMemberService {
         const isSeller = this.hasActiveSellerLane(myRow);
         const isPendingSeller = myRow?.status === 'active' && myRow.sellerStatus === 'pending';
 
+        const settings = await this.getEffectiveCatalogSettings(catalog.id);
+        const ownerUserId = catalog.business.ownerUserId;
+
+        // ── نمای عمومی (کاربر لاگین‌شدهٔ غیرعضو) — فهرست فروشندگان بدون شماره تماس ──
         if (!isOwner && !isAdmin && !isSeller && !isPendingSeller) {
-            throw new ForbiddenException({ errorCode: 'NOT_TEAM_MEMBER', message: 'شما عضو تیم این کاتالوگ نیستید' });
+            const publicRows = await this.prisma.catalogMember.findMany({
+                where: { catalogId: catalog.id, sellerStatus: 'active' },
+                include: this.MEMBER_INCLUDE,
+                orderBy: { sellerJoinedAt: 'asc' },
+            });
+            const publicSellers = publicRows.map((r) => ({
+                ...this.memberCard(r),
+                phone: null,
+                isOwner: r.userId === ownerUserId,
+                isAdmin: r.role === 'catalog_admin',
+                customersCount: 0,
+            }));
+            return {
+                catalog: {
+                    id: catalog.id,
+                    name: catalog.name,
+                    slug: catalog.slug,
+                    businessId: catalog.business.id,
+                    businessName: catalog.business.name,
+                    ownerUserId,
+                },
+                myRole: {
+                    isOwner: false,
+                    isAdmin: false,
+                    isSeller: false,
+                    isPendingSeller: false,
+                    canManage: false,
+                    userId: actorId,
+                    memberId: null,
+                    sellerRegion: null,
+                    position: null,
+                },
+                sellers: publicSellers,
+                pendingSellers: [],
+                customers: [],
+                events: [],
+                stats: { sellers: publicSellers.length, pendingSellers: 0, customers: 0 },
+                settings,
+            };
         }
 
         const canManage = isOwner || isAdmin;
@@ -213,8 +290,6 @@ export class CatalogMemberService {
                 customerCounts.set(r.assignedSellerUserId, (customerCounts.get(r.assignedSellerUserId) || 0) + 1);
             }
         }
-
-        const ownerUserId = catalog.business.ownerUserId;
 
         const sellers = rows
             .filter((r) => r.sellerStatus === 'active')
@@ -301,6 +376,7 @@ export class CatalogMemberService {
                 activeCustomers: customers.filter((c) => c.customerStatus === 'active').length,
                 pendingCustomers: customers.filter((c) => c.customerStatus === 'pending').length,
             },
+            settings,
         };
     }
 
@@ -385,6 +461,15 @@ export class CatalogMemberService {
         const catalog = await this.getCatalogOrThrow(catalogId);
         if (this.isOwner(catalog, userId)) {
             throw new ConflictException({ errorCode: 'IS_CATALOG_OWNER', message: 'اونر کاتالوگ به‌طور پیش‌فرض فروشنده است — نیازی به درخواست نیست' });
+        }
+
+        // گیتِ چندفروشندگی — از تنظیمات بازار (با اورایت اختصاصی کاتالوگ)
+        const settings = await this.getEffectiveCatalogSettings(catalog.id);
+        if (!settings.multiSeller) {
+            throw new ForbiddenException({
+                errorCode: 'MULTI_SELLER_DISABLED',
+                message: 'چندفروشندگی برای این کاتالوگ فعال نیست — فقط اونر کاتالوگ فروشنده است',
+            });
         }
 
         // کسب‌وکار فروشنده — پیش‌فرض: اولین کسب‌وکار فعال

@@ -793,6 +793,70 @@ async setCatalogPaused(slug: string, catalogId: string, paused: boolean) {
 }
 
 // ============================================================
+// تنظیمات اختصاصی کاتالوگ — ارث‌بری از ماژول کاتالوگِ بازار + اورایت مالک بازار
+//   همهٔ کاتالوگ‌ها «چندفروشندگی» را از بازار به ارث می‌برند؛
+//   مالک بازار می‌تواند برای کاتالوگ‌های خاص این را اورایت کند
+//   (مقدار اورایت در catalog.config.settings.multiSeller نوشته می‌شود).
+// ============================================================
+async getCatalogSettings(slug: string, catalogId: string) {
+    const arm = await this.resolveArm(slug);
+    const catalog = await this.prisma.catalog.findUnique({
+        where: { id: catalogId },
+        select: { id: true, name: true, config: true },
+    });
+    if (!catalog) {
+        throw new NotFoundException({ errorCode: 'CATALOG_NOT_FOUND', message: 'کاتالوگ یافت نشد' });
+    }
+    const armModule = (arm.config as any)?.modules?.catalog ?? {};
+    const override = (catalog.config as any)?.settings?.multiSeller;
+
+    return {
+        catalogId: catalog.id,
+        catalogName: catalog.name,
+        freeAdLimit: Number.isFinite(armModule.freeAdLimit) ? Number(armModule.freeAdLimit) : 0,
+        multiSeller: {
+            armDefault: typeof armModule.multiSeller === 'boolean' ? armModule.multiSeller : true,
+            override: typeof override === 'boolean' ? override : 'inherit',
+            effective: typeof override === 'boolean' ? override : (typeof armModule.multiSeller === 'boolean' ? armModule.multiSeller : true),
+        },
+    };
+}
+
+async setCatalogMultiSellerOverride(slug: string, catalogId: string, userId: string, multiSeller?: boolean | 'inherit') {
+    const arm = await this.resolveArm(slug);
+    // فقط مالک بازار — تنظیم تجاریِ مالکانه است
+    if (arm.ownerUserId !== userId) {
+        throw new ForbiddenException({ errorCode: 'ONLY_ARM_OWNER', message: 'فقط مالک بازار می‌تواند تنظیمات اختصاصی کاتالوگ را تغییر دهد' });
+    }
+    if (multiSeller === undefined) {
+        throw new BadRequestException({ errorCode: 'VALUE_REQUIRED', message: 'مقدار multiSeller الزامی است' });
+    }
+
+    const catalog = await this.prisma.catalog.findUnique({
+        where: { id: catalogId },
+        select: { id: true, config: true },
+    });
+    if (!catalog) {
+        throw new NotFoundException({ errorCode: 'CATALOG_NOT_FOUND', message: 'کاتالوگ یافت نشد' });
+    }
+
+    const currentConfig = (catalog.config as any) || {};
+    const settings = { ...(currentConfig.settings ?? {}) };
+    if (multiSeller === 'inherit') {
+        delete settings.multiSeller; // برگشت به ارث‌بری از بازار
+    } else {
+        settings.multiSeller = multiSeller === true;
+    }
+
+    await this.prisma.catalog.update({
+        where: { id: catalogId },
+        data: { config: { ...currentConfig, settings } as any, updatedAt: new Date() },
+    });
+
+    return this.getCatalogSettings(slug, catalogId);
+}
+
+// ============================================================
 // ۵) حذف نقش فروشندگی — پاک کردن catalogId از membership
 // ============================================================
 // ✅ اگه arm_owner هست: فقط catalogId/roleType/publishState رو پاک کن (membership می‌مونه)
