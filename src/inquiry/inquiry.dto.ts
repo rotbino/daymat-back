@@ -15,6 +15,16 @@ export class InquiryItemDto {
     @MaxLength(160)
     name: string;
 
+    @ApiPropertyOptional({ description: 'شناسه کالای مرجع (انتخاب از مرجع) — کلید معرفی تامین‌کنندهٔ مرتبط در آینده', required: false })
+    @IsOptional()
+    @IsString()
+    referenceItemId?: string;
+
+    @ApiPropertyOptional({ description: 'شناسه واحد از مرجع واحد', required: false })
+    @IsOptional()
+    @IsString()
+    unitId?: string;
+
     @ApiPropertyOptional({ example: 500, description: 'مقدار', required: false })
     @IsOptional()
     @IsNumber()
@@ -56,6 +66,12 @@ export class InquiryItemDto {
     @IsString()
     @MaxLength(500)
     note?: string;
+}
+
+export class InquiryUnitDto {
+    @ApiProperty({ description: 'شناسه واحد از مرجع واحد' })
+    @IsString()
+    unitId: string;
 }
 
 export class CreateInquiryDto {
@@ -138,6 +154,14 @@ export class CreateInquiryDto {
     @IsOptional()
     @IsString()
     businessId?: string;
+
+    @ApiPropertyOptional({ type: [InquiryUnitDto], description: 'واحدهای اختصاصی این کاتالوگ خرید (از مرجع واحد)', required: false })
+    @IsOptional()
+    @IsArray()
+    @ArrayMaxSize(50)
+    @ValidateNested({ each: true })
+    @Type(() => InquiryUnitDto)
+    units?: InquiryUnitDto[];
 }
 
 export class UpdateInquiryDto {
@@ -158,6 +182,9 @@ export class UpdateInquiryDto {
     @IsOptional() @IsArray() @ArrayMaxSize(10) @IsString({ each: true }) tags?: string[];
     @ApiPropertyOptional({ description: 'کسب‌وکار صادرکننده (اختیاری — اتصال/تغییر/قطع اتصال با رشتهٔ خالی)', required: false })
     @IsOptional() @IsString() businessId?: string;
+    @ApiPropertyOptional({ type: [InquiryUnitDto], description: 'واحدهای اختصاصی (جایگزینی کامل)', required: false })
+    @IsOptional() @IsArray() @ArrayMaxSize(50) @ValidateNested({ each: true }) @Type(() => InquiryUnitDto)
+    units?: InquiryUnitDto[];
 }
 
 export class CreateOfferDto {

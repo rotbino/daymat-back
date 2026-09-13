@@ -909,6 +909,10 @@ model Inquiry {
   viewCount  Int @default(0)
   offerCount Int @default(0)              // شمارندهٔ غیرنرمال برای نمایش سریع
 
+  // ✅ واحدهای اختصاصیِ این کاتالوگ خرید (مثل کاتالوگ فروش) — [{ unitId: string }]
+  //    در فرم ساخت/ویرایش، سلکتِ واحد اقلام از همین + واحدهای مرجع پر می‌شود
+  units Json?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   expiresAt DateTime?
@@ -923,21 +927,25 @@ model Inquiry {
 
 // قلمِ خرید — ردیفِ لیست. فقط name اجباری است؛ بقیه اختیاری.
 model InquiryItem {
-  id           String   @id @default(auto()) @map("_id") @db.ObjectId
-  inquiryId    String   @db.ObjectId
-  inquiry      Inquiry  @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
-  name         String            // «گوجه‌فرنگی» یا «یاتاقان TY-220»
-  quantity     Float?
-  unit         String?           // کیلوگرم / کارتن / عدد — متن آزاد
-  brand        String?           // اختیاری — برند یا سازندهٔ مدنظر
-  specs        Json?             // اختیاری — [{ key, value }] مشخصات فنی قطعه
-  imageUrl     String?           // اختیاری — عکس کالا/قطعه
-  referenceUrl String?           // اختیاری — لینک نمونه یا کاتالوگ سازنده
-  note         String?
-  order        Int     @default(0)
-  createdAt    DateTime @default(now())
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  inquiryId       String   @db.ObjectId
+  inquiry         Inquiry  @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  // ✅ اتصال به کالای مرجع — کلید معرفی تامین‌کنندهٔ مرتبط به خریدار در آینده
+  referenceItemId String?  @db.ObjectId
+  name            String            // «گوجه‌فرنگی» یا «یاتاقان TY-220»
+  unitId          String?  @db.ObjectId // ✅ واحد از مرجع واحد (عنوان نمایشی در unit ذخیره می‌شود)
+  quantity        Float?
+  unit            String?           // کیلوگرم / کارتن / عدد — عنوان نمایشی (از مرجع واحد)
+  brand           String?           // اختیاری — برند یا سازندهٔ مدنظر
+  specs           Json?             // اختیاری — [{ key, value }] مشخصات فنی قطعه
+  imageUrl        String?           // اختیاری — عکس کالا/قطعه
+  referenceUrl    String?           // اختیاری — لینک نمونه یا کاتالوگ سازنده
+  note            String?
+  order           Int     @default(0)
+  createdAt       DateTime @default(now())
 
   @@index([inquiryId])
+  @@index([referenceItemId])
 }
 
 // پیشنهاد قیمت تامین‌کننده — یا روی کل لیست (itemId خالی) یا روی یک قلم

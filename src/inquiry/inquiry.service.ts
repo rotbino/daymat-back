@@ -4,7 +4,7 @@ import {
     Injectable, NotFoundException, ForbiddenException, BadRequestException, OnModuleInit,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateInquiryDto, UpdateInquiryDto, CreateOfferDto, UpdateOfferDto, InquiryItemDto } from './inquiry.dto';
+import { CreateInquiryDto, UpdateInquiryDto, CreateOfferDto, UpdateOfferDto, InquiryItemDto, InquiryUnitDto } from './inquiry.dto';
 
 const RESERVED_SLUGS = [
     'admin', 'api', 'login', 'logout', 'register', 'my-catalogs', 'my-inquiries',
@@ -14,7 +14,7 @@ const RESERVED_SLUGS = [
 
 const PUBLIC_LIST_SELECT = {
     id: true, title: true, description: true, slug: true, status: true,
-    businessId: true, visibility: true,
+    businessId: true, visibility: true, units: true,
     deadline: true, city: true, province: true, tags: true,
     viewCount: true, offerCount: true, createdAt: true,
     owner: { select: { id: true, fullName: true, avatarUrl: true } },
@@ -99,6 +99,9 @@ export class InquiryService implements OnModuleInit {
             .filter((i) => (i.name ?? '').trim().length > 0)
             .map((i, idx) => ({
                 name: i.name.trim(),
+                // ✅ اتصال به مرجع — کالای مرجع و واحدِ مرجع (با اعتبارسنجی فرمت؛ وجود در سرویس بررسی می‌شود)
+                referenceItemId: this.isValidObjectId(i.referenceItemId) ? i.referenceItemId : undefined,
+                unitId: this.isValidObjectId(i.unitId) ? i.unitId : undefined,
                 quantity: typeof i.quantity === 'number' ? i.quantity : null,
                 unit: i.unit?.trim() || null,
                 brand: i.brand?.trim() || null,
@@ -108,6 +111,24 @@ export class InquiryService implements OnModuleInit {
                 note: i.note?.trim() || null,
                 order: idx,
             }));
+    }
+
+    /** اعتبارسنجی واحدهای اختصاصی — فقط unitIdهای واقعاً موجود در مرجع واحد */
+    private async cleanUnits(units?: InquiryUnitDto[]): Promise<any[] | undefined> {
+        if (!Array.isArray(units)) return undefined;
+        const ids = [...new Set(units.map((u) => u?.unitId).filter((id) => this.isValidObjectId(id)))];
+        if (ids.length === 0) return [];
+        const found = await this.prisma.unit.findMany({ where: { id: { in: ids } }, select: { id: true } });
+        return found.map((u) => ({ unitId: u.id }));
+    }
+
+    /** بررسی وجود کالاهای مرجع ارسالی — حذفِ بی‌صدا موارد ناموجود */
+    private async filterExistingReferenceIds(items: ReturnType<InquiryService['cleanItems']>) {
+        const ids = [...new Set(items.map((i) => i.referenceItemId).filter(Boolean))] as string[];
+        if (ids.length === 0) return items;
+        const found = await this.prisma.productReference.findMany({ where: { id: { in: ids } }, select: { id: true } });
+        const ok = new Set(found.map((p) => p.id));
+        return items.map((i) => ({ ...i, referenceItemId: i.referenceItemId && ok.has(i.referenceItemId) ? i.referenceItemId : undefined }));
     }
 
     // ─── ساخت ───
@@ -121,15 +142,17 @@ export class InquiryService implements OnModuleInit {
             });
             if (!biz) throw new ForbiddenException({ errorCode: 'NOT_YOUR_BUSINESS', message: 'این کسب‌وکار متعلق به شما نیست' });
         }
-        const items = this.cleanItems(dto.items);
+        const items = await this.filterExistingReferenceIds(this.cleanItems(dto.items));
         if (items.length === 0) {
             throw new BadRequestException({ errorCode: 'EMPTY_ITEMS', message: 'حداقل یک قلم خرید لازم است' });
         }
+        const units = await this.cleanUnits(dto.units);
         const slug = await this.buildUniqueSlug(dto.title, dto.slug);
-        const { items: _drop, slug: _s, ...data } = dto;
+        const { items: _drop, slug: _s, units: _u, ...data } = dto;
         const inquiry = await this.prisma.inquiry.create({
             data: {
                 ...data,
+                units: units ?? undefined,
                 deadline: dto.deadline ? new Date(dto.deadline) : null,
                 ownerUserId: userId,
                 slug,
@@ -235,10 +258,14 @@ export class InquiryService implements OnModuleInit {
             const taken = await this.prisma.inquiry.findFirst({ where: { slug: normalized, id: { not: id } } });
             if (taken) throw new BadRequestException({ errorCode: 'SLUG_TAKEN', message: 'این آدرس قبلاً گرفته شده' });
         }
-        const { items, slug, deadline, businessId, ...rest } = dto;
+        const { items, slug, deadline, businessId, units, ...rest } = dto;
         const data: any = { ...rest };
         if (slug) data.slug = this.normalizeSlug(slug);
         if (deadline !== undefined) data.deadline = deadline ? new Date(deadline) : null;
+        // ✅ واحدهای اختصاصی — جایگزینی کامل (فقط unitIdهای موجود در مرجع)
+        if (units !== undefined) {
+            data.units = await this.cleanUnits(units);
+        }
         // اتصال/تغییر/قطع اتصال کسب‌وکار (رشتهٔ خالی = قطع اتصال)
         if (businessId !== undefined) {
             if (businessId) {
@@ -258,7 +285,7 @@ export class InquiryService implements OnModuleInit {
         return this.prisma.$transaction(async (tx) => {
             // اگر اقلام ارسال شده → جایگزینی کامل (ساده و قطعی)
             if (Array.isArray(items)) {
-                const cleaned = this.cleanItems(items);
+                const cleaned = await this.filterExistingReferenceIds(this.cleanItems(items));
                 if (cleaned.length === 0) {
                     throw new BadRequestException({ errorCode: 'EMPTY_ITEMS', message: 'حداقل یک قلم خرید لازم است' });
                 }
