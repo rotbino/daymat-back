@@ -1,6 +1,6 @@
 // src/admin/unit/admin-unit.dto.ts
 import {ApiProperty, ApiPropertyOptional} from '@nestjs/swagger';
-import {IsNotEmpty, IsString, IsOptional, IsBoolean, Min, IsNumber} from 'class-validator';
+import {IsNotEmpty, IsString, IsOptional, IsBoolean, IsIn, Min, IsNumber} from 'class-validator';
 
 export class CreateUnitDto {
     @ApiProperty({ example: 'تن', description: 'عنوان واحد' })
@@ -28,6 +28,11 @@ export class CreateUnitDto {
     @IsOptional()
     @IsBoolean()
     isDefault?: boolean;
+
+    @ApiPropertyOptional({ enum: ['wholesale', 'retail'], description: 'مال عمده‌فروشی است یا خرده‌فروشی', required: false })
+    @IsOptional()
+    @IsIn(['wholesale', 'retail'])
+    scope?: string;
 }
 
 export class UpdateUnitDto {
@@ -56,4 +61,9 @@ export class UpdateUnitDto {
     @IsOptional()
     @IsBoolean()
     isDefault?: boolean;
+
+    @ApiPropertyOptional({ enum: ['wholesale', 'retail'], description: 'مال عمده‌فروشی است یا خرده‌فروشی', required: false })
+    @IsOptional()
+    @IsIn(['wholesale', 'retail'])
+    scope?: string;
 }

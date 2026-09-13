@@ -4,6 +4,7 @@ import { CreateUnitDto, UpdateUnitDto } from './admin-unit.dto';
 import { PrismaService } from "../../prisma/prisma.service";
 import { collectLeafNodes } from '../../common/utils/arm.utils';
 import { CacheHelper } from '../../common/services/cache.helper';
+import { normalizeUnitTitle } from '../../common/utils/unit.utils';
 
 @Injectable()
 export class AdminUnitService {
@@ -13,19 +14,21 @@ export class AdminUnitService {
     // ایجاد واحد جدید
     // ============================================================
     async create(dto: CreateUnitDto) {
-        const existing = await this.prisma.unit.findFirst({
-            where: {
-                OR: [
-                    { title: dto.title },
-                    { shortCode: dto.shortCode },
-                ],
-            },
-        });
+        // ✅ چک تکراری نرمال‌شده — ي/ی، ك/ک، نیم‌فاصله و فاصله‌های تکراری تفاوت حساب نمی‌شوند
+        const normTitle = normalizeUnitTitle(dto.title);
+        const normCode = normalizeUnitTitle(dto.shortCode);
+        const all = await this.prisma.unit.findMany({ select: { title: true, shortCode: true } });
+        const dup = all.find((u) =>
+            normalizeUnitTitle(u.title) === normTitle ||
+            normalizeUnitTitle(u.shortCode) === normTitle ||
+            normalizeUnitTitle(u.title) === normCode ||
+            normalizeUnitTitle(u.shortCode) === normCode,
+        );
 
-        if (existing) {
+        if (dup) {
             throw new ConflictException({
                 errorCode: 'DUPLICATE_UNIT',
-                message: 'واحد با این عنوان یا کد کوتاه قبلاً ثبت شده است',
+                message: `واحدی با عنوان «${dup.title}» قبلاً ثبت شده است`,
             });
         }
 
@@ -36,6 +39,7 @@ export class AdminUnitService {
                 isDefault: dto.isDefault || false,
                 containsQty: dto.containsQty ?? null,
                 qtyIsFixed: dto.qtyIsFixed ?? false,
+                scope: dto.scope ?? null,
             },
         });
         // ✅ باطل‌سازی کش واحدها
@@ -77,32 +81,37 @@ export class AdminUnitService {
         await this.findOne(id);
 
         if (dto.title || dto.shortCode) {
-            const existing = await this.prisma.unit.findFirst({
-                where: {
-                    OR: [
-                        { title: dto.title },
-                        { shortCode: dto.shortCode },
-                    ],
-                    NOT: { id },
-                },
+            const normTitle = dto.title ? normalizeUnitTitle(dto.title) : null;
+            const normCode = dto.shortCode ? normalizeUnitTitle(dto.shortCode) : null;
+            const all = await this.prisma.unit.findMany({
+                select: { title: true, shortCode: true },
+                where: { NOT: { id } },
             });
+            const dup = all.find((u) =>
+                (normTitle && (normalizeUnitTitle(u.title) === normTitle ||
+                    normalizeUnitTitle(u.shortCode) === normTitle)) ||
+                (normCode && (normalizeUnitTitle(u.title) === normCode ||
+                    normalizeUnitTitle(u.shortCode) === normCode)),
+            );
 
-            if (existing) {
+            if (dup) {
                 throw new ConflictException({
                     errorCode: 'DUPLICATE_UNIT',
-                    message: 'واحد با این عنوان یا کد کوتاه قبلاً ثبت شده است',
+                    message: `واحدی با عنوان «${dup.title}» قبلاً ثبت شده است`,
                 });
             }
         }
 
         const updated = await this.prisma.unit.update({
             where: { id },
+            // ✅ فقط فیلدهای فرستاده‌شده آپدیت می‌شوند — نبودِ فیلد مقدار موجود را خراب نمی‌کند
             data: {
-                title: dto.title,
-                shortCode: dto.shortCode,
-                isDefault: dto.isDefault,
-                containsQty: dto.containsQty ?? null,
-                qtyIsFixed: dto.qtyIsFixed ?? false,
+                ...(dto.title !== undefined && { title: dto.title }),
+                ...(dto.shortCode !== undefined && { shortCode: dto.shortCode }),
+                ...(dto.isDefault !== undefined && { isDefault: dto.isDefault }),
+                ...(dto.containsQty !== undefined && { containsQty: dto.containsQty }),
+                ...(dto.qtyIsFixed !== undefined && { qtyIsFixed: dto.qtyIsFixed }),
+                ...(dto.scope !== undefined && { scope: dto.scope }),
             },
         });
         // ✅ باطل‌سازی کش واحدها
