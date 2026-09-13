@@ -4,7 +4,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { BusinessService } from './business.service';
-import { CreateBusinessDto, UpdateBusinessDto, RequestBusinessVerificationDto } from './business.dto';
+import { CreateBusinessDto, UpdateBusinessDto, RequestBusinessVerificationDto, SetBusinessActivitiesDto } from './business.dto';
 import { CurrentUser } from '../common/decorators/custom.decorators';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../common/guards/optional-jwt-auth.guard';
@@ -70,6 +70,18 @@ export class BusinessController {
     @ApiOperation({ summary: 'ویرایش کسب‌وکار (فقط ثبت‌کنندهٔ اول یا مالک قدیمی)' })
     update(@Param('id') id: string, @CurrentUser() user: any, @Body() dto: UpdateBusinessDto) {
         return this.businessService.update(id, user.id, dto);
+    }
+
+    @Put(':id/activities')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'تنظیم زمینه‌های فعالیت کسب‌وکار (جایگزینی کامل لیست)' })
+    setActivities(
+        @Param('id') id: string,
+        @CurrentUser() user: any,
+        @Body() dto: SetBusinessActivitiesDto,
+    ) {
+        return this.businessService.setActivities(id, user.id, dto);
     }
 
     @Delete(':id')

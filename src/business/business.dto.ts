@@ -277,3 +277,13 @@ export class RequestBusinessVerificationDto {
     @IsString({ each: true })
     awardFileIds?: string[];
 }
+
+// ============================================================
+// زمینه‌های فعالیت کسب‌وکار — جایگزینی کامل لیست (آرایهٔ خالی = پاک‌سازی)
+// ============================================================
+export class SetBusinessActivitiesDto {
+    @ApiProperty({ type: [String], description: 'شناسه فعالیت‌ها (برگ‌های درخت فعالیت)' })
+    @IsArray()
+    @IsString({ each: true })
+    activityIds: string[];
+}

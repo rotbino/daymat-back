@@ -6,7 +6,7 @@ import {
     BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateBusinessDto, UpdateBusinessDto, RequestBusinessVerificationDto } from './business.dto';
+import { CreateBusinessDto, UpdateBusinessDto, RequestBusinessVerificationDto, SetBusinessActivitiesDto } from './business.dto';
 import { CacheHelper } from '../common/services/cache.helper';
 
 /**
@@ -271,6 +271,11 @@ export class BusinessService {
                     where: { status: 'active' },
                     select: { id: true, name: true, slug: true, salesType: true, status: true, ownerUserId: true },
                 },
+                activities: {
+                    include: {
+                        activity: { select: { id: true, title: true, slug: true } },
+                    },
+                },
                 members: {
                     where: { status: 'active' },
                     select: {
@@ -353,6 +358,55 @@ export class BusinessService {
         );
 
         return updated;
+    }
+
+    // ============================================================
+    // زمینه‌های فعالیت — جایگزینی کامل لیست (صفحهٔ مدیریت کسب‌وکار)
+    // ============================================================
+    async setActivities(id: string, userId: string, dto: SetBusinessActivitiesDto) {
+        const biz = await this.prisma.business.findUnique({
+            where: { id },
+            select: { ownerUserId: true, creatorUserId: true },
+        });
+        if (!biz) {
+            throw new NotFoundException({ errorCode: 'BUSINESS_NOT_FOUND', message: 'کسب‌وکار یافت نشد' });
+        }
+        this.assertCanEdit(biz, userId);
+
+        // فقط شناسه‌های معتبر — بقیه رد می‌شوند
+        const ids = [...new Set((dto.activityIds || []).filter((x) => /^[a-f\d]{24}$/i.test(x)))];
+        const valid = ids.length
+            ? await this.prisma.activity.findMany({
+                  where: { id: { in: ids } },
+                  select: { id: true },
+              })
+            : [];
+        const validIds = valid.map((a) => a.id);
+        const invalidCount = ids.length - validIds.length;
+
+        await this.prisma.$transaction(async (tx) => {
+            await tx.businessActivity.deleteMany({ where: { businessId: id } });
+            for (const activityId of validIds) {
+                await tx.businessActivity.create({ data: { businessId: id, activityId } });
+            }
+        });
+
+        // باطل‌سازی کش — همان الگوی update (کاتالوگ‌های عمومی دیتای کسب‌وکار را کش می‌کنند)
+        await this.cache.bust(`my-catalogs:${userId}`);
+        const ownedCatalogs = await this.prisma.catalog.findMany({
+            where: { businessId: id },
+            select: { slug: true, ownerUserId: true },
+        });
+        await Promise.all(
+            ownedCatalogs
+                .filter((c) => c.slug)
+                .flatMap((c) => [
+                    this.cache.bust(`catalog-slug:${c.slug!}`),
+                    this.cache.bust(`my-catalogs:${c.ownerUserId}`),
+                ]),
+        );
+
+        return { success: true, count: validIds.length, ...(invalidCount > 0 ? { skipped: invalidCount } : {}) };
     }
 
     async remove(id: string, userId: string) {
