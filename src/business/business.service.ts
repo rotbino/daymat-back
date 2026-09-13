@@ -530,7 +530,30 @@ export class BusinessService {
         };
     }
 
-    /** افزودن عضو تیم با شماره موبایل — فقط مدیر کسب‌وکار */
+    /** جستجوی کاربرِ ثبت‌نام‌شدهٔ دیمت برای افزودن به تیم — با نام یا شماره موبایل */
+    async searchTeamUsers(rawQ: string) {
+        const q = (rawQ || '').trim();
+        if (q.length < 3) return { items: [] };
+
+        const phone = BusinessService.normalizePhone(q); // شمارهٔ کامل و معتبر → جستجوی دقیق
+        const digits = q.replace(/[^\d]/g, '');
+
+        const where: any = phone
+            ? { phone }
+            : digits.length >= 4
+              ? { phone: { contains: digits } } // بخشی از شماره
+              : { fullName: { contains: q } };  // نام
+
+        const users = await this.prisma.user.findMany({
+            where,
+            select: { id: true, fullName: true, phone: true, avatarUrl: true },
+            take: 8,
+            orderBy: { createdAt: 'desc' },
+        });
+        return { items: users };
+    }
+
+    /** افزودن عضو تیم با userId (از جستجو) یا شماره موبایل — فقط مدیر کسب‌وکار */
     async addMember(businessId: string, userId: string, dto: AddBusinessMemberDto) {
         await this.assertCanManageTeam(businessId, userId);
         const biz = await this.prisma.business.findUnique({
@@ -541,23 +564,40 @@ export class BusinessService {
             throw new BadRequestException({ errorCode: 'BUSINESS_INACTIVE', message: 'این کسب‌وکار فعال نیست' });
         }
 
-        const phone = BusinessService.normalizePhone(dto.phone);
-        if (!phone) {
-            throw new BadRequestException({
-                errorCode: 'PHONE_INVALID',
-                message: 'شماره موبایل معتبر نیست — مثلاً: 09123456789',
+        // ── پیدا کردن کاربر هدف: اولویت با userId، وگرنه با شماره موبایل ──
+        let targetUserId: string | null = null;
+        if (dto.userId?.trim()) {
+            const byId = await this.prisma.user.findUnique({
+                where: { id: dto.userId.trim() },
+                select: { id: true },
             });
-        }
-        const target = await this.prisma.user.findUnique({ where: { phone }, select: { id: true } });
-        if (!target) {
-            throw new NotFoundException({
-                errorCode: 'USER_NOT_FOUND',
-                message: 'کاربری با این شماره در دیمت پیدا نشد — اول باید ثبت‌نام کند',
-            });
+            if (!byId) {
+                throw new NotFoundException({
+                    errorCode: 'USER_NOT_FOUND',
+                    message: 'کاربر یافت نشد — باید اول در دیمت ثبت‌نام کند',
+                });
+            }
+            targetUserId = byId.id;
+        } else {
+            const phone = BusinessService.normalizePhone(dto.phone);
+            if (!phone) {
+                throw new BadRequestException({
+                    errorCode: 'PHONE_INVALID',
+                    message: 'شماره موبایل معتبر نیست — مثلاً: 09123456789',
+                });
+            }
+            const target = await this.prisma.user.findUnique({ where: { phone }, select: { id: true } });
+            if (!target) {
+                throw new NotFoundException({
+                    errorCode: 'USER_NOT_FOUND',
+                    message: 'این شماره هنوز در دیمت ثبت‌نام نکرده — لینک دعوت را برایش بفرست',
+                });
+            }
+            targetUserId = target.id;
         }
 
         const existing = await this.prisma.businessMember.findUnique({
-            where: { businessId_userId: { businessId, userId: target.id } },
+            where: { businessId_userId: { businessId, userId: targetUserId } },
         });
         if (existing?.status === 'active') {
             throw new ConflictException({
@@ -567,10 +607,10 @@ export class BusinessService {
         }
 
         const member = await this.prisma.businessMember.upsert({
-            where: { businessId_userId: { businessId, userId: target.id } },
+            where: { businessId_userId: { businessId, userId: targetUserId } },
             create: {
                 businessId,
-                userId: target.id,
+                userId: targetUserId,
                 role: dto.role === 'admin' ? 'admin' : 'member',
                 position: dto.position?.trim() || null,
                 invitedBy: userId,
@@ -584,7 +624,7 @@ export class BusinessService {
             },
         });
 
-        await this.cache.bust(`profile:${target.id}`);
+        await this.cache.bust(`profile:${targetUserId}`);
         return { success: true, member };
     }
 

@@ -285,10 +285,22 @@ export class RequestBusinessVerificationDto {
 //   • نقش شرکتی: position — از لیست USER_POSITIONS یا متن آزاد «سایر»
 // ============================================================
 export class AddBusinessMemberDto {
-    @ApiProperty({ example: '09123456789', description: 'شماره موبایل کاربر (باید در دیمت ثبت‌نام کرده باشد)' })
-    @IsNotEmpty({ message: 'شماره موبایل همکار الزامی است' })
+    @ApiPropertyOptional({
+        example: '09123456789',
+        description: 'شماره موبایل کاربر (باید در دیمت ثبت‌نام کرده باشد) — یا userId بدهید',
+        required: false,
+    })
+    @IsOptional()
     @IsString()
-    phone: string;
+    phone?: string;
+
+    @ApiPropertyOptional({
+        description: 'شناسهٔ کاربر از جستجوی GET /business/search-users — مسیر ترجیحی افزودن',
+        required: false,
+    })
+    @IsOptional()
+    @IsString()
+    userId?: string;
 
     @ApiPropertyOptional({ example: 'کارشناس فروش', description: 'نقش شرکتی در کسب‌وکار', required: false })
     @IsOptional()

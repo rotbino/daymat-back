@@ -59,6 +59,14 @@ export class BusinessController {
         return this.businessService.getMy(user.id);
     }
 
+    @Get('search-users')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'جستجوی کاربر ثبت‌نام‌شدهٔ دیمت برای افزودن به تیم — با نام یا شماره موبایل' })
+    searchTeamUsers(@Query('q') q?: string) {
+        return this.businessService.searchTeamUsers(q || '');
+    }
+
     @Get(':id')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
