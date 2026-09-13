@@ -531,27 +531,77 @@ export class CatalogController {
     @Get(':catalogId/team/customer-candidates')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'جست‌وجوی کسب‌وکار برای ثبت مشتری' })
+    @ApiOperation({ summary: 'جست‌وجو/پیشنهاد کسب‌وکار برای ثبت مشتری — با سورت مرتبط‌سازی و فیلترها' })
     @ApiQuery({ name: 'q', required: false })
+    @ApiQuery({ name: 'province', required: false })
+    @ApiQuery({ name: 'city', required: false })
+    @ApiQuery({ name: 'sector', required: false })
+    @ApiQuery({ name: 'role', required: false })
     async customerCandidates(
         @Param('catalogId') catalogId: string,
         @CurrentUser() user: any,
         @Query('q') q?: string,
+        @Query('province') province?: string,
+        @Query('city') city?: string,
+        @Query('sector') sector?: string,
+        @Query('role') role?: string,
     ) {
-        return this.catalogMemberService.customerCandidates(catalogId, user.id, q);
+        return this.catalogMemberService.customerCandidates(catalogId, user.id, { q, province, city, sector, role });
+    }
+
+    @Get(':catalogId/team/people-candidates')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'پیشنهاد/جستجوی افراد برای دعوت به همکاری در فروش — مرتبط‌سازی محلی/صنفی' })
+    @ApiQuery({ name: 'q', required: false })
+    @ApiQuery({ name: 'province', required: false })
+    @ApiQuery({ name: 'city', required: false })
+    @ApiQuery({ name: 'sector', required: false })
+    @ApiQuery({ name: 'role', required: false })
+    async peopleCandidates(
+        @Param('catalogId') catalogId: string,
+        @CurrentUser() user: any,
+        @Query('q') q?: string,
+        @Query('province') province?: string,
+        @Query('city') city?: string,
+        @Query('sector') sector?: string,
+        @Query('role') role?: string,
+    ) {
+        return this.catalogMemberService.peopleCandidates(catalogId, user.id, { q, province, city, sector, role });
     }
 
     @Get(':catalogId/team/partner-catalogs')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'جست‌وجوی کاتالوگ‌های دیگر برای درخواست تامین‌کنندگی/تامین خدمات' })
+    @ApiOperation({ summary: 'پیشنهاد/جست‌وجوی کاتالوگ‌ها برای تامین‌کنندگی/تامین خدمات — با سورت مرتبط‌سازی و فیلترها' })
     @ApiQuery({ name: 'q', required: false })
+    @ApiQuery({ name: 'province', required: false })
+    @ApiQuery({ name: 'city', required: false })
+    @ApiQuery({ name: 'sector', required: false })
+    @ApiQuery({ name: 'role', required: false })
+    @ApiQuery({ name: 'salesType', required: false })
     async partnerCatalogs(
         @Param('catalogId') catalogId: string,
         @CurrentUser() user: any,
         @Query('q') q?: string,
+        @Query('province') province?: string,
+        @Query('city') city?: string,
+        @Query('sector') sector?: string,
+        @Query('role') role?: string,
+        @Query('salesType') salesType?: string,
     ) {
-        return this.catalogMemberService.partnerCatalogs(catalogId, user.id, q);
+        return this.catalogMemberService.partnerCatalogs(catalogId, user.id, { q, province, city, sector, role, salesType });
+    }
+
+    @Get(':catalogId/team/connection-quota')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'وضعیت سهمیهٔ درخواست ارتباط کاربر — رایگانِ باقی‌مانده / هزینهٔ اعتباری / موجودی' })
+    async connectionQuota(
+        @Param('catalogId') catalogId: string,
+        @CurrentUser() user: any,
+    ) {
+        return this.catalogMemberService.getConnectionRequestQuota(catalogId, user.id);
     }
 
     @Post(':catalogId/team/customers')

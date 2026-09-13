@@ -125,6 +125,8 @@ model User {
   catalogTeamEvents        CatalogTeamEvent[]     @relation("CatTeamEventUser") // رویدادهای تیمیِ مربوط به کاربر
   phoneContacts            UserContact[]          @relation("ContactOwner")       // ✅ دفترچهٔ مخاطبینِ آپلودشدهٔ کاربر
   discoveredInContacts     UserContact[]          @relation("ContactMatchedUser") // ✅ در دفترچهٔ چه کسانی پیدا شده
+  sentConnectionRequests   ConnectionRequestLog[] @relation("ConnReqSender")      // ✅ درخواست‌های ارتباطی که این کاربر فرستاده
+  referrerEarnings         ConnectionRequestLog[] @relation("ConnReqReferrer")    // ✅ درخواست‌هایی که سهم دعوت‌شان به این کاربر می‌رسد
 
   @@index([status])
   @@index([role])
@@ -233,6 +235,7 @@ model Catalog {
   buyLeads            BuyLead[]
   creditRequests      CreditRequest[]
   catalogInteractions CatalogInteraction[]
+  connectionRequests  ConnectionRequestLog[] @relation("ConnReqCatalog") // دفتر درخواست‌های ارتباطی ارسالی به این کاتالوگ
 
   businessId String   @db.ObjectId
   business   Business @relation("BusinessCatalogs", fields: [businessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -1351,4 +1354,32 @@ model UserContact {
   @@unique([ownerId, phone])
   @@index([ownerId, createdAt])
   @@index([matchedUserId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// دفترِ درخواست‌های ارتباطِ تجاریِ ارسالی هر کاربر (عضوگیری کاتالوگ)
+//   • سهمیهٔ رایگانِ هر شخص روی «همهٔ» کاتالوگ‌ها و کسب‌وکارهایش شمرده می‌شود
+//   • پس از پایان سهمیه: هر درخواست به‌اندازهٔ creditCost اعتبار هزینه دارد
+//   • درصدی از هر مصرفِ اعتباری، سهمِ دعوت‌کنندهٔ فرستنده است (تسویهٔ وقتی ≥۱ اعتبار)
+// ─────────────────────────────────────────────────────────────
+model ConnectionRequestLog {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId         String   @db.ObjectId // فرستندهٔ درخواست
+  user           User     @relation("ConnReqSender", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  catalogId      String   @db.ObjectId // کاتالوگ مقصد
+  catalog        Catalog  @relation("ConnReqCatalog", fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  type           String   // customer | supplier | service | seller
+  targetId       String?  @db.ObjectId // businessId یا userId یا کاتالوگِ مبدأ تامین
+  targetName     String?  // نام مقصد در لحظهٔ ارسال — برای گزارش
+  isFree         Boolean  @default(true)  // از سهمیهٔ رایگان گذشت؟
+  creditCost     Int      @default(0)     // اعتبارِ مصرف‌شده (صفر = رایگان)
+  referrerUserId String?  @db.ObjectId    // دعوت‌کنندهٔ فرستنده — سهمش به کیف پولش می‌رود
+  referrer       User?    @relation("ConnReqReferrer", fields: [referrerUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  referrerShare  Float    @default(0)     // سهم دعوت‌کننده به اعتبار — ممیزِ دقیق
+  referrerSettled Boolean @default(false) // سهم به کیف پول واریز شد؟
+  createdAt      DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([catalogId, createdAt])
+  @@index([referrerUserId, referrerSettled])
 }

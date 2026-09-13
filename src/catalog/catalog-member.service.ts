@@ -10,6 +10,19 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CacheHelper } from '../common/services/cache.helper';
 import { NotificationService } from '../notification/notification.service';
 
+// ─── فیلدهای مشترکِ پیشنهادهای ارتباط — کسب‌وکار / کاتالوگ ───
+const CONN_BIZ_SELECT = {
+    id: true, name: true, phone: true, city: true, province: true, logoUrl: true,
+    businessSector: true, businessRole: true, createdAt: true,
+    owner: { select: { fullName: true, phone: true } },
+} as const;
+
+const CONN_CAT_SELECT = {
+    id: true, name: true, slug: true, logoUrl: true, salesType: true, city: true, province: true, phone: true, createdAt: true,
+    business: { select: { id: true, name: true, city: true, province: true, phone: true, businessSector: true, businessRole: true } },
+    owner: { select: { id: true, fullName: true } },
+} as const;
+
 /**
  * اعضای کاتالوگ — ابزار ارتباطات تجاری برای هر دسته‌بندی کالا (پخش فقط یک نمونه است):
  *
@@ -72,6 +85,240 @@ export class CatalogMemberService {
             armId,
             source: typeof override === 'boolean' ? 'catalog' : typeof armModule.multiSeller === 'boolean' ? 'arm' : 'default',
         };
+    }
+
+    // ════════════════════════════════════════════════════════════
+    //  عضوگیریِ پارامتری و پولی — سهمیهٔ درخواست ارتباط
+    //  تنظیمات: config.modules.catalog.connectionRequest بازارِ کاتالوگ مقصد
+    //    { freeRequestQuota, creditCost, referrerSharePercent }
+    //  سهمیهٔ رایگان «به ازای هر شخص» است و روی همهٔ کاتالوگ‌ها و کسب‌وکارهایش
+    //  شمرده می‌شود — نه به ازای هر کاتالوگ. پس از پایان سهمیه، هر درخواست
+    //  creditCost اعتبار هزینه دارد و درصدی از آن سهمِ دعوت‌کنندهٔ فرستنده است.
+    // ════════════════════════════════════════════════════════════
+
+    private CONN_TYPE_LABEL: Record<string, string> = {
+        customer: 'درخواست خرید',
+        supplier: 'درخواست تامین‌کنندگی',
+        service: 'درخواست تامین خدمات',
+        seller: 'دعوت به همکاری در فروش',
+    };
+
+    /** بازارِ فعالِ کاتالوگ + تنظیمات ماژول کاتالوگ */
+    private async resolveCatalogArmModule(catalogId: string) {
+        const membership = await this.prisma.armMembership.findFirst({
+            where: { catalogId, status: 'active' },
+            orderBy: { joinedAt: 'asc' },
+            select: { armId: true },
+        });
+        const armId = membership?.armId || null;
+        let armModule: any = {};
+        if (armId) {
+            const arm = await this.prisma.arm.findUnique({ where: { id: armId }, select: { config: true } });
+            armModule = (arm?.config as any)?.modules?.catalog ?? {};
+        }
+        return { armId, armModule };
+    }
+
+    /** پارامترهای عضوگیری — با پیش‌فرضهای امن */
+    private connectionRequestParams(armModule: any) {
+        const cr = armModule?.connectionRequest ?? {};
+        const num = (v: any, dflt: number) => (Number.isFinite(Number(v)) ? Number(v) : dflt);
+        return {
+            freeRequestQuota: Math.max(0, num(cr.freeRequestQuota, 20)),
+            creditCost: Math.max(0, num(cr.creditCost, 1)),
+            referrerSharePercent: Math.min(100, Math.max(0, num(cr.referrerSharePercent, 10))),
+        };
+    }
+
+    /** موجودی کیف پول کاربر — همان تعریف CreditService: جمع creditCount رکوردهای success */
+    private async creditBalance(userId: string): Promise<number> {
+        const agg = await this.prisma.credit.aggregate({
+            where: { userId, status: 'success' },
+            _sum: { creditCount: true },
+        });
+        return agg._sum?.creditCount || 0;
+    }
+
+    /** وضعیت سهمیهٔ درخواست ارتباط کاربر — برای مودال «درخواست ارتباط» */
+    async getConnectionRequestQuota(catalogId: string, userId: string) {
+        await this.getCatalogOrThrow(catalogId);
+        const { armId, armModule } = await this.resolveCatalogArmModule(catalogId);
+        const params = this.connectionRequestParams(armModule);
+        const sent = await this.prisma.connectionRequestLog.count({ where: { userId } });
+        const remaining = Math.max(0, params.freeRequestQuota - sent);
+        const balance = await this.creditBalance(userId);
+        const user = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: { referredByUserId: true },
+        });
+        return {
+            sent,
+            freeRequestQuota: params.freeRequestQuota,
+            remaining,
+            creditCost: params.creditCost,
+            referrerSharePercent: params.referrerSharePercent,
+            balance,
+            willBeFree: remaining > 0 || params.creditCost <= 0,
+            referrerUserId: user?.referredByUserId || null,
+            armId,
+        };
+    }
+
+    /**
+     * گیتِ عضوگیری — بعد از همهٔ اعتبارسنجی‌ها و درست قبل از ثبتِ درخواست صدا زده می‌شود:
+     *   ۱) سهمیهٔ رایگان باقی باشد → فقط دفتر می‌شود (رایگان)
+     *   ۲) سهمیه تمام باشد → creditCost اعتبار کم می‌شود (رکورد spend در کیف پول)
+     *   ۳) درصد تعیین‌شدهٔ مصرفِ اعتباری، سهمِ دعوت‌کنندهٔ فرستنده ثبت و انباشته می‌شود
+     */
+    private async consumeConnectionRequest(
+        catalog: { id: string; name: string },
+        actorId: string,
+        type: 'customer' | 'supplier' | 'service' | 'seller',
+        target: { id?: string | null; name?: string | null },
+    ) {
+        const { armId, armModule } = await this.resolveCatalogArmModule(catalog.id);
+        const params = this.connectionRequestParams(armModule);
+        const sent = await this.prisma.connectionRequestLog.count({ where: { userId: actorId } });
+        const remaining = Math.max(0, params.freeRequestQuota - sent);
+
+        let isFree = true;
+        let creditCost = 0;
+        let balance: number | null = null;
+
+        if (remaining <= 0 && params.creditCost > 0) {
+            isFree = false;
+            creditCost = params.creditCost;
+            balance = await this.creditBalance(actorId);
+            if (balance < creditCost) {
+                throw new BadRequestException({
+                    errorCode: 'INSUFFICIENT_CREDIT',
+                    message: `سهمیهٔ رایگان درخواست ارتباط (${params.freeRequestQuota} تا) تمام شده. هر درخواست ${creditCost} اعتبار هزینه دارد و موجودی شما ${balance} اعتبار است.`,
+                    data: {
+                        needed: creditCost,
+                        balance,
+                        sent,
+                        freeRequestQuota: params.freeRequestQuota,
+                        creditCost,
+                    },
+                });
+            }
+        }
+
+        // دعوت‌کنندهٔ فرستنده — سهم درآمدش از همین مصرف به کیف پولش می‌رود
+        const actor = await this.prisma.user.findUnique({
+            where: { id: actorId },
+            select: { referredByUserId: true },
+        });
+        const referrerUserId = actor?.referredByUserId || null;
+        const referrerShare =
+            !isFree && referrerUserId && params.referrerSharePercent > 0
+                ? (creditCost * params.referrerSharePercent) / 100
+                : 0;
+
+        // ۱) مصرف اعتبار — رکورد منفی در کیف پول
+        if (!isFree && creditCost > 0) {
+            await this.prisma.credit.create({
+                data: {
+                    userId: actorId,
+                    catalogId: catalog.id,
+                    armId,
+                    amount: 0,
+                    currency: 'IRR',
+                    creditCount: -creditCost,
+                    creditType: 'purchased',
+                    status: 'success',
+                    transactionType: 'spend',
+                    description: `درخواست ارتباط (${this.CONN_TYPE_LABEL[type] || type}) — «${catalog.name}»`,
+                    relatedEntityType: 'Catalog',
+                    relatedEntityId: catalog.id,
+                    metadata: {
+                        connectionRequestType: type,
+                        targetId: target.id || null,
+                        targetName: target.name || null,
+                        requestNumber: sent + 1,
+                    },
+                },
+            });
+        }
+
+        // ۲) دفترِ درخواست — شمارش سهمیهٔ رایگانِ سراسریِ شخص
+        await this.prisma.connectionRequestLog.create({
+            data: {
+                userId: actorId,
+                catalogId: catalog.id,
+                type,
+                targetId: target.id || null,
+                targetName: target.name || null,
+                isFree,
+                creditCost,
+                referrerUserId,
+                referrerShare,
+            },
+        });
+
+        // ۳) تسویهٔ سهم دعوت‌کننده — وقتی جمعِ سهم‌های واریزنشده به یک اعتبار کامل رسید
+        if (referrerShare > 0 && referrerUserId) {
+            await this.settleReferrerEarnings(referrerUserId);
+        }
+
+        return {
+            isFree,
+            creditCost,
+            sent: sent + 1,
+            remaining: Math.max(0, params.freeRequestQuota - (sent + 1)),
+            balance: balance === null ? null : balance - creditCost,
+            charged: !isFree && creditCost > 0,
+        };
+    }
+
+    /**
+     * واریز سهم‌های انباشتهٔ دعوت‌کننده به کیف پولش.
+     * سهم هر درخواست ممیز دارد (مثلاً ۱۰٪ از ۱ اعتبار = ۰٫۱) و creditCount صحیح است —
+     * پس هر بار که جمعِ سهم‌های واریزنشده به یک اعتبار کامل رسید، یکجا واریز می‌شود
+     * و رکوردهای تا مبلغِ پرداختی «تسویه‌شده» علامت می‌خورند؛ باقی‌ماندهٔ ممیز می‌ماند.
+     */
+    private async settleReferrerEarnings(referrerUserId: string) {
+        const unpaid = await this.prisma.connectionRequestLog.findMany({
+            where: { referrerUserId, referrerSettled: false, referrerShare: { gt: 0 } },
+            orderBy: { createdAt: 'asc' },
+            select: { id: true, referrerShare: true },
+        });
+        const total = unpaid.reduce((s, r) => s + (r.referrerShare || 0), 0);
+        const payable = Math.floor(total);
+        if (payable < 1) return;
+
+        await this.prisma.credit.create({
+            data: {
+                userId: referrerUserId,
+                amount: 0,
+                currency: 'IRR',
+                creditCount: payable,
+                creditType: 'reward',
+                status: 'success',
+                transactionType: 'reward',
+                description: 'سهم دعوت — درخواست‌های ارتباطیِ دیمیتی‌هایی که دعوت کرده‌اید',
+                relatedEntityType: 'ConnectionRequestLog',
+                metadata: { unpaidCount: unpaid.length, accumulated: total, paid: payable },
+            },
+        });
+
+        // علامت‌گذاری رکوردها تا مرزِ مبلغِ پرداخت‌شده — ممیزِ باقی‌مانده برای تسویهٔ بعدی
+        let acc = 0;
+        const settledIds: string[] = [];
+        for (const row of unpaid) {
+            if (acc + row.referrerShare <= payable) {
+                acc += row.referrerShare;
+                settledIds.push(row.id);
+            } else {
+                break;
+            }
+        }
+        if (settledIds.length) {
+            await this.prisma.connectionRequestLog.updateMany({
+                where: { id: { in: settledIds } },
+                data: { referrerSettled: true },
+            });
+        }
     }
 
     // ════════════════════════════════════════════════════════════
@@ -1281,6 +1528,8 @@ export class CatalogMemberService {
         if (dup) {
             throw new ConflictException({ errorCode: 'ALREADY_REQUESTED', message: 'این کاتالوگ قبلاً به‌عنوان تامین‌کننده ثبت شده است' });
         }
+        // گیتِ عضوگیری — سهمیهٔ رایگان/اعتبار (پس از اعتبارسنجی‌ها، قبل از ثبت)
+        const charge = await this.consumeConnectionRequest(catalog, actorId, 'supplier', { id: src.id, name: src.name });
         const existingRow = await this.getMemberRow(catalog.id, src.ownerUserId);
         const data: any = {
             status: 'active' as const,
@@ -1308,7 +1557,7 @@ export class CatalogMemberService {
             href: '/my-catalogs?tab=team',
             catalogId: catalog.id,
         });
-        return { success: true, message: 'درخواست تامین‌کنندگی ارسال شد — در انتظار تایید صاحب کاتالوگ' };
+        return { success: true, message: 'درخواست تامین‌کنندگی ارسال شد — در انتظار تایید صاحب کاتالوگ', quota: charge };
     }
 
     /** دعوت کاتالوگِ خدماتی به‌عنوان سرویس‌دهنده — مالک/مدیر؛ تایید با صاحبِ کاتالوگِ خدماتی */
@@ -1334,6 +1583,8 @@ export class CatalogMemberService {
         if (dup) {
             throw new ConflictException({ errorCode: 'ALREADY_REQUESTED', message: 'این کاتالوگ قبلاً به‌عنوان سرویس‌دهنده ثبت شده است' });
         }
+        // گیتِ عضوگیری — سهمیهٔ رایگان/اعتبار (پس از اعتبارسنجی‌ها، قبل از ثبت)
+        const charge = await this.consumeConnectionRequest(catalog, actorId, 'service', { id: src.id, name: src.name });
         const existingRow = await this.getMemberRow(catalog.id, src.ownerUserId);
         const data: any = {
             status: 'active' as const,
@@ -1361,7 +1612,7 @@ export class CatalogMemberService {
             href: '/my-catalogs?tab=team',
             catalogId: catalog.id,
         });
-        return { success: true, message: 'درخواست تامین خدمات ارسال شد — در انتظار تایید صاحب کاتالوگ' };
+        return { success: true, message: 'درخواست تامین خدمات ارسال شد — در انتظار تایید صاحب کاتالوگ', quota: charge };
     }
 
     /** دعوت یک کاربر به همکاری در فروش — مالک/مدیر؛ پذیرش با خودِ دعوت‌شده */
@@ -1379,6 +1630,8 @@ export class CatalogMemberService {
         if (existing?.sellerStatus === 'active' || existing?.sellerStatus === 'pending') {
             throw new ConflictException({ errorCode: 'ALREADY_REQUESTED', message: 'این کاربر از قبل عضو/متقاضی همکاری در فروش است' });
         }
+        // گیتِ عضوگیری — سهمیهٔ رایگان/اعتبار (پس از اعتبارسنجی‌ها، قبل از ثبت)
+        const charge = await this.consumeConnectionRequest(catalog, actorId, 'seller', { id: target.id, name: target.fullName });
         const data: any = {
             status: 'active' as const,
             leftAt: null as Date | null,
@@ -1407,7 +1660,7 @@ export class CatalogMemberService {
             href: `/my-catalogs?tab=team&cat=${catalog.id}`,
             catalogId: catalog.id,
         });
-        return { success: true, message: 'دعوت همکاری در فروش ارسال شد — در انتظار پاسخ کاربر' };
+        return { success: true, message: 'دعوت همکاری در فروش ارسال شد — در انتظار پاسخ کاربر', quota: charge };
     }
 
     /** پذیرش دعوت همکاری در فروش — فقط خودِ دعوت‌شده */
@@ -1679,17 +1932,112 @@ export class CatalogMemberService {
     }
 
     // ════════════════════════════════════════════════════════════
-    //  لِین خریدار (ثبت توسط مسئول فروش — مسیر Push)
+    //  کشفِ مخاطبِ مرتبط — پیشنهادِ صفحهٔ اول + فیلترها + سورتِ مرتبط‌سازی
+    //  ترتیبِ خواستهٔ بازار: هم‌شهری → هم‌استانی → پیش‌شمارهٔ تلفن
+    //  (مثل ۰۹۱۸ همدان) → مکملِ زنجیرهٔ کسب‌وکار (عمده‌فروش ↔ خرده‌فروش)
     // ════════════════════════════════════════════════════════════
 
-    /** جست‌وجوی کسب‌وکار برای افزودن مشتری — مالک/ادمین/فروشندهٔ فعال */
-    async customerCandidates(catalogId: string, actorId: string, q?: string) {
+    /** پارامتر متنیِ تمیزشده — null یعنی بی‌اثر */
+    private cleanParam(v?: string | null): string | null {
+        const t = (v || '').trim();
+        return t.length ? t : null;
+    }
+
+    /** امضای کسب‌وکارِ مبدأِ کاتالوگ — مبنای سورتِ مرتبط‌سازی */
+    private async myConnectionProfile(catalog: { businessId: string; salesType: string }) {
+        const biz = await this.prisma.business.findUnique({
+            where: { id: catalog.businessId },
+            select: { city: true, province: true, phone: true, businessSector: true, businessRole: true },
+        });
+        return {
+            city: biz?.city, province: biz?.province, phone: biz?.phone,
+            businessSector: biz?.businessSector, businessRole: biz?.businessRole,
+            salesType: catalog.salesType,
+        };
+    }
+
+    /** امتیاز مرتبط‌سازی دو پروفایل + برچسب‌های روایی برای نمایش */
+    private relevanceOf(mine: any, theirs: any): { score: number; tags: string[] } {
+        let score = 0;
+        const tags: string[] = [];
+        if (mine?.city && theirs?.city && mine.city === theirs.city) {
+            score += 40;
+            tags.push('هم‌شهری');
+        } else if (mine?.province && theirs?.province && mine.province === theirs.province) {
+            score += 20;
+            tags.push('هم‌استان');
+        }
+        const prefixOf = (p: any) => String(p || '').replace(/\D/g, '').slice(0, 4);
+        const myPre = prefixOf(mine?.phone);
+        const theirPre = prefixOf(theirs?.phone);
+        if (myPre.length === 4 && myPre === theirPre && !tags.length) {
+            score += 10;
+            tags.push('پیش‌شمارهٔ مشترک');
+        }
+        // مکملِ زنجیره — عمده/پخش ↔ خرده‌فروش، تولید ↔ پخش/بازرگانی
+        const COMPLEMENT: Record<string, string[]> = {
+            distribution: ['retail', 'manufacturing'],
+            retail: ['distribution', 'manufacturing', 'trade'],
+            manufacturing: ['distribution', 'retail', 'trade'],
+            trade: ['retail', 'manufacturing', 'distribution'],
+        };
+        if (mine?.businessSector && theirs?.businessSector) {
+            if (mine.businessSector === theirs.businessSector) {
+                score += 4;
+                tags.push('هم‌صنف');
+            } else if ((COMPLEMENT[mine.businessSector] || []).includes(theirs.businessSector)) {
+                score += 15;
+                tags.push('مکمل زنجیرهٔ شما');
+            }
+        }
+        // مکملِ نوعِ فروش کاتالوگ (تب کاتالوگ‌ها) — عمده ↔ خرده
+        if (mine?.salesType && theirs?.salesType && mine.salesType !== theirs.salesType) {
+            const pair = [mine.salesType, theirs.salesType].sort().join('+');
+            if (pair === 'retail+wholesale') {
+                score += 15;
+                if (!tags.includes('مکمل زنجیرهٔ شما')) tags.push('مکمل فروش');
+            }
+        }
+        return { score, tags };
+    }
+
+    /** رتبه‌بندی استخرِ کاندیدها بر پایهٔ مرتبط‌سازی — خروجی: limit تایِ اول با برچسب‌ها */
+    private rank(pool: any[], mine: any, limit: number): any[] {
+        const scored = pool.map((item) => {
+            const profile = item.business
+                ? { // کاتالوگ — مشخصهٔ خودش وگرنه کسب‌وکارِ پشتش
+                    city: item.city || item.business?.city,
+                    province: item.province || item.business?.province,
+                    phone: item.phone || item.business?.phone,
+                    businessSector: item.business?.businessSector,
+                    businessRole: item.business?.businessRole,
+                    salesType: item.salesType,
+                  }
+                : { // کسب‌وکار یا آدم
+                    city: item.city, province: item.province, phone: item.phone,
+                    businessSector: item.businessSector, businessRole: item.businessRole,
+                    salesType: item.salesType,
+                  };
+            const { score, tags } = this.relevanceOf(mine, profile);
+            return { item, score, tags, t: item.createdAt ? new Date(item.createdAt).getTime() : 0 };
+        });
+        scored.sort((x, y) => y.score - x.score || y.t - x.t);
+        return scored.slice(0, Math.max(1, limit)).map(({ item, tags }) => ({ ...item, relevanceTags: tags }));
+    }
+
+    /**
+     * جست‌وجو/پیشنهاد کسب‌وکار برای لِین خریدار — مالک/ادمین/فروشندهٔ فعال.
+     * بدون عبارتِ جستجو: پیشنهادِ مرتبط‌ترین‌ها (صفحهٔ اول خالی نمی‌ماند)
+     * فیلترها: استان | شهر | صنف (سطح ۱) | زمینهٔ فعالیت (سطح ۲)
+     */
+    async customerCandidates(catalogId: string, actorId: string, opts: { q?: string; city?: string; province?: string; sector?: string; role?: string } = {}) {
         const catalog = await this.getCatalogOrThrow(catalogId);
         const myRow = await this.getMemberRow(catalog.id, actorId);
         const canManage = this.isOwner(catalog, actorId) || myRow?.status === 'active' && myRow.role === 'catalog_admin';
         if (!canManage && !this.hasActiveSellerLane(myRow)) {
             throw new ForbiddenException({ errorCode: 'NOT_TEAM_MEMBER', message: 'برای ثبت مشتری باید عضو تیم باشید' });
         }
+        const mine = await this.myConnectionProfile(catalog);
 
         // کسانی که قبلاً مشتری/فروشندهٔ این کاتالوگ هستند — خارج از پیشنهادها
         const existing = await this.prisma.catalogMember.findMany({
@@ -1698,43 +2046,56 @@ export class CatalogMemberService {
         });
         const takenBizIds = Array.from(new Set(existing.map((e) => e.customerBusinessId).filter(Boolean))) as string[];
 
-        const term = (q || '').trim();
-        if (term.length < 2) return { items: [] };
+        const term = this.cleanParam(opts.q);
+        const city = this.cleanParam(opts.city);
+        const province = this.cleanParam(opts.province);
+        const sector = this.cleanParam(opts.sector);
+        const role = this.cleanParam(opts.role);
 
-        const items = await this.prisma.business.findMany({
-            where: {
-                status: 'active',
-                id: { notIn: [...takenBizIds, catalog.businessId] },
-                OR: [
-                    { name: { contains: term } },
-                    { phone: { contains: term } },
-                    { owner: { phone: { contains: term } } },
-                ],
-            },
-            select: {
-                id: true, name: true, phone: true, city: true, logoUrl: true,
-                owner: { select: { fullName: true, phone: true } },
-            },
-            take: 8,
+        if (!term && !city && !province && !sector && !role) {
+            // پیشنهادِ مرتبط‌ترین‌ها — اولین صفحه
+            const pool = await this.prisma.business.findMany({
+                where: { status: 'active', id: { notIn: [...takenBizIds, catalog.businessId] } },
+                select: CONN_BIZ_SELECT,
+                take: 150,
+                orderBy: { createdAt: 'desc' },
+            });
+            return { items: this.rank(pool, mine, 12), suggested: true };
+        }
+
+        const where: any = { status: 'active', id: { notIn: [...takenBizIds, catalog.businessId] } };
+        if (city) where.city = city;
+        if (province) where.province = province;
+        if (sector) where.businessSector = sector;
+        if (role) where.businessRole = role;
+        if (term) {
+            where.OR = [
+                { name: { contains: term } },
+                { phone: { contains: term } },
+                { owner: { phone: { contains: term } } },
+            ];
+        }
+        const pool = await this.prisma.business.findMany({
+            where,
+            select: CONN_BIZ_SELECT,
+            take: 150,
             orderBy: { createdAt: 'desc' },
         });
-        return { items };
+        return { items: this.rank(pool, mine, 12), suggested: !term };
     }
 
     /**
-     * جستجوی کاتالوگ‌های دیگر برای «درخواست ارتباط» از پنل مدیریت —
-     *   تامین‌کنندگی (salesType != service) یا تامین خدمات (salesType == service)
-     * کاتالوگ‌های هم‌کسب‌وکار و شریک‌های قبلی حذف می‌شوند.
+     * جستجو/پیشنهاد کاتالوگ‌های دیگر برای درخواست ارتباط —
+     * تامین‌کنندگی (salesType != service) یا تامین خدمات (salesType == service).
+     * بدون عبارت: مرتبط‌ترین کاتالوگ‌ها — با فیلترهای استان/شهر/صنف/زمینهٔ فعالیت/نوعِ فروش
      */
-    async partnerCatalogs(catalogId: string, actorId: string, q?: string) {
+    async partnerCatalogs(catalogId: string, actorId: string, opts: { q?: string; city?: string; province?: string; sector?: string; role?: string; salesType?: string } = {}) {
         const catalog = await this.getCatalogOrThrow(catalogId);
         const myRow = await this.getMemberRow(catalog.id, actorId);
         const canManage = this.isOwner(catalog, actorId) || myRow?.status === 'active' && myRow.role === 'catalog_admin';
         if (!canManage && !this.hasActiveSellerLane(myRow)) {
             throw new ForbiddenException({ errorCode: 'NOT_TEAM_MEMBER', message: 'برای ثبت مشتری باید عضو تیم باشید' });
         }
-        const term = (q || '').trim();
-        if (term.length < 2) return { items: [] };
 
         // شریک‌های فعلی/در انتظار — خارج از پیشنهادها
         const lanes = await this.prisma.catalogMember.findMany({
@@ -1754,25 +2115,159 @@ export class CatalogMemberService {
             ]).values(),
         ).filter(Boolean) as string[];
 
-        const items = await this.prisma.catalog.findMany({
-            where: {
-                status: 'active',
-                id: { notIn: [...takenCatalogIds, catalog.id] },
-                businessId: { not: catalog.businessId },
-                OR: [
-                    { name: { contains: term } },
-                    { business: { is: { name: { contains: term } } } },
-                ],
-            },
-            select: {
-                id: true, name: true, slug: true, logoUrl: true, salesType: true, city: true, type: true,
-                business: { select: { id: true, name: true } },
-                owner: { select: { id: true, fullName: true } },
-            },
-            take: 8,
+        const mine = await this.myConnectionProfile(catalog);
+        const term = this.cleanParam(opts.q);
+        const city = this.cleanParam(opts.city);
+        const province = this.cleanParam(opts.province);
+        const sector = this.cleanParam(opts.sector);
+        const role = this.cleanParam(opts.role);
+        const salesType = this.cleanParam(opts.salesType);
+
+        const baseWhere: any = {
+            status: 'active',
+            id: { notIn: [...takenCatalogIds, catalog.id] },
+            businessId: { not: catalog.businessId },
+        };
+
+        if (!term && !city && !province && !sector && !role && !salesType) {
+            const pool = await this.prisma.catalog.findMany({
+                where: baseWhere,
+                select: CONN_CAT_SELECT,
+                take: 150,
+                orderBy: { createdAt: 'desc' },
+            });
+            return { items: this.rank(pool, mine, 12), suggested: true };
+        }
+
+        const ands: any[] = [];
+        if (city) ands.push({ OR: [{ city }, { business: { is: { city } } }] });
+        if (province) ands.push({ OR: [{ province }, { business: { is: { province } } }] });
+        if (salesType) ands.push({ salesType });
+        if (sector) ands.push({ business: { is: { businessSector: sector } } });
+        if (role) ands.push({ business: { is: { businessRole: role } } });
+        const where: any = { ...baseWhere, AND: ands };
+        if (term) {
+            where.OR = [
+                { name: { contains: term } },
+                { business: { is: { name: { contains: term } } } },
+            ];
+        }
+        const pool = await this.prisma.catalog.findMany({
+            where,
+            select: CONN_CAT_SELECT,
+            take: 150,
             orderBy: { createdAt: 'desc' },
         });
-        return { items };
+        return { items: this.rank(pool, mine, 12), suggested: !term };
+    }
+
+    /**
+     * پیشنهاد/جستجوی افراد برای دعوت به همکاری در فروش —
+     * بدون عبارت: مالکانِ کسب‌وکارهای مرتبط (هم‌شهری/هم‌استان/هم‌صنف) با فیلترها
+     * با عبارت: جستجوی نام/شمارهٔ کاربر + مالکانِ کسب‌وکارهای هم‌نام
+     */
+    async peopleCandidates(catalogId: string, actorId: string, opts: { q?: string; city?: string; province?: string; sector?: string; role?: string } = {}) {
+        const catalog = await this.getCatalogOrThrow(catalogId);
+        const myRow = await this.getMemberRow(catalog.id, actorId);
+        const canManage = this.isOwner(catalog, actorId) || myRow?.status === 'active' && myRow.role === 'catalog_admin';
+        if (!canManage && !this.hasActiveSellerLane(myRow)) {
+            throw new ForbiddenException({ errorCode: 'NOT_TEAM_MEMBER', message: 'برای دعوت به همکاری باید عضو تیم باشید' });
+        }
+
+        // فروشنده‌های فعلی/دعوت‌شده + خودم + مالکِ کاتالوگ — خارج از پیشنهادها
+        const lanes = await this.prisma.catalogMember.findMany({
+            where: { catalogId: catalog.id, sellerStatus: { in: ['active', 'pending'] } },
+            select: { userId: true },
+        });
+        const excluded = new Set<string>([actorId, catalog.ownerUserId, ...lanes.map((l) => l.userId)]);
+
+        const mine = await this.myConnectionProfile(catalog);
+        const term = this.cleanParam(opts.q);
+        const city = this.cleanParam(opts.city);
+        const province = this.cleanParam(opts.province);
+        const sector = this.cleanParam(opts.sector);
+        const role = this.cleanParam(opts.role);
+
+        const BIZ_OWNER_SELECT = {
+            id: true, name: true, city: true, province: true, phone: true, businessSector: true, businessRole: true, createdAt: true,
+            owner: { select: { id: true, fullName: true, phone: true, avatarUrl: true } },
+            creator: { select: { id: true, fullName: true, phone: true, avatarUrl: true } },
+        } as const;
+
+        // مسئولِ کسب‌وکار — مالک اگر بود، وگرنه ثبت‌کنندهٔ اول (کسب‌وکارهای تازه owner ندارند)
+        const responsibleOf = (biz: any) => biz.owner || biz.creator || null;
+
+        // ── جستجو با عبارت ──
+        if (term) {
+            const digits = term.replace(/\D/g, '');
+            const users = await this.prisma.user.findMany({
+                where: {
+                    OR: [
+                        { fullName: { contains: term } },
+                        ...(digits.length >= 3 ? [{ phone: { contains: digits } }] : []),
+                    ],
+                },
+                select: { id: true, fullName: true, phone: true, avatarUrl: true },
+                take: 12,
+            });
+            const items: any[] = [];
+            const seen = new Set<string>();
+            for (const u of users) {
+                if (excluded.has(u.id) || seen.has(u.id)) continue;
+                seen.add(u.id);
+                items.push(u);
+            }
+            if (items.length < 12) {
+                const bizWhere: any = { status: 'active', name: { contains: term } };
+                if (city) bizWhere.city = city;
+                if (province) bizWhere.province = province;
+                const bizPool = await this.prisma.business.findMany({
+                    where: bizWhere,
+                    select: BIZ_OWNER_SELECT,
+                    take: 40,
+                    orderBy: { createdAt: 'desc' },
+                });
+                for (const biz of this.rank(bizPool as any[], mine, 40)) {
+                    const u = responsibleOf(biz);
+                    if (!u || excluded.has(u.id) || seen.has(u.id)) continue;
+                    seen.add(u.id);
+                    items.push({
+                        id: u.id, fullName: u.fullName, phone: u.phone, avatarUrl: u.avatarUrl,
+                        businessName: biz.name, city: biz.city, province: biz.province,
+                        relevanceTags: biz.relevanceTags,
+                    });
+                    if (items.length >= 12) break;
+                }
+            }
+            return { items, suggested: false };
+        }
+
+        // ── پیشنهادِ مرتبط‌ها — مالکانِ کسب‌وکارهای نزدیک و هم‌صنف ──
+        const where: any = { status: 'active', id: { not: catalog.businessId } };
+        if (city) where.city = city;
+        if (province) where.province = province;
+        if (sector) where.businessSector = sector;
+        if (role) where.businessRole = role;
+        const pool = await this.prisma.business.findMany({
+            where,
+            select: BIZ_OWNER_SELECT,
+            take: 150,
+            orderBy: { createdAt: 'desc' },
+        });
+        const items: any[] = [];
+        const seen = new Set<string>();
+        for (const biz of this.rank(pool as any[], mine, pool.length || 1)) {
+            const u = responsibleOf(biz);
+            if (!u || excluded.has(u.id) || seen.has(u.id)) continue;
+            seen.add(u.id);
+            items.push({
+                id: u.id, fullName: u.fullName, phone: u.phone, avatarUrl: u.avatarUrl,
+                businessName: biz.name, city: biz.city, province: biz.province,
+                relevanceTags: biz.relevanceTags,
+            });
+            if (items.length >= 12) break;
+        }
+        return { items, suggested: true };
     }
 
     /**
@@ -1823,6 +2318,8 @@ export class CatalogMemberService {
         if (dup) {
             throw new ConflictException({ errorCode: 'ALREADY_CUSTOMER', message: 'این کسب‌وکار قبلاً به‌عنوان مشتری ثبت شده است' });
         }
+        // گیتِ عضوگیری — سهمیهٔ رایگان/اعتبار (پس از اعتبارسنجی‌ها، قبل از ثبت)
+        const charge = await this.consumeConnectionRequest(catalog, actorId, 'customer', { id: biz.id, name: biz.name });
 
         // رکورد کاربرِ مسئولِ کسب‌وکارِ مشتری — ممکن است از قبل (مثلاً به‌عنوان عضوِ فروش) وجود داشته باشد
         if (!bizResponsible) {
@@ -1883,6 +2380,7 @@ export class CatalogMemberService {
             success: true,
             memberId,
             message: 'مشتری ثبت شد — تا وقتی صاحب کسب‌وکار تایید کند، تماسش مسیریابی نمی‌شود',
+            quota: charge,
         };
     }
 

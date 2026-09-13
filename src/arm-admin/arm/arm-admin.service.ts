@@ -515,6 +515,7 @@ export class ArmAdminService {
             const modulePerms: Record<string, string> = {
                 priceTable: 'modules.canEditPriceTable',
                 buyLead: 'modules.canEditBuyLead',
+                catalog: 'modules.canEditCatalog',
             };
             for (const [mod, permKey] of Object.entries(modulePerms)) {
                 if ((cfg.modules as any)[mod] !== undefined && !granted(permKey)) {
