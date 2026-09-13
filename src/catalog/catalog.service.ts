@@ -258,7 +258,7 @@ export class CatalogService {
                 },
             });
             await tx.catalogTeamEvent.create({
-                data: { catalogId: cat.id, userId, eventType: 'joined', actorUserId: userId, note: 'ساخت کاتالوگ — مالک با لِین فروشندهٔ فعال' },
+                data: { catalogId: cat.id, userId, eventType: 'joined', actorUserId: userId, note: 'ساخت کاتالوگ — مالک و  فروشندهٔ فعال' },
             });
 
             // ✅ تیمِ کسب‌وکار — کاربر با پستِ انتخابی‌اش عضو کسب‌وکارِ مرجع می‌شود
