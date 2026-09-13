@@ -14,6 +14,7 @@ const RESERVED_SLUGS = [
 
 const PUBLIC_LIST_SELECT = {
     id: true, title: true, description: true, slug: true, status: true,
+    businessId: true, visibility: true,
     deadline: true, city: true, province: true, tags: true,
     viewCount: true, offerCount: true, createdAt: true,
     owner: { select: { id: true, fullName: true, avatarUrl: true } },
