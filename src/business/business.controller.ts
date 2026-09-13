@@ -1,10 +1,13 @@
 // src/business/business.controller.ts
 import {
-    Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards,
+    Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { BusinessService } from './business.service';
-import { CreateBusinessDto, UpdateBusinessDto, RequestBusinessVerificationDto, SetBusinessActivitiesDto } from './business.dto';
+import {
+    CreateBusinessDto, UpdateBusinessDto, RequestBusinessVerificationDto, SetBusinessActivitiesDto,
+    AddBusinessMemberDto, UpdateBusinessMemberDto,
+} from './business.dto';
 import { CurrentUser } from '../common/decorators/custom.decorators';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../common/guards/optional-jwt-auth.guard';
@@ -62,6 +65,53 @@ export class BusinessController {
     @ApiOperation({ summary: 'جزئیات کسب‌وکار (با کاتالوگ‌ها و تیمش) — فقط ثبت‌کننده/مالک' })
     findOne(@Param('id') id: string, @CurrentUser() user: any) {
         return this.businessService.findOne(id, user.id);
+    }
+
+    // ─── تیم کاری کسب‌وکار — دو سطح نقش (سیستمی admin/member + نقش شرکتی) ───
+
+    @Get(':id/my-membership')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'عضویت من در این کسب‌وکار — نقش شرکتی/سیستمی + canManageTeam (فرم کاتالوگ)' })
+    getMyMembership(@Param('id') id: string, @CurrentUser() user: any) {
+        return this.businessService.getMyMembership(id, user.id);
+    }
+
+    @Get(':id/members')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'لیست تیم کاری کسب‌وکار — فقط مدیر' })
+    listMembers(@Param('id') id: string, @CurrentUser() user: any) {
+        return this.businessService.listMembers(id, user.id);
+    }
+
+    @Post(':id/members')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'افزودن عضو تیم با شماره موبایل — فقط مدیر' })
+    addMember(@Param('id') id: string, @CurrentUser() user: any, @Body() dto: AddBusinessMemberDto) {
+        return this.businessService.addMember(id, user.id, dto);
+    }
+
+    @Patch(':id/members/:memberId')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'ویرایش عضو — نقش شرکتی/سیستمی (memberId=me برای خود)' })
+    updateMember(
+        @Param('id') id: string,
+        @Param('memberId') memberId: string,
+        @CurrentUser() user: any,
+        @Body() dto: UpdateBusinessMemberDto,
+    ) {
+        return this.businessService.updateMember(id, user.id, memberId, dto);
+    }
+
+    @Delete(':id/members/:memberId')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'حذف عضو از تیم — فقط مدیر' })
+    removeMember(@Param('id') id: string, @Param('memberId') memberId: string, @CurrentUser() user: any) {
+        return this.businessService.removeMember(id, user.id, memberId);
     }
 
     @Put(':id')

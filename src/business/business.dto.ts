@@ -279,6 +279,43 @@ export class RequestBusinessVerificationDto {
 }
 
 // ============================================================
+// تیم کاری کسب‌وکار — افزودن/ویرایش اعضا (فقط مدیر کسب‌وکار)
+// دو سطح نقش:
+//   • نقش سیستمی: role = admin | member (سازندهٔ کسب‌وکار ادمین است)
+//   • نقش شرکتی: position — از لیست USER_POSITIONS یا متن آزاد «سایر»
+// ============================================================
+export class AddBusinessMemberDto {
+    @ApiProperty({ example: '09123456789', description: 'شماره موبایل کاربر (باید در دیمت ثبت‌نام کرده باشد)' })
+    @IsNotEmpty({ message: 'شماره موبایل همکار الزامی است' })
+    @IsString()
+    phone: string;
+
+    @ApiPropertyOptional({ example: 'کارشناس فروش', description: 'نقش شرکتی در کسب‌وکار', required: false })
+    @IsOptional()
+    @IsString()
+    @MaxLength(60)
+    position?: string;
+
+    @ApiPropertyOptional({ enum: ['admin', 'member'], default: 'member', description: 'نقش سیستمی', required: false })
+    @IsOptional()
+    @IsIn(['admin', 'member'])
+    role?: string;
+}
+
+export class UpdateBusinessMemberDto {
+    @ApiPropertyOptional({ example: 'مدیر فروش', description: 'نقش شرکتی در کسب‌وکار', required: false })
+    @IsOptional()
+    @IsString()
+    @MaxLength(60)
+    position?: string;
+
+    @ApiPropertyOptional({ enum: ['admin', 'member'], description: 'نقش سیستمی — واگذاری/سلب مدیریت', required: false })
+    @IsOptional()
+    @IsIn(['admin', 'member'])
+    role?: string;
+}
+
+// ============================================================
 // زمینه‌های فعالیت کسب‌وکار — جایگزینی کامل لیست (آرایهٔ خالی = پاک‌سازی)
 // ============================================================
 export class SetBusinessActivitiesDto {
