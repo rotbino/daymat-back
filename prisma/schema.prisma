@@ -18,28 +18,31 @@ datasource db {
 // نقش‌های سیستمی (سطح کاربر)
 // ============================================================
 enum SystemRole {
-  system_admin         // مدیر سیستم
-  system_user          // کاربر عادی (پیش‌فرض)
+  system_admin // مدیر سیستم
+  system_user // کاربر عادی (پیش‌فرض)
 }
 
 // ============================================================
 // نقش‌های سطح بازار (Arm)
 // ============================================================
 enum ArmRole {
-  arm_owner            // مالک بازار (معادل مدیر بازار)
-  arm_seller           // فروشنده در این بازار
-  arm_buyer            // خریدار در این بازار
-  arm_member           // عضو عادی (بدون نقش خاص)
+  arm_owner // مالک بازار (معادل مدیر بازار)
+  arm_admin // ادمین بازار — توسط مالک منصوب می‌شود؛ وظایف واگذارشده را انجام می‌دهد اما مالک نیست
+  arm_seller // فروشنده در این بازار
+  arm_buyer // خریدار در این بازار
+  arm_member // عضو عادی (بدون نقش خاص)
 }
 
 // ============================================================
-// نقش‌های سطح کاتالوگ (Catalog)
+// نقش‌های سطح کاتالوگ (Catalog) — نقشِ «سیستمی» (چه کسی اداره می‌کند)
+// نقش‌های «بیزینسی» (فروشنده/خریدار) لِین‌های جدا در CatalogMember هستند
 // ============================================================
 enum CatalogRole {
-  catalog_owner       // مالک کاتالوگ (مدیریت کامل)
-  catalog_admin       // مدیر کاتالوگ (دسترسی‌های مدیریتی به جز انتقال مالکیت)
-  catalog_seller      // کاربر با دسترسی فقط مشاهده (پیش‌فرض)
+  catalog_owner  // مالک کاتالوگ (مدیر فروش آنلاین) — نشانه‌گذاری رکورد؛ ملاکِ واقعیِ مالکی: Business.ownerUserId (مشتق)
+  catalog_admin  // ادمین کاتالوگ — توسط مالک منصوب می‌شود؛ در مدیریت کاتالوگ سهیم است (ویرایش محصول/قیمت/انتشار) به‌جز انتقال مالکیت
+  catalog_member // عضو عادی کاتالوگ (همکار فروش، خریدار یا تامین‌کننده)
 }
+
 model VerificationCode {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
   userId    String   @db.ObjectId
@@ -55,82 +58,95 @@ model VerificationCode {
   @@index([expiresAt])
 }
 
-
 model User {
-  id              String    @id @default(auto()) @map("_id") @db.ObjectId
-  phone           String    @unique
-  passwordHash    String
-  fullName        String?
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  phone            String    @unique
+  passwordHash     String
+  fullName         String?
   // ── فیلدهای جدید پروفایل شخصی ──
-  referralCode     String?   @unique              // کد دعوت خودکار
-  referredByUserId String?   @db.ObjectId         // first-touch: فقط بار اول پر می‌شود
+  referralCode     String?   @unique // کد دعوت خودکار
+  referredByUserId String?   @db.ObjectId // first-touch: فقط بار اول پر می‌شود
   referredAt       DateTime?
   referredBy       User?     @relation("ReferralTree", fields: [referredByUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   referrals        User[]    @relation("ReferralTree")
-  email           String?
-  gender          String?
-  birthDate       DateTime?
-  province        String?
-  country         String?
-  city            String?
-  countryCode     String?
-  provinceCode    String?
-  cityCode        String?
-  postalCode      String?
-  address         String?
-  bio             String?
-  website         String?
-  telegram        String?
-  socialLinks     Json?
+  email            String?
+  gender           String?
+  birthDate        DateTime?
+  province         String?
+  country          String?
+  city             String?
+  countryCode      String?
+  provinceCode     String?
+  cityCode         String?
+  postalCode       String?
+  address          String?
+  bio              String?
+  website          String?
+  telegram         String?
+  socialLinks      Json?
 
-  avatarUrl       String?
-  status          String    @default("member")
-  locale          String    @default("fa")
-  timezone        String    @default("Asia/Tehran")
-  role            SystemRole @default(system_user)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  lastLoginAt     DateTime?
-  membershipTier  String    @default("free")
-  isPhoneVerified Boolean   @default(false)
-  phoneVerifiedAt DateTime?
-  temporaryPassword Boolean @default(true)
-  nationalId      String?
-  teamMemberships TeamMember[]
-  ads             Ad[]            @relation("AdCreator")
-  callEvents      CallEvent[]
-  files           File[]
-  creditRequests  CreditRequest[]
-  armsOwned       Arm[]           @relation("ArmOwner")
-  armMemberships  ArmMembership[]
-  credits         Credit[]
-  adInteractions  AdInteraction[]
-  buyLeads        BuyLead[]
-  feedbacks       Feedback[]
-  searchLogs      SearchLog[]
-  catalogInteractions CatalogInteraction[]
-  businesses      Business[]   @relation("BizOwner")
+  avatarUrl                String?
+  status                   String                 @default("member")
+  locale                   String                 @default("fa")
+  timezone                 String                 @default("Asia/Tehran")
+  role                     SystemRole             @default(system_user)
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+  lastLoginAt              DateTime?
+  membershipTier           String                 @default("free")
+  // ── لاگ‌اوت واقعی: با هر خروج/تغییر رمز یکی زیاد می‌شود؛
+  //    jwt.strategy نسخهٔ توکن را با این فیلد می‌سنجد → توکن‌های قدیمی فوراً باطل
+  tokenVersion             Int                    @default(0)
+  isPhoneVerified          Boolean                @default(false)
+  phoneVerifiedAt          DateTime?
+  temporaryPassword        Boolean                @default(true)
+  nationalId               String?
+  teamMemberships          BusinessMember[]       @relation("BizMemberUser") // ✅ کسب‌وکارهایی که کارمند/عضوشان است (تیم کسب‌وکار)
+  businesses               Business[]             @relation("BizOwner") // ⚠️ legacy — کسب‌وکارهایی که قبلاً مالکشان بود
+  businessesCreated        Business[]             @relation("BizCreator") // ✅ کسب‌وکارهایی که ثبت‌کنندهٔ اولشان است
+  catalogsOwned            Catalog[]              @relation("CatalogOwner") // ✅ کاتالوگ‌هایی که مالکشان است
+  ads                      Ad[]                   @relation("AdCreator")
+  callEvents               CallEvent[]
+  files                    File[]
+  creditRequests           CreditRequest[]
+  armsOwned                Arm[]                  @relation("ArmOwner")
+  armMemberships           ArmMembership[]
+  armMembershipRequests    ArmMembershipRequest[] @relation("ArmMembershipRequests")
+  armLeaveRequests         ArmLeaveRequest[]      @relation("ArmLeaveRequests")
+  credits                  Credit[]
+  adInteractions           AdInteraction[]
+  buyLeads                 BuyLead[]
+  feedbacks                Feedback[]
+  searchLogs               SearchLog[]
+  catalogInteractions      CatalogInteraction[]
+  catalogMemberships       CatalogMember[]        @relation("CatMemberUser") // کاتالوگ‌هایی که عضوشان است (همکار فروش/خریدار/تامین‌کننده/مدیر)
+  catalogAssignedCustomers CatalogMember[]        @relation("CatMemberAssignee") // خریدارهایی که به او به‌عنوان مسئول فروش منتسب شده‌اند
+  catalogTeamEvents        CatalogTeamEvent[]     @relation("CatTeamEventUser") // رویدادهای تیمیِ مربوط به کاربر
+
   @@index([status])
   @@index([role])
   @@index([isPhoneVerified])
 }
-
 
 // ============================================================
 // لایه نهاد تجاری (Business) — برگرفته از مدل قدیمی؛ بدون slug و بدون رلیشن‌های سنگین
 // verification/trust: فیلدها خفته — فلوی فعلی روی Catalog است؛ فاز بعد به اینجا منتقل می‌شود
 // ============================================================
 model Business {
-  id                 String   @id @default(auto()) @map("_id") @db.ObjectId
-  ownerUserId        String   @db.ObjectId
-  owner              User     @relation("BizOwner", fields: [ownerUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id                 String                 @id @default(auto()) @map("_id") @db.ObjectId
+  // ✅ کسب‌وکار «مرجع» است — مالکِ شخصی ندارد؛ ثبت‌کنندهٔ اول در creatorUserId ذخیره می‌شود.
+  //    ownerUserId فقط برای رکوردهای قدیمی (legacy) پر مانده و دیگر نوشته نمی‌شود.
+  ownerUserId        String?                @db.ObjectId
+  owner              User?                  @relation("BizOwner", fields: [ownerUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  creatorUserId      String?                @db.ObjectId // ثبت‌کنندهٔ اول کسب‌وکار (نه لزوماً مالک)
+  creator            User?                  @relation("BizCreator", fields: [creatorUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   name               String
   shortDescription   String?
-  type               String   @default("wholesaler")    // ⚠️ legacy (deprecated) — نگه‌داشتیم برای backward-compat
-  businessRole       String?                              // ✅ نوع دقیق فعالیت (سطح ۲ درخت) — فیلد اصلی
-  businessSector     String?                              // ✅ دسته‌بندی (سطح ۱ درخت) — برای فیلتر
+  type               String                 @default("wholesaler") // ⚠️ legacy (deprecated) — نگه‌داشتیم برای backward-compat
+  businessRole       String? // ✅ نوع دقیق فعالیت (سطح ۲ درخت) — فیلد اصلی
+  businessSector     String? // ✅ دسته‌بندی (سطح ۱ درخت) — برای فیلتر
   description        String?
-  countryCode        String?  @default("98")
+  countryCode        String?                @default("98")
   province           String?
   provinceCode       String?
   city               String?
@@ -141,71 +157,88 @@ model Business {
   logoUrl            String?
   nationalId         String?
   businessLicense    String?
-  verificationTier   String   @default("none")      // مرجعِ تیک — ادمین اینجا می‌نویسد
-  verificationStatus String   @default("none")
-  trustScore         Float    @default(0)
-  businessStartYear  Int?                           // ✅ از User منتقل شد
-  status             String   @default("active")
-  industryName       String?  // ✅ backward-compat (متن)
-  industryId         String?  @db.ObjectId  // ✅ FK به جدول Industry
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-  armMemberships     ArmMembership[] @relation("BizArmMembership")
-  catalogs           Catalog[]          @relation("BusinessCatalogs")
-  verifications      Verification[]     @relation("BusinessVerification")
-  activities         BusinessActivity[] @relation("BusinessActivity")   // ✅ از Catalog برگشت
+  verificationTier   String                 @default("none") // مرجعِ تیک — ادمین اینجا می‌نویسد
+  verificationStatus String                 @default("none")
+  trustScore         Float                  @default(0)
+  businessStartYear  Int? // ✅ از User منتقل شد
+  status             String                 @default("active")
+  industryName       String? // ✅ backward-compat (متن)
+  industryId         String?                @db.ObjectId // ✅ FK به جدول Industry
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  armMemberships     ArmMembership[]        @relation("BizArmMembership")
+  membershipRequests ArmMembershipRequest[] @relation("ArmMembershipRequests")
+  leaveRequests      ArmLeaveRequest[]      @relation("ArmLeaveRequests")
+  catalogs           Catalog[]              @relation("BusinessCatalogs")
+  members            BusinessMember[]       @relation("BizMembers")           // ✅ کارکنان کسب‌وکار (تیم کسب‌وکار)
+  catalogSellerLanes   CatalogMember[] @relation("CatMemberSellerBiz")   // کاتالوگ‌هایی که این کسب‌وکار از طریقشان می‌فروشد (همکار فروش)
+  catalogCustomerLanes CatalogMember[] @relation("CatMemberCustomerBiz") // کاتالوگ‌هایی که این کسب‌وکار خریدارشان است
+  verifications      Verification[]         @relation("BusinessVerification")
+  activities         BusinessActivity[]     @relation("BusinessActivity") // ✅ از Catalog برگشت
 
   @@index([ownerUserId])
+  @@index([creatorUserId])
   @@index([type])
   @@index([businessSector])
   @@index([businessRole])
   @@index([industryId])
 }
-model Catalog {
-  id                 String    @id @default(auto()) @map("_id") @db.ObjectId
-  referredByCode     String?
-  referredByUserId   String?   @db.ObjectId
-  name               String
-  shortDescription   String?
-  slug               String?
-  isFeatured         Boolean   @default(false)
-  salesType          String    @default("wholesale")
-  config             Json?
-  featuredUntil      DateTime?
-  type               String
-  description        String?
-  countryCode        String?   @default("98")
-  city               String?
-  cityCode           String?
-  province           String?
-  provinceCode       String?
-  address            String?
-  phone              String
-  website            String?
-  logoUrl            String?
-  status             String    @default("active")
-  metadata           Json?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
 
-  files            File[]
-  teamMembers      TeamMember[]
-  ads              Ad[]
-  armMemberships   ArmMembership[]
-  credits          Credit[]
-  trustMetrics     TrustMetric[]
-  buyLeads         BuyLead[]
-  creditRequests   CreditRequest[]
+model Catalog {
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  referredByCode   String?
+  referredByUserId String?   @db.ObjectId
+  // ✅ مالک مستقیم کاتالوگ — کاربری که کاتالوگ را ساخته (حتی اگر کسب‌وکارِ آن مال او نباشد)
+  ownerUserId      String    @db.ObjectId
+  owner            User      @relation("CatalogOwner", fields: [ownerUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  name             String
+  shortDescription String?
+  slug             String?
+  isFeatured       Boolean   @default(false)
+  salesType        String    @default("wholesale")
+  config           Json?
+  featuredUntil    DateTime?
+  type             String
+  description      String?
+  countryCode      String?   @default("98")
+  city             String?
+  cityCode         String?
+  province         String?
+  provinceCode     String?
+  address          String?
+  phone            String
+  website          String?
+  logoUrl          String?
+  // ✅ کاتالوگ خصوصی — قیمت‌ها فقط برای مالک و اعضای پذیرفته‌شده (درخواست ارتباط تجاری) نمایش داده می‌شود
+  isPrivate        Boolean   @default(false)
+  status           String    @default("active")
+  metadata         Json?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  files               File[]
+  members             CatalogMember[]    @relation("CatMemberCatalog") // اعضای کاتالوگ (مالک/مدیر/همکار فروش/خریدار)
+  supplierMemberships CatalogMember[]    @relation("CatMemberSupplierCatalog") // کاتالوگ‌هایی که این کاتالوگ ازشان تامین می‌کند
+  teamEvents          CatalogTeamEvent[] @relation("CatTeamEventCatalog")
+  ads                 Ad[]
+  armMemberships      ArmMembership[]
+  membershipRequests  ArmMembershipRequest[] @relation("ArmMembershipRequests")
+  leaveRequests       ArmLeaveRequest[]      @relation("ArmLeaveRequests")
+  credits             Credit[]
+  trustMetrics        TrustMetric[]
+  buyLeads            BuyLead[]
+  creditRequests      CreditRequest[]
   catalogInteractions CatalogInteraction[]
 
-  businessId    String    @db.ObjectId
-  business      Business  @relation("BusinessCatalogs", fields: [businessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  businessId String   @db.ObjectId
+  business   Business @relation("BusinessCatalogs", fields: [businessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  industryName  String?
+  industryName String?
 
   @@index([type])
   @@index([slug], map: "Catalog_slug_idx")
   @@index([businessId])
+  @@index([ownerUserId])
 }
 
 // ============================================================
@@ -213,38 +246,146 @@ model Catalog {
 // ============================================================
 
 model Verification {
-  id                String   @id @default(auto()) @map("_id") @db.ObjectId
-  businessId        String   @db.ObjectId
-  business          Business @relation("BusinessVerification", fields: [businessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  tier              String
-  status            String   @default("pending")
-  documents         Json?
-  notes             String?
-  submittedAt       DateTime @default(now())
-  reviewedAt        DateTime?
-  reviewedByUserId  String?  @db.ObjectId
-  expiresAt         DateTime?
-  metadata          Json?
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  businessId       String    @db.ObjectId
+  business         Business  @relation("BusinessVerification", fields: [businessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tier             String
+  status           String    @default("pending")
+  documents        Json?
+  notes            String?
+  submittedAt      DateTime  @default(now())
+  reviewedAt       DateTime?
+  reviewedByUserId String?   @db.ObjectId
+  expiresAt        DateTime?
+  metadata         Json?
 
   @@index([businessId, status])
 }
-model TeamMember {
-  id           String   @id @default(auto()) @map("_id") @db.ObjectId
-  catalogId   String   @db.ObjectId
-  catalog     Catalog @relation(fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  userId       String   @db.ObjectId
-  user         User     @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  role         CatalogRole  @default(catalog_seller)
-  position     String?
-  permissions  Json?
+
+// ============================================================
+// تیم کسب‌وکار (BusinessMember) — کارکنان و اعضای یک کسب‌وکار:
+//   کسب‌وکار «مرجع» است و مالکِ شخصی ندارد؛ هرکس کاتالوگش را به یک کسب‌وکار
+//   وصل کند، با پست/سمتِ انتخابی‌اش به‌عنوان عضو این کسب‌وکار ثبت می‌شود.
+//   (بازنویسی‌شده از TeamMember قدیمی که اشتباهاً به Catalog وصل بود —
+//    عضویتِ تیمِ کاتالوگ حالا فقط در CatalogMember است.)
+// ============================================================
+model BusinessMember {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  businessId    String   @db.ObjectId
+  business      Business @relation("BizMembers", fields: [businessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  userId        String   @db.ObjectId
+  user          User     @relation("BizMemberUser", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  role         String   @default("member") // member — رزرو برای نقش‌های سیستمی آینده
+  position     String? // پست/سمت نمایشی در کسب‌وکار (مثل «مدیر فروش»)
+  viaCatalogId String?  @db.ObjectId // کاتالوگی که عضویت با آن ثبت شد
   invitedBy    String?  @db.ObjectId
-  status       String   @default("pending")
+  status       String   @default("active") // active | removed
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  @@unique([catalogId, userId])
-  @@index([catalogId])
+  @@unique([businessId, userId])
+  @@index([businessId])
   @@index([userId])
+}
+
+// ============================================================
+// تیم کاتالوگ (CatalogMember) — عضویتِ کاربر در تیمِ یک کاتالوگ:
+//   کاتالوگ ابزار ارتباطات تجاری در هر دسته‌بندی کالاست (پخش فقط یک نمونه است):
+//   مالک کاتالوگ اعضا را مدیریت می‌کند؛ همکاران فروش (فروشنده/ویزیتور) کالا تکرار نمی‌کنند
+//   و خریدارها به مسئول فروشِ خودشان منتسب می‌شوند تا تماسشان مسیریابی شود؛
+//   تامین‌کننده‌ها با کاتالوگِ خودشان عضو می‌شوند (شبکه‌سازی بین کاتالوگ‌ها).
+//   ورود به همهٔ لِین‌ها از یک در: «درخواست همکاری» روی کاتالوگ + تایید مدیر (مالک کاتالوگ).
+//
+//   نقش سیستمی (role):   catalog_owner (نشانه‌گذار؛ ملاک = Business.ownerUserId)
+//                        catalog_admin (منصوبِ مالک — سهیم در مدیریت) | catalog_member
+//   لِین‌های بیزینسی:     همکار فروش (فروشنده/ویزیتور — sellerBusinessId + منطقهٔ فروش)
+//                        خریدار (customerBusinessId — منتسب به مسئول فروش)
+//                        تامین‌کننده (supplierCatalogId — عضویت با کاتالوگِ خودش)
+//   یک رکورد برای هر کاربر در هر کاتالوگ — می‌تواند همزمان چند لِین داشته باشد
+//   (مثلاً مالک که خودش هم فروشنده است).
+//   همهٔ تاریخ‌ها و عامل‌ها + CatalogTeamEvent برای شکایت‌ها — هم‌راستا با ArmMembership.
+// ============================================================
+model CatalogMember {
+  id        String      @id @default(auto()) @map("_id") @db.ObjectId
+  catalogId String      @db.ObjectId
+  catalog   Catalog     @relation("CatMemberCatalog", fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  userId    String      @db.ObjectId
+  user      User        @relation("CatMemberUser", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  role        CatalogRole @default(catalog_member)
+  status      String      @default("active") // active | removed | banned — وضعیت سیستمیِ عضویت
+  position    String? // سمت نمایشی (مثل «مدیر فروش آنلاین»)
+  permissions Json?       // رزرو برای دسترسی‌های ریزدانهٔ آینده
+
+  // ── لِین فروش ── مالک به‌طور پیش‌فرض فروشندهٔ فعال کاتالوگ خودش است
+  sellerBusinessId String?   @db.ObjectId
+  sellerBusiness   Business? @relation("CatMemberSellerBiz", fields: [sellerBusinessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sellerStatus     String? // pending | active | removed — null = اصلاً در لِین فروش نیست
+  sellerRole       String? @default("seller") // seller | visitor — نقش بیزینسی لِین فروش (فروشنده/ویزیتور)
+  sellerJoinedAt   DateTime?
+  sellerLeftAt     DateTime?
+  sellerRegion     String? // منطقهٔ فروش آزاد (مثل «غرب تهران») — هر عضوِ فروش فقط از منطقهٔ خودش سفارش می‌گیرد
+
+  // ── لِین خریدار ── دو مسیر: ثبتِ توسط عضوِ فروش (تایید با صاحبِ کسب‌وکار) یا درخواست همکاریِ خودِ خریدار (تایید با مدیر)
+  customerBusinessId String?   @db.ObjectId
+  customerBusiness   Business? @relation("CatMemberCustomerBiz", fields: [customerBusinessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  customerStatus     String? // pending | active | removed — null = خریدار نیست
+  customerJoinedAt   DateTime?
+  customerLeftAt     DateTime?
+  customerAddedByUserId String? @db.ObjectId // چه کسی ثبتش کرده (عضوِ فروش/مدیر)
+  customerVia        String? // owner_add | self_request — مسیر ورود به لِین خریدار
+
+  // ── انتساب خریدار به مسئولِ خودش (مسیریابی تماس از آگهی) ──
+  assignedSellerUserId String?  @db.ObjectId
+  assignedSellerUser   User?    @relation("CatMemberAssignee", fields: [assignedSellerUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  assignedAt           DateTime?
+
+  // ── لِین تامین‌کننده ── عضویت با کاتالوگِ خودِ تامین‌کننده (شبکه‌سازی بین کاتالوگ‌ها)
+  supplierCatalogId String?  @db.ObjectId
+  supplierCatalog   Catalog? @relation("CatMemberSupplierCatalog", fields: [supplierCatalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  supplierStatus    String? // pending | active | removed — null = تامین‌کننده نیست
+  supplierJoinedAt  DateTime?
+  supplierLeftAt    DateTime?
+
+  // ── شهر/استانِ لحظهٔ درخواست همکاری — مالک کاتالوگ می‌بیند
+  memberCity     String?
+  memberProvince String?
+
+  invitedBy String?   @db.ObjectId
+  joinedAt  DateTime  @default(now()) // ورود به تیم کاتالوگ
+  leftAt    DateTime? // خروج از تیم (اگر هیچ لِینی فعال نماند)
+  leftVia   String? // member_request | owner_direct
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([catalogId, userId])
+  @@index([userId])
+  @@index([catalogId, status])
+  @@index([sellerBusinessId])
+  @@index([customerBusinessId])
+  @@index([assignedSellerUserId])
+  @@index([supplierCatalogId])
+}
+
+// تاریخچهٔ تیم کاتالوگ — هر تغییر نقش/لِین/انتساب یک رویداد با عامل ثبت می‌شود (برای شکایت‌ها)
+model CatalogTeamEvent {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  catalogId   String   @db.ObjectId
+  catalog     Catalog  @relation("CatTeamEventCatalog", fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  userId      String   @db.ObjectId // عضوی که رویداد دربارهٔ اوست
+  user        User     @relation("CatTeamEventUser", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  eventType   String // coop_requested | seller_requested | seller_approved | seller_rejected | seller_removed | seller_left |
+                     // buyer_approved | buyer_rejected | supplier_approved | supplier_rejected |
+                     // admin_promoted | admin_demoted | customer_added | customer_confirmed | customer_declined |
+                     // customer_removed | customer_left | customer_reassigned | joined | left | region_set
+  actorUserId String?  @db.ObjectId // خود کاربر / مالک / ادمین — null = سیستم
+  note        String?
+  data        Json?
+  createdAt   DateTime @default(now())
+
+  @@index([catalogId, userId, createdAt])
+  @@index([catalogId, eventType])
 }
 
 // ============================================================
@@ -252,32 +393,32 @@ model TeamMember {
 // ============================================================
 
 model Location {
-  id          String     @id @default(auto()) @map("_id") @db.ObjectId
-  title       String
-  slug        String     @unique
-  parentId    String?    @db.ObjectId
-  parent      Location?  @relation("LocationTree", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  children    Location[] @relation("LocationTree")
-  level       Int        @default(0)
-  path        String
-  type        String     @default("country") // country | province | city | district
-  countryCode String?
+  id           String     @id @default(auto()) @map("_id") @db.ObjectId
+  title        String
+  slug         String     @unique
+  parentId     String?    @db.ObjectId
+  parent       Location?  @relation("LocationTree", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children     Location[] @relation("LocationTree")
+  level        Int        @default(0)
+  path         String
+  type         String     @default("country") // country | province | city | district
+  countryCode  String?
   provinceCode String?
-  cityCode    String?
-  isActive    Boolean    @default(true)
-  sortOrder   Int        @default(0)
-  metadata    Json?
-  confirmed   Boolean    @default(true)  // ✅ برای locations هم پیش‌فرض true (ادمین تأییدشده)
-  isByUser    Boolean    @default(false) // ✅ true = کاربر ساخته
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  cityCode     String?
+  isActive     Boolean    @default(true)
+  sortOrder    Int        @default(0)
+  metadata     Json?
+  confirmed    Boolean    @default(true) // ✅ برای locations هم پیش‌فرض true (ادمین تأییدشده)
+  isByUser     Boolean    @default(false) // ✅ true = کاربر ساخته
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
 
   @@unique([path])
+  @@unique([type, countryCode, provinceCode, cityCode])
   @@index([parentId])
   @@index([type])
   @@index([confirmed])
   @@index([isByUser])
-  @@unique([type, countryCode, provinceCode, cityCode])
 }
 
 // ============================================================
@@ -285,28 +426,27 @@ model Location {
 // ============================================================
 
 model ProductCategory {
-  id                 String    @id @default(auto()) @map("_id") @db.ObjectId
-  code               String    @unique
+  id                 String            @id @default(auto()) @map("_id") @db.ObjectId
+  code               String            @unique
   parentCode         String?
   title              String
   titleEn            String?
-  slug               String    @unique
-  parentId           String?   @db.ObjectId
+  slug               String            @unique
+  parentId           String?           @db.ObjectId
   parent             ProductCategory?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   children           ProductCategory[] @relation("CategoryTree")
-  level              Int       @default(0)
+  level              Int               @default(0)
   path               String
-  isActive           Boolean   @default(true)
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-  defaultUnitId      String?   @db.ObjectId
+  isActive           Boolean           @default(true)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  defaultUnitId      String?           @db.ObjectId
   defaultMinQuantity Float?
   example            String?
   icon               String?
   description        String?
   customFieldsSchema Json?
-  score              Int       @default(0)
-
+  score              Int               @default(0)
 
   @@index([parentId])
   @@index([path])
@@ -314,63 +454,73 @@ model ProductCategory {
 }
 
 model Unit {
-  id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  title       String   @unique
-  shortCode   String   @unique
-  isDefault   Boolean  @default(false)
+  id          String  @id @default(auto()) @map("_id") @db.ObjectId
+  title       String  @unique
+  shortCode   String  @unique
+  isDefault   Boolean @default(false)
   // ✅ جدید — برای واحدهای بسته‌بندی: تعداد واحد خرد داخلش (مثلاً ۲۴ پفک در کارتن)
-  containsQty Int?     // null = واحد استاندارد (کیلوگرم، متر...) — فیلد نمایش داده نمی‌شود
-  qtyIsFixed  Boolean  @default(false) // true = تعداد ثابت است و کاربر نمی‌تواند تغییر دهد
+  containsQty Int? // null = واحد استاندارد (کیلوگرم، متر...) — فیلد نمایش داده نمی‌شود
+  qtyIsFixed  Boolean @default(false) // true = تعداد ثابت است و کاربر نمی‌تواند تغییر دهد
   // ✅ جدید — تفکیک عمده/خرده: 'wholesale' | 'retail' | null (قدیمی‌ها بدون دسته)
   scope       String?
   createdByUserId String? @db.ObjectId
   adUnits     Ad[]
 }
 
-
 // ============================================================
 // لایه بازار (Arm) - با Config JSON
 // ============================================================
 
 model Arm {
-  id                  String    @id @default(auto()) @map("_id") @db.ObjectId
-  slug                String    // @unique حذف شده
-  name                String
-  shortName           String?
-  slogan              String
-  description         String?
-  icon                String?
-  colorPrimary        String?
-  colorSecondary      String?
-  logoUrl             String?
-  bannerUrl           String?
-  mission             String?
-  status              String    @default("draft")
-  visibility          String    @default("public")
-  ownerUserId         String    @db.ObjectId
-  owner               User      @relation("ArmOwner", fields: [ownerUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  geoScopeType        String
-  defaultUnitId       String?   @db.ObjectId
-  featuresEnabled     String[]  @default([])
-  rankingAlgorithm    String    @default("simple")
-  metadata            Json?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
-  launchedAt          DateTime?
- customDomain         String?   // برای راه اندازی روی دومین اختصاصی "barton.com"
-  categoryTree       Json?
+  id                       String                 @id @default(auto()) @map("_id") @db.ObjectId
+  slug                     String // @unique حذف شده
+  name                     String
+  shortName                String?
+  slogan                   String
+  description              String?
+  icon                     String?
+  colorPrimary             String?
+  colorSecondary           String?
+  logoUrl                  String?
+  bannerUrl                String?
+  mission                  String?
+  status                   String                 @default("draft")
+  visibility               String                 @default("public")
+  ownerUserId              String                 @db.ObjectId
+  owner                    User                   @relation("ArmOwner", fields: [ownerUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  geoScopeType             String
+  defaultUnitId            String?                @db.ObjectId
+  featuresEnabled          String[]               @default([])
+  // ✅ انواع کاتالوگ پذیرفته‌شده در بازار (retail | wholesale | service) — خالی = بدون محدودیت
+  //    ملاک گارد عضویت و فیلتر تابلوی قیمت؛ fallback لگسی: config.modules.priceTable.visibleSalesTypes
+  acceptedCatalogTypes     String[]               @default([])
+  // ✅ بازار خصوصی (مثل کانال خصوصی تلگرام) — قیمت‌ها و امکانات فقط برای اعضای تاییدشده؛
+  //    جایگزین مفهومی قدیمی requireMembershipToViewPrices (که هنوز به‌عنوان fallback لگسی خوانده می‌شود)
+  isPrivate                Boolean                @default(false)
+  // ✅ شرایط عضویت — متن آزاد که مالک/ادمین در تنظیمات می‌نویسد و در مدال درخواست عضویت نمایش داده می‌شود
+  membershipTerms          String?
+  rankingAlgorithm         String                 @default("simple")
+  metadata                 Json?
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+  launchedAt               DateTime?
+  customDomain             String? // برای راه اندازی روی دومین اختصاصی "barton.com"
+  categoryTree             Json?
   allowedCategoryScopeTree Json?
-  config              Json?
-  memberships         ArmMembership[]
-  ads                 Ad[]
-  adPublications      AdPublication[] @relation("ArmAdPublications")
-  buyLeads            BuyLead[]
-  credits             Credit[]
-  trustMetrics        TrustMetric[]
-  files               File[]
-  creditRequests      CreditRequest[]
-  searchLogs SearchLog[]
-  feedbacks Feedback[]
+  config                   Json?
+  memberships              ArmMembership[]
+  membershipRequests       ArmMembershipRequest[] @relation("ArmMembershipRequests")
+  leaveRequests            ArmLeaveRequest[]      @relation("ArmLeaveRequests")
+  ads                      Ad[]
+  adPublications           AdPublication[]        @relation("ArmAdPublications")
+  buyLeads                 BuyLead[]
+  credits                  Credit[]
+  trustMetrics             TrustMetric[]
+  files                    File[]
+  creditRequests           CreditRequest[]
+  searchLogs               SearchLog[]
+  feedbacks                Feedback[]
+
   @@unique([slug])
   @@index([status])
 }
@@ -386,49 +536,56 @@ model Arm {
 //   catalogId  → مجوز نوشتن (فقط فروشنده — کاتالوگی که روی تابلو اجازهٔ انتشار دارد)
 // ============================================================
 model ArmMembership {
-  id               String   @id @default(auto()) @map("_id") @db.ObjectId
-  armId            String   @db.ObjectId
-  arm              Arm      @relation(fields: [armId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  userId           String   @db.ObjectId
-  user             User     @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id     String @id @default(auto()) @map("_id") @db.ObjectId
+  armId  String @db.ObjectId
+  arm    Arm    @relation(fields: [armId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  userId String @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  publishState     String?  // 'published' | 'paused' | null — وضعیت انتشار کاتالوگ در بازار
+  publishState String? // 'published' | 'paused' | null — وضعیت انتشار کاتالوگ در بازار
 
   // ✅ businessId برای seller و buyer اجباری است، اما arm_owner می‌تواند null باشد
   // (مالک بازار نماینده کسب‌وکار نیست — خود بازار مال اوست)
-  businessId       String?  @db.ObjectId
-  business         Business? @relation("BizArmMembership", fields: [businessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  businessId String?   @db.ObjectId
+  business   Business? @relation("BizArmMembership", fields: [businessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  catalogId        String?  @db.ObjectId
-  catalog          Catalog? @relation(fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  role             ArmRole  @default(arm_member)
-  permissionLevel  Int      @default(1)
+  catalogId          String?   @db.ObjectId
+  catalog            Catalog?  @relation(fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  role               ArmRole   @default(arm_member)
+  permissionLevel    Int       @default(1)
   // ✅ status = وضعیت سیستمی (دسترسی به پنل ادمین)
   //    فقط: active | banned | removed
   //    arm_owner که active هست، همیشه به پنل دسترسی داره
   //    حتی اگه business نقشش pause بشه، status سیستمی active می‌مونه
-  status           String   @default("active")
+  status             String    @default("active")
   // ✅ businessStatus = وضعیت تجاری (seller/buyer)
   //    فقط: active | paused
   //    اگه paused باشه، آگهی‌ها از تابلو غیب می‌شن (seller)
   //    یا حق دیدن قیمت‌ها رو از دست می‌ده (buyer)
   //    ولی دسترسی به پنل ادمین حفظ می‌شه (چون status سیستمی active هست)
-  businessStatus   String   @default("active")
-  source           String?  // auto_create | manual | invitation | owner_add
-  metadata         Json?
-  joinedAt         DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  businessStatus     String    @default("active")
+  source             String? // auto_create | manual | invitation | owner_add
+  metadata           Json?
+  joinedAt           DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
   // ✅ roleType نقش تجاری است (seller | buyer | seller-buyer | null)
-  roleType         String?  // seller | buyer | seller-buyer
-  rejectionReason  String?
-  reviewedByUserId String?  @db.ObjectId
-  reviewedAt       DateTime?
+  roleType           String? // seller | buyer | seller-buyer
+  rejectionReason    String?
+  reviewedByUserId   String?   @db.ObjectId
+  reviewedAt         DateTime?
+  // ✅ تاریخ دقیق خروج (عضو یا مدیر) — برای پروندهٔ عضویت/لغو عضویت و شکایت‌ها
+  leftAt             DateTime?
+  // ✅ عاملِ لغو عضویت — برای پرونده و شکایت‌ها:
+  //    member_request = درخواست لغویِ عضو که مالک تایید کرد | owner_direct = حذف مستقیم توسط مالک/ادمین بازار
+  leftVia            String?
+  // ✅ ردِ خروجِ اختیاریِ فروشنده: کاتالوگش را خودش خواستار خروج شده —
+  //    مدیر نباید اشتباهی دوباره اددش کند (گارد addSeller + بج در کاندیدها)
+  selfRemovedCatalog Boolean   @default(false)
 
   // ✅ یک کاربر در یک بازار فقط یک membership دارد
   // این membership می‌تواند همزمان arm_owner و seller/buyer هم باشد
   // (در همون رکورد businessId/catalogId/roleType ست می‌شود)
   @@unique([armId, userId])
-
   // ✅ ایندکس‌ها برای query سریع
   @@index([userId])
   @@index([catalogId])
@@ -437,9 +594,121 @@ model ArmMembership {
   @@index([armId, roleType])
 }
 
+// ============================================================
+// درخواست عضویت در بازار خصوصی — جایگزین سازوکار قدیمی «membership با status pending»:
+//   کاربر شرایط را می‌خواند، نقش (خریدار/فروشنده) و کسب‌وکار/کاتالوگ را مشخص می‌کند
+//   و درخواستش به صف بررسی مالک/ادمین بازار می‌رود.
+//   تایید → ساخت/به‌روزرسانی ArmMembership فعال؛ رد → ذخیرهٔ دلیل برای نمایش به کاربر.
+// ============================================================
+model ArmMembershipRequest {
+  id     String @id @default(auto()) @map("_id") @db.ObjectId
+  armId  String @db.ObjectId
+  arm    Arm    @relation("ArmMembershipRequests", fields: [armId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  userId String @db.ObjectId
+  user   User   @relation("ArmMembershipRequests", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
+  // ✅ نقش درخواست‌شده — خریدار (دیدن قیمت/خرید) یا فروشنده (انتشار کاتالوگ)
+  roleType   String // 'buyer' | 'seller'
+  // خریدار: با کدام کسب‌وکار می‌خواهد خریدار شود
+  businessId String?   @db.ObjectId
+  business   Business? @relation("ArmMembershipRequests", fields: [businessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  // فروشنده: قیمت‌های کدام کاتالوگ را می‌خواهد در بازار ببیند/بدهد
+  catalogId  String?   @db.ObjectId
+  catalog    Catalog?  @relation("ArmMembershipRequests", fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
+  status           String    @default("pending") // pending | approved | rejected
+  rejectReason     String?
+  reviewedByUserId String?   @db.ObjectId
+  reviewedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
+  @@index([armId, status])
+  @@index([userId, status])
+}
+
+// ============================================================
+// درخواست لغو عضویت — خروجِ عضو فقط با تصمیمِ مالکِ بازار (نه ادمین سیستم):
+//   عضو (خریدار از مدال عضویت، فروشنده از بخش «انتشار در بازارها»ی پنل کاتالوگ)
+//   درخواست لغو می‌دهد → درخواست در پنل مالک می‌آید → مالک لغو را تایید می‌کند
+//   (leftAt/leftVia/رویداد/selfRemovedCatalog ثبت می‌شود) یا با دلیل رد می‌کند.
+//   عضو می‌تواند درخواستِ در انتظارش را پس بگیرد (withdrawn).
+//   همهٔ تاریخ‌ها دقیق ثبت می‌شوند — برای پروندهٔ عضویت/لغو و شکایت‌ها.
+// ============================================================
+model ArmLeaveRequest {
+  id     String @id @default(auto()) @map("_id") @db.ObjectId
+  armId  String @db.ObjectId
+  arm    Arm    @relation("ArmLeaveRequests", fields: [armId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  userId String @db.ObjectId
+  user   User   @relation("ArmLeaveRequests", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  // نقشی که درخواستِ لغویش را داده — buyer | seller
+  roleType   String
+  // فروشنده: کدام کاتالوگ از بازار خارج شود
+  catalogId  String?   @db.ObjectId
+  catalog    Catalog?  @relation("ArmLeaveRequests", fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  // خریدار: کدام کسب‌وکار از بازار خارج شود
+  businessId String?   @db.ObjectId
+  business   Business? @relation("ArmLeaveRequests", fields: [businessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  status           String    @default("pending") // pending | approved | rejected | withdrawn
+  // دلیلِ اختیاریِ عضو برای خروج — برای مالک ارزشمند است
+  memberReason     String?
+  // دلیلِ ردِ درخواستِ لغو توسط مالک — در اعلان عضو می‌رود
+  rejectReason     String?
+  reviewedByUserId String?   @db.ObjectId
+  reviewedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([armId, status])
+  @@index([userId, status])
+}
+
+// ============================================================
+// ذخیره/فالو بازار — لِینِ شخصیِ جدای عضویت
+//   کاربرِ غیرعضو بازار را «ذخیره» می‌کند تا در سوییچرش بماند (مثل فالو).
+//   هیچ دسترسی‌ای (قیمت/انتشار/پنل) نمی‌دهد؛ فقط سوییچر.
+//   عمداً جدای ArmMembership است تا شمارندهٔ «اعضا» و گیت‌ها آلوده نشوند —
+//   اعضا (businessId/catalogId) همیشه در سوییچرند و به ذخیره نیاز ندارند.
+// ============================================================
+model ArmSavedMark {
+  id      String   @id @default(auto()) @map("_id") @db.ObjectId
+  armId   String   @db.ObjectId
+  userId  String   @db.ObjectId
+  savedAt DateTime @default(now())
+
+  @@unique([armId, userId])
+  @@index([userId])
+}
+
+// ============================================================
+// تاریخچهٔ رویدادهای عضویت — ردِ دقیق برای شکایت‌ها و حسابرسی
+//   چه کسی، چه زمانی، چه کرد: عضویت/خروج/حذف/تایید/رد/ذخیره…
+//   بدون relation — فقط شناسه؛ سبک و سریع
+// ============================================================
+model ArmMembershipEvent {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  armId       String   @db.ObjectId
+  userId      String   @db.ObjectId
+  eventType   String // saved | unsaved | request_submitted | request_approved | request_rejected | joined | left_by_member | seller_left_by_self | removed_by_admin | catalog_added_by_admin | banned | migrated | leave_requested | leave_request_withdrawn | leave_request_approved | leave_request_rejected
+  actorUserId String?  @db.ObjectId // خود کاربر / مالک / ادمین — null = سیستم
+  note        String?
+  createdAt   DateTime @default(now())
+
+  @@index([armId, userId, createdAt])
+  @@index([eventType])
+}
+
+// ============================================================
+// واگذاری کارِ کاتالوگ به تیم بازار:
+//   مالکِ کسب‌وکار (فروشندهٔ بازار) کارهای کاتالوگش (محصول‌ها، قیمت‌ها، انتشار)
+//   را به تیمِ بازار (مالک + ادمین‌های بازار) واگذار می‌کند تا به‌جایش انجام دهند —
+//   چون معمولاً خودش وقت ندارد. مالکِ کسب‌وکار هر وقت بخواهد پس می‌گیرد؛
+//   مالکِ بازار هم می‌تواند واگذاری را لغو کند.
+//   همهٔ تاریخ‌ها و عامل‌ها + تاریخچهٔ رویدادها ثبت می‌شود — برای شفافیت و شکایت‌ها.
+//   گیتِ مدیریت آگهی‌ها (ad.service) با این رکورد باز می‌شود.
+// ============================================================
 // ============================================================
 // آگهی — عرضهٔ یک کالا/قیمت
 //   catalogId          → کاتالوگ مالک (الزامی)
@@ -450,96 +719,103 @@ model ArmMembership {
 //   armId              → مهر انتشار؛ null = فقط در کاتالوگ نمایش داده می‌شود
 // ============================================================
 model Ad {
-    id                    String    @id @default(auto()) @map("_id") @db.ObjectId
-    armId                 String?   @db.ObjectId
-    publishToMarket       Boolean   @default(true)   // نمایش در تابلوی بازار (کاتالوگ همیشه نشان می‌دهد)
+  id              String  @id @default(auto()) @map("_id") @db.ObjectId
+  armId           String? @db.ObjectId
+  publishToMarket Boolean @default(true) // نمایش در تابلوی بازار (کاتالوگ همیشه نشان می‌دهد)
 
-    catalogCategoryId     String?   // گره در درختِ خصوصیِ کاتالوگ
-    categoryId            String?   // ✅ دسته روی تابلوی بازار — اختیاری؛ هنگام انتشار پر می‌شود
-    categoryPath          String[]  @default([])     // ✅ مسیر کامل دستهٔ بازاری (فیلتر + سئو)
+  catalogCategoryId String? // گره در درختِ خصوصیِ کاتالوگ
+  categoryId        String? // ✅ دسته روی تابلوی بازار — اختیاری؛ هنگام انتشار پر می‌شود
+  categoryPath      String[] @default([]) // ✅ مسیر کامل دستهٔ بازاری (فیلتر + سئو)
 
-    giftPrice             Float?
-    volumeTiers           Json?
+  giftPrice   Float?
+  volumeTiers Json?
 
-    arm                   Arm?      @relation(fields: [armId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-    catalogId             String    @db.ObjectId
-    catalog               Catalog   @relation(fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-    createdByUserId       String    @db.ObjectId
-    createdBy             User      @relation("AdCreator", fields: [createdByUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  arm             Arm?    @relation(fields: [armId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  catalogId       String  @db.ObjectId
+  catalog         Catalog @relation(fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdByUserId String  @db.ObjectId
+  createdBy       User    @relation("AdCreator", fields: [createdByUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-    unitId                String    @db.ObjectId
-    unit                  Unit      @relation(fields: [unitId], references: [id])
-    unitQty               Int?      // تعداد در واحد، مثلا 12 عدد در کارتن
-    unitIsVariableQty     Boolean   @default(false)
-    unitBaseTitle         String?
+  unitId            String  @db.ObjectId
+  unit              Unit    @relation(fields: [unitId], references: [id])
+  unitQty           Int? // تعداد در واحد، مثلا 12 عدد در کارتن
+  unitIsVariableQty Boolean @default(false)
+  unitBaseTitle     String?
 
-    title                 String
-    productType           String?
-    description           String?
-    // ✅ کالای مرجع — اتصال به ProductReference برای مقایسه و یکپارچگی
-    productReferenceId    String?  @db.ObjectId
-    productRef            ProductReference? @relation("AdProductRef", fields: [productReferenceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-    brandId               String?  @db.ObjectId
-    brand                 Brand?   @relation("AdBrand", fields: [brandId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-    unitPrice             Float
-    singleUnitPrice       Float?
-    consumerPrice         Float?
-    minQuantity           Float
-    priceHistory          Json?
-    availableQuantity     Float?
-    availableQuantityBucket String?
+  title                   String
+  productType             String?
+  description             String?
+  // ✅ کالای مرجع — اتصال به ProductReference برای مقایسه و یکپارچگی
+  productReferenceId      String?           @db.ObjectId
+  productRef              ProductReference? @relation("AdProductRef", fields: [productReferenceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  brandId                 String?           @db.ObjectId
+  brand                   Brand?            @relation("AdBrand", fields: [brandId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  unitPrice               Float
+  singleUnitPrice         Float?
+  consumerPrice           Float?
+  // ✅ فیلتر بازار — قیمتِ مؤثرِ تکی (مصرف‌کننده → تکی عمده → واحد) دنرمال‌شده برای فیلتر و فاست
+  //    فیلتر بازهٔ قیمت روی قیمت مصرف‌کننده است (یک عدد پفک، نه کارتن پفک)
+  filterPrice             Float?
+  // ✅ فیلتر چک — از paymentMethods.cheque مشتق می‌شود (دنرمال برای فیلترِ دیتابیسی)
+  hasCheque               Boolean           @default(false)
+  chequeMinDays           Int? // کمترین مهلت چک آگهی (روز)
+  chequeMaxDays           Int? // بیشترین مهلت چک آگهی (روز)
+  minQuantity             Float
+  priceHistory            Json?
+  availableQuantity       Float?
+  availableQuantityBucket String?
 
-    countryCode           String?   @default("IR")
-    provinceCode          String?
-    cityCode              String?
-    city                  String?
-    province              String?
-    locationDetail        String?
-    geo                   Json?
+  countryCode    String? @default("IR")
+  provinceCode   String?
+  cityCode       String?
+  city           String?
+  province       String?
+  locationDetail String?
+  geo            Json?
 
-    validityHours         Int       @default(24)
-    createdAt             DateTime  @default(now())
-    updatedAt             DateTime  @updatedAt
-    expiresAt             DateTime?  // ✅ optional — اعتبار قیمت حذف شد
-    priceUpdatedAt        DateTime  @default(now())  // ✅ زمان آخرین بروزرسانی قیمت
-    lastBumpedAt          DateTime?
-    status                String    @default("active")
-    isAnonymous           Boolean   @default(false)
-    anonymousLabel        String?
-    bumpCount             Int       @default(0)
-    lastBumpCreditsSpent  Int       @default(0)
-    isBumped              Boolean   @default(false)
-    bumpExpiresAt         DateTime?
-    bumpDurationHours     Int?
-    trustScoreAtPost      Float?
-    paymentMethods        Json?
-    customFields          Json?
-    source                String    @default("manual")
-    sourceMetadata        Json?
-    viewCount             Int       @default(0)
-    callCount             Int       @default(0)
-    metadata              Json?
-    rejectionReason       String?
+  validityHours        Int       @default(24)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  expiresAt            DateTime? // ✅ optional — اعتبار قیمت حذف شد
+  priceUpdatedAt       DateTime  @default(now()) // ✅ زمان آخرین بروزرسانی قیمت
+  lastBumpedAt         DateTime?
+  status               String    @default("active")
+  isAnonymous          Boolean   @default(false)
+  anonymousLabel       String?
+  bumpCount            Int       @default(0)
+  lastBumpCreditsSpent Int       @default(0)
+  isBumped             Boolean   @default(false)
+  bumpExpiresAt        DateTime?
+  bumpDurationHours    Int?
+  trustScoreAtPost     Float?
+  paymentMethods       Json?
+  customFields         Json?
+  source               String    @default("manual")
+  sourceMetadata       Json?
+  viewCount            Int       @default(0)
+  callCount            Int       @default(0)
+  metadata             Json?
+  rejectionReason      String?
 
-    files                 File[]
-    views                 AdView[]
-    callEvents            CallEvent[]
-    interactions          AdInteraction[]
-    publications          AdPublication[] @relation("AdPublications")
+  files        File[]
+  views        AdView[]
+  callEvents   CallEvent[]
+  interactions AdInteraction[]
+  publications AdPublication[] @relation("AdPublications")
 
-    @@index([productType])
-    @@index([countryCode])
-    @@index([provinceCode])
-    @@index([cityCode])
-    @@index([armId, status])
-    @@index([armId, categoryId])
-    @@index([armId, city])
-    @@index([catalogId])
-    @@index([expiresAt])
-    @@index([categoryPath])
-    @@index([productReferenceId])
-    @@index([brandId])
-    @@index([priceUpdatedAt])
+  @@index([productType])
+  @@index([countryCode])
+  @@index([provinceCode])
+  @@index([cityCode])
+  @@index([armId, status])
+  @@index([armId, categoryId])
+  @@index([armId, city])
+  @@index([catalogId])
+  @@index([expiresAt])
+  @@index([categoryPath])
+  @@index([productReferenceId])
+  @@index([brandId])
+  @@index([priceUpdatedAt])
 }
 
 // ============================================================
@@ -554,25 +830,27 @@ model Ad {
 // ============================================================
 
 model AdPublication {
-  id              String   @id @default(auto()) @map("_id") @db.ObjectId
-  adId            String   @db.ObjectId
-  ad              Ad       @relation("AdPublications", fields: [adId], references: [id], onDelete: Cascade)
+  id   String @id @default(auto()) @map("_id") @db.ObjectId
+  adId String @db.ObjectId
+  ad   Ad     @relation("AdPublications", fields: [adId], references: [id], onDelete: Cascade)
 
-  armId           String   @db.ObjectId
-  arm             Arm      @relation("ArmAdPublications", fields: [armId], references: [id], onDelete: Cascade)
+  armId String @db.ObjectId
+  arm   Arm    @relation("ArmAdPublications", fields: [armId], references: [id], onDelete: Cascade)
 
-  catalogId       String   @db.ObjectId
+  catalogId String @db.ObjectId
 
-  categoryId      String?
-  categoryPath    String[] @default([])
+  categoryId   String?
+  categoryPath String[] @default([])
 
-  status          String   @default("published")
+  status          String  @default("published")
   rejectionReason String?
+  // ✅ انصراف صریح فروشنده از انتشار این آگهی در این بازار — در re-stamp کلی نادیده گرفته می‌شود
+  optOut          Boolean @default(false)
 
-  publishedAt     DateTime @default(now())
-  publishedBy     String?  @db.ObjectId
-  unpublishedAt   DateTime?
-  updatedAt       DateTime @updatedAt
+  publishedAt   DateTime  @default(now())
+  publishedBy   String?   @db.ObjectId
+  unpublishedAt DateTime?
+  updatedAt     DateTime  @updatedAt
 
   @@unique([adId, armId])
   @@index([armId, status])
@@ -583,13 +861,13 @@ model AdPublication {
 }
 
 model BuyLead {
-  id              String   @id @default(auto()) @map("_id") @db.ObjectId
-  armId           String   @db.ObjectId
-  arm             Arm      @relation(fields: [armId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  catalogId      String?
-  catalog        Catalog? @relation(fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  createdByUserId String?  @db.ObjectId
-  user            User?    @relation(fields: [createdByUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  armId           String    @db.ObjectId
+  arm             Arm       @relation(fields: [armId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  catalogId       String?
+  catalog         Catalog?  @relation(fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdByUserId String?   @db.ObjectId
+  user            User?     @relation(fields: [createdByUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   categoryId      String?
   searchQuery     String
   title           String
@@ -599,8 +877,8 @@ model BuyLead {
   deadline        String
   contactMethod   String
   contactValue    String
-  status          String   @default("open")
-  createdAt       DateTime @default(now())
+  status          String    @default("open")
+  createdAt       DateTime  @default(now())
   expiresAt       DateTime?
   metadata        Json?
 
@@ -619,96 +897,95 @@ model AdView {
 
   @@index([adId, viewedAt])
 }
+
 // ============================================================
 // 2. مدل جدید برای بازدیدها و تعاملات (Prisma)
 // ============================================================
 
-
 model AdInteraction {
-    id          String   @id @default(auto()) @map("_id") @db.ObjectId
-    adId        String   @db.ObjectId
-    ad          Ad       @relation(fields: [adId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-    userId      String?  @db.ObjectId
-    user        User?    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-    type        String   // view, save, call, comment, share
-    createdAt   DateTime @default(now())
-    metadata    Json?
-    ipAddress   String?
-    userAgent   String?
-    sessionId   String?
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  adId      String   @db.ObjectId
+  ad        Ad       @relation(fields: [adId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  userId    String?  @db.ObjectId
+  user      User?    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  type      String // view, save, call, comment, share
+  createdAt DateTime @default(now())
+  metadata  Json?
+  ipAddress String?
+  userAgent String?
+  sessionId String?
+  // @@unique([adId, userId, type]) // برای جلوگیری از بازدید تکراری یونیک
 
-    @@index([adId])
-    @@index([userId])
-    @@index([adId, type])
-   // @@unique([adId, userId, type]) // برای جلوگیری از بازدید تکراری یونیک
+  @@index([adId])
+  @@index([userId])
+  @@index([adId, type])
 }
 
 // schema.prisma - فقط این مدل اضافه شود
 
 model CatalogInteraction {
-    id         String   @id @default(auto()) @map("_id") @db.ObjectId
-    catalogId String   @db.ObjectId
-    catalog   Catalog @relation(fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-    userId     String?  @db.ObjectId
-    user       User?    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-    type       String   // 'view' | 'save' | 'share'
-    createdAt  DateTime @default(now())
-    ipAddress  String?
-    userAgent  String?
-    sessionId  String?
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  catalogId String   @db.ObjectId
+  catalog   Catalog  @relation(fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  userId    String?  @db.ObjectId
+  user      User?    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  type      String // 'view' | 'save' | 'share'
+  createdAt DateTime @default(now())
+  ipAddress String?
+  userAgent String?
+  sessionId String?
 
-    @@index([catalogId, type])
-    @@index([userId])
-    @@index([catalogId, userId, type])
+  @@index([catalogId, type])
+  @@index([userId])
+  @@index([catalogId, userId, type])
 }
-
 
 model CallEvent {
-    id                String   @id @default(auto()) @map("_id") @db.ObjectId
-    adId              String   @db.ObjectId
-    ad                Ad       @relation(fields: [adId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-    callerId          String?  @db.ObjectId
-    caller            User?    @relation(fields: [callerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-    callerAnonymousId String?
-    initiatedAt       DateTime @default(now())
-    returnedAt        DateTime?
-    ledToDeal         Boolean?
-    feedbackText      String?
-    source            String?
+  id                String    @id @default(auto()) @map("_id") @db.ObjectId
+  adId              String    @db.ObjectId
+  ad                Ad        @relation(fields: [adId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  callerId          String?   @db.ObjectId
+  caller            User?     @relation(fields: [callerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  callerAnonymousId String?
+  initiatedAt       DateTime  @default(now())
+  returnedAt        DateTime?
+  ledToDeal         Boolean?
+  feedbackText      String?
+  source            String?
+  routedToUserId    String?   @db.ObjectId // مسیریابی تماس به مسئول فروشِ منتسب (اعضای کاتالوگ) — null = مسیر عادی
 
-    @@index([adId, initiatedAt])
+  @@index([adId, initiatedAt])
 }
-
 
 // ============================================================
 // لایه اقتصادی (Credit, CreditRequest, Verification)
 // ============================================================
 
 model Credit {
-  id                String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId            String   @db.ObjectId
-  user              User     @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  catalogId        String?  @db.ObjectId
-  catalog          Catalog? @relation(fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  armId             String?  @db.ObjectId
-  arm               Arm?     @relation(fields: [armId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  user      User     @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  catalogId String?  @db.ObjectId
+  catalog   Catalog? @relation(fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  armId     String?  @db.ObjectId
+  arm       Arm?     @relation(fields: [armId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  amount            Float
-  currency          String   @default("IRR")
-  creditCount       Int
-  pricePerCredit    Float?
-  creditType        String   @default("purchased")
+  amount         Float
+  currency       String @default("IRR")
+  creditCount    Int
+  pricePerCredit Float?
+  creditType     String @default("purchased")
 
   // ✅ فیلد جدید
-  status            String   @default("pending")  // pending, success, failed, refunded
+  status String @default("pending") // pending, success, failed, refunded
 
   transactionType   String
   description       String?
-  relatedEntityId   String?  @db.ObjectId
+  relatedEntityId   String?   @db.ObjectId
   relatedEntityType String?
   expiresAt         DateTime?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
   metadata          Json?
 
   @@index([userId, createdAt])
@@ -716,36 +993,37 @@ model Credit {
   @@index([armId])
   @@index([transactionType])
   @@index([creditType])
-  @@index([status])  // ✅ ایندکس جدید
+  @@index([status]) // ✅ ایندکس جدید
 }
 
 model CreditRequest {
-  id            String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId        String   @db.ObjectId
-  user          User     @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  catalogId    String   @db.ObjectId
-  catalog      Catalog @relation(fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  armId         String?  @db.ObjectId
-  arm           Arm?     @relation(fields: [armId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  amount        Float
-  status        String   @default("pending") // pending, approved, rejected
-  receiptImage  String?
-  receiptNote   String?
-  verifiedBy    String?  @db.ObjectId
-  verifiedAt    DateTime?
-  rejectReason  String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  metadata      Json?
+  id           String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId       String    @db.ObjectId
+  user         User      @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  catalogId    String    @db.ObjectId
+  catalog      Catalog   @relation(fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  armId        String?   @db.ObjectId
+  arm          Arm?      @relation(fields: [armId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  amount       Float
+  status       String    @default("pending") // pending, approved, rejected
+  receiptImage String?
+  receiptNote  String?
+  verifiedBy   String?   @db.ObjectId
+  verifiedAt   DateTime?
+  rejectReason String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  metadata     Json?
 
   @@index([userId, status])
   @@index([catalogId, status])
   @@index([armId, status])
 }
+
 model TrustMetric {
   id                  String   @id @default(auto()) @map("_id") @db.ObjectId
-  catalogId          String   @db.ObjectId
-  catalog            Catalog @relation(fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  catalogId           String   @db.ObjectId
+  catalog             Catalog  @relation(fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   armId               String?  @db.ObjectId
   arm                 Arm?     @relation(fields: [armId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   trustScore          Float    @default(0)
@@ -759,28 +1037,29 @@ model TrustMetric {
   @@unique([catalogId, armId])
   @@index([armId, trustScore])
 }
+
 // ============================================================
 // لایه فایل (File)
 // ============================================================
 
 model File {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId    String   @db.ObjectId
-  user      User     @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  name      String
-  mimeType  String
-  size      Int
-  path      String
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId        String   @db.ObjectId
+  user          User     @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  name          String
+  mimeType      String
+  size          Int
+  path          String
   thumbnailPath String?
   relatedModel  String?
   relatedId     String?  @db.ObjectId
   fieldKey      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  metadata       Json?    // ✅ فیلد جدید برای ذخیره s3Key و اطلاعات اضافی
-  catalog  Catalog? @relation(fields: [relatedId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  arm       Arm?      @relation(fields: [relatedId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  ad        Ad?       @relation(fields: [relatedId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  metadata      Json? // ✅ فیلد جدید برای ذخیره s3Key و اطلاعات اضافی
+  catalog       Catalog? @relation(fields: [relatedId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  arm           Arm?     @relation(fields: [relatedId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ad            Ad?      @relation(fields: [relatedId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([userId])
   @@index([relatedModel, relatedId])
@@ -812,7 +1091,7 @@ model Industry {
   icon        String?
   description String?
   isActive    Boolean    @default(true)
-  usageCount  Int        @default(0)   // ✅ جدید — برای سورت پیشنهادها
+  usageCount  Int        @default(0) // ✅ جدید — برای سورت پیشنهادها
   confirmed   Boolean    @default(false) // ✅ false = توسط کاربر ساخته شده، ادمین باید بررسی کنه
   isByUser    Boolean    @default(false) // ✅ true = کاربر ساخته (نه seed/admin)
   metadata    Json?
@@ -847,7 +1126,7 @@ model Activity {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
-  businesses  BusinessActivity[]
+  businesses BusinessActivity[]
 
   @@index([parentId])
   @@index([path])
@@ -859,52 +1138,50 @@ model Activity {
 // ============================================================
 
 model BusinessActivity {
-  id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  businessId  String   @db.ObjectId
-  business    Business @relation("BusinessActivity", fields: [businessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  activityId  String   @db.ObjectId
-  activity    Activity @relation(fields: [activityId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  createdAt   DateTime @default(now())
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  businessId String   @db.ObjectId
+  business   Business @relation("BusinessActivity", fields: [businessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  activityId String   @db.ObjectId
+  activity   Activity @relation(fields: [activityId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdAt  DateTime @default(now())
 
   @@unique([businessId, activityId])
   @@index([businessId])
   @@index([activityId])
 }
 
-
-
 model Setting {
-    id          String   @id @default(auto()) @map("_id") @db.ObjectId
-    key         String
-    value       Json
-    scope       String   @default("system") // 'system' | 'user' | 'arm' | 'user_arm'
-    scopeId     String?  // برای system: "system"، برای user: userId، برای arm: armId
-    group       String?  // 'credit', 'general', 'security', 'appearance'
-    description String?
-    isPublic    Boolean  @default(false)
-    createdAt   DateTime @default(now())
-    updatedAt   DateTime @updatedAt
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  key         String
+  value       Json
+  scope       String   @default("system") // 'system' | 'user' | 'arm' | 'user_arm'
+  scopeId     String? // برای system: "system"، برای user: userId، برای arm: armId
+  group       String? // 'credit', 'general', 'security', 'appearance'
+  description String?
+  isPublic    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-    @@unique([key, scope, scopeId])
-    @@index([scope, scopeId])
-    @@index([group])
-    @@index([key])
+  @@unique([key, scope, scopeId])
+  @@index([scope, scopeId])
+  @@index([group])
+  @@index([key])
 }
 
 model Feedback {
-  id        String    @id @default(auto()) @map("_id") @db.ObjectId
-  armId     String?   @db.ObjectId
-  arm       Arm?      @relation(fields: [armId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  userId    String    @db.ObjectId
-  user      User      @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  parentId  String?   @db.ObjectId
-  parent    Feedback? @relation("FeedbackReplies", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id        String     @id @default(auto()) @map("_id") @db.ObjectId
+  armId     String?    @db.ObjectId
+  arm       Arm?       @relation(fields: [armId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  userId    String     @db.ObjectId
+  user      User       @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  parentId  String?    @db.ObjectId
+  parent    Feedback?  @relation("FeedbackReplies", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   replies   Feedback[] @relation("FeedbackReplies")
   content   String
-  type      String    @default("suggestion")
-  status    String    @default("open")
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  type      String     @default("suggestion")
+  status    String     @default("open")
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 
   @@index([armId, createdAt])
   @@index([userId])
@@ -915,16 +1192,16 @@ model SearchLog {
   id          String   @id @default(auto()) @map("_id") @db.ObjectId
   armId       String   @db.ObjectId
   arm         Arm      @relation(fields: [armId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  userId      String?  @db.ObjectId          // null = مهمان
+  userId      String?  @db.ObjectId // null = مهمان
   user        User?    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  term        String                          // نرمال‌شده — همهٔ کوئری‌ها روی این
-  rawTerm     String?                         // عین تایپ کاربر — فقط برای آنالیز
+  term        String // نرمال‌شده — همهٔ کوئری‌ها روی این
+  rawTerm     String? // عین تایپ کاربر — فقط برای آنالیز
   resultCount Int      @default(0)
   createdAt   DateTime @default(now())
 
-  @@index([armId, term])        // پیشنهاددهنده: match بر اساس arm + prefix ترم
-  @@index([userId, createdAt])  // تاریخچه شخصی + حذف بر اساس کاربر
-  @@index([createdAt])          // پاک‌سازی دوره‌ای
+  @@index([armId, term]) // پیشنهاددهنده: match بر اساس arm + prefix ترم
+  @@index([userId, createdAt]) // تاریخچه شخصی + حذف بر اساس کاربر
+  @@index([createdAt]) // پاک‌سازی دوره‌ای
   @@map("search_logs")
 }
 
@@ -936,25 +1213,25 @@ model SearchLog {
 // کاربران می‌تونن برند جدید بسازن → confirmed=false تا ادمین بررسی کنه.
 // ============================================================
 model Brand {
-  id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  title       String   @unique
-  slug        String   @unique
-  category    String?
-  categoryPath String[] @default([])
-  logoUrl     String?
-  description String?
-  keywords    String[] @default([])
-  isActive    Boolean  @default(true)
-  usageCount  Int      @default(0)
-  confirmed   Boolean  @default(false)
-  isByUser    Boolean  @default(false)
-  armId       String?  @db.ObjectId  // ✅ بازاری که برند از طریق آن ثبت شده
-  createdByUserId String? @db.ObjectId  // ✅ کاربر ثبت‌کننده (برای نظارت مالک بازار)
-  metadata    Json?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  ads         Ad[]     @relation("AdBrand")
-  products    ProductReference[] @relation("ProductRefBrand")
+  id              String             @id @default(auto()) @map("_id") @db.ObjectId
+  title           String             @unique
+  slug            String             @unique
+  category        String?
+  categoryPath    String[]           @default([])
+  logoUrl         String?
+  description     String?
+  keywords        String[]           @default([])
+  isActive        Boolean            @default(true)
+  usageCount      Int                @default(0)
+  confirmed       Boolean            @default(false)
+  isByUser        Boolean            @default(false)
+  armId           String?            @db.ObjectId // ✅ بازاری که برند از طریق آن ثبت شده
+  createdByUserId String?            @db.ObjectId // ✅ کاربر ثبت‌کننده (برای نظارت مالک بازار)
+  metadata        Json?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  ads             Ad[]               @relation("AdBrand")
+  products        ProductReference[] @relation("ProductRefBrand")
 
   @@index([category])
   @@index([isActive])
@@ -975,30 +1252,30 @@ model Brand {
 // این ID مشترک امکان مقایسه قیمت، تجمیع، و... رو فراهم می‌کنه.
 // ============================================================
 model ProductReference {
-  id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  title       String   @unique
-  slug        String   @unique
-  brandId     String?  @db.ObjectId
-  brand       Brand?   @relation("ProductRefBrand", fields: [brandId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  category    String?
-  categoryPath String[] @default([])
-  imageUrl    String?
-  thumbnailUrl String?
-  description String?
-  specs       Json?
-  keywords    String[] @default([])
-  unitHints   String[] @default([])
-  isActive    Boolean  @default(true)
-  usageCount  Int      @default(0)
-  confirmed   Boolean  @default(false)
-  isByUser    Boolean  @default(false)
-  isNew       Boolean  @default(true)
-  armId       String?  @db.ObjectId  // ✅ بازار مرجع (برای تفکیک آینده)
-  metadata    Json?
-  createdByUserId String? @db.ObjectId
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  ads         Ad[]     @relation("AdProductRef")
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  title           String   @unique
+  slug            String   @unique
+  brandId         String?  @db.ObjectId
+  brand           Brand?   @relation("ProductRefBrand", fields: [brandId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  category        String?
+  categoryPath    String[] @default([])
+  imageUrl        String?
+  thumbnailUrl    String?
+  description     String?
+  specs           Json?
+  keywords        String[] @default([])
+  unitHints       String[] @default([])
+  isActive        Boolean  @default(true)
+  usageCount      Int      @default(0)
+  confirmed       Boolean  @default(false)
+  isByUser        Boolean  @default(false)
+  isNew           Boolean  @default(true)
+  armId           String?  @db.ObjectId // ✅ بازار مرجع (برای تفکیک آینده)
+  metadata        Json?
+  createdByUserId String?  @db.ObjectId
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  ads             Ad[]     @relation("AdProductRef")
 
   @@index([brandId])
   @@index([category])
