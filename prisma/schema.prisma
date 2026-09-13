@@ -123,6 +123,8 @@ model User {
   catalogMemberships       CatalogMember[]        @relation("CatMemberUser") // کاتالوگ‌هایی که عضوشان است (همکار فروش/خریدار/تامین‌کننده/مدیر)
   catalogAssignedCustomers CatalogMember[]        @relation("CatMemberAssignee") // خریدارهایی که به او به‌عنوان مسئول فروش منتسب شده‌اند
   catalogTeamEvents        CatalogTeamEvent[]     @relation("CatTeamEventUser") // رویدادهای تیمیِ مربوط به کاربر
+  phoneContacts            UserContact[]          @relation("ContactOwner")       // ✅ دفترچهٔ مخاطبینِ آپلودشدهٔ کاربر
+  discoveredInContacts     UserContact[]          @relation("ContactMatchedUser") // ✅ در دفترچهٔ چه کسانی پیدا شده
 
   @@index([status])
   @@index([role])
@@ -1326,4 +1328,27 @@ model Notification {
 
   @@index([userId, isRead, createdAt])
   @@index([userId, createdAt])
+}
+
+// ============================================================
+// دفترچهٔ مخاطبین کاربر — اشتراک‌گذاری مستقیم با مخاطبین تلفن (PWA)
+//   • با اجازهٔ کاربر از Contact Picker گوشی پر می‌شود (نام + شماره)
+//   • phone همیشه نرمال‌شدهٔ 09xxxxxxxxx است
+//   • matchedUserId → کشف ارتباطات: این شماره در دیمت ثبت‌نام کرده است
+//     (بعداً در پیشنهادها/دعوت‌ها استفاده می‌شود)
+// ============================================================
+model UserContact {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  ownerId       String   @db.ObjectId // صاحب دفترچه — کسی که مخاطبینش را آپلود کرده
+  owner         User     @relation("ContactOwner", fields: [ownerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  name          String?  // نامی که در دفترچهٔ تلفنِ صاحبش ذخیره شده
+  phone         String   // نرمال‌شده — کلید یکتا در دفترچهٔ هر کاربر
+  matchedUserId String?  @db.ObjectId // اگر این شماره در دیمت ثبت‌نام کرده باشد
+  matchedUser   User?    @relation("ContactMatchedUser", fields: [matchedUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([ownerId, phone])
+  @@index([ownerId, createdAt])
+  @@index([matchedUserId])
 }
