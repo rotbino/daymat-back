@@ -156,6 +156,8 @@ export class UpdateInquiryDto {
     @IsOptional() @IsString() @MaxLength(400) deliveryNote?: string;
     @IsOptional() @IsString() @MaxLength(400) paymentTerms?: string;
     @IsOptional() @IsArray() @ArrayMaxSize(10) @IsString({ each: true }) tags?: string[];
+    @ApiPropertyOptional({ description: 'کسب‌وکار صادرکننده (اختیاری — اتصال/تغییر/قطع اتصال با رشتهٔ خالی)', required: false })
+    @IsOptional() @IsString() businessId?: string;
 }
 
 export class CreateOfferDto {

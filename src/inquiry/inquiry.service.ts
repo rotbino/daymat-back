@@ -1,7 +1,7 @@
 // src/inquiry/inquiry.service.ts
 // کاتالوگ خرید (استعلام قیمت) — سرویس
 import {
-    Injectable, NotFoundException, ForbiddenException, BadRequestException,
+    Injectable, NotFoundException, ForbiddenException, BadRequestException, OnModuleInit,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateInquiryDto, UpdateInquiryDto, CreateOfferDto, UpdateOfferDto, InquiryItemDto } from './inquiry.dto';
@@ -23,8 +23,51 @@ const PUBLIC_LIST_SELECT = {
 };
 
 @Injectable()
-export class InquiryService {
+export class InquiryService implements OnModuleInit {
     constructor(private prisma: PrismaService) {}
+
+    /**
+     * مهاجرت داده‌های قدیمی (idempotent — در هر بوت اجرا می‌شود):
+     * کاتالوگ‌های خریدِ بدون businessId (ساخته‌شده قبل از قابلیت اتصال) که مالکشان دقیقاً یک کسب‌وکار دارد،
+     * به همان کسب‌وکار وصل می‌شوند تا در پروفایل کسب‌وکار نمایش داده شوند.
+     * مالک چند-کسب‌وکاری دست‌نخورده می‌ماند (اتصال مبهم است — از فرم ویرایش انتخاب می‌شود).
+     */
+    async onModuleInit() {
+        try {
+            const orphans = await this.prisma.inquiry.findMany({
+                where: { businessId: null },
+                select: { id: true, ownerUserId: true },
+            });
+            if (orphans.length === 0) return;
+            const ownerIds = [...new Set(orphans.map((i) => i.ownerUserId))];
+            const bizs = await this.prisma.business.findMany({
+                where: { ownerUserId: { in: ownerIds } },
+                select: { id: true, ownerUserId: true },
+            });
+            // فقط مالکانی که دقیقاً یک کسب‌وکار دارند → MULTI برای بقیه
+            const singleBizByOwner = new Map<string, string>();
+            for (const b of bizs) {
+                singleBizByOwner.set(
+                    b.ownerUserId,
+                    singleBizByOwner.has(b.ownerUserId) ? '__MULTI__' : b.id,
+                );
+            }
+            let attached = 0;
+            for (const o of orphans) {
+                const bizId = singleBizByOwner.get(o.ownerUserId);
+                if (!bizId || bizId === '__MULTI__') continue;
+                await this.prisma.inquiry
+                    .update({ where: { id: o.id }, data: { businessId: bizId } })
+                    .catch(() => { /* noop */ });
+                attached++;
+            }
+            if (attached > 0) {
+                console.log(`[inquiry] ${attached} کاتالوگ خریدِ بدون کسب‌وکار به کسب‌وکارِ یگانهٔ مالک وصل شد`);
+            }
+        } catch (e: any) {
+            console.warn('[inquiry] مهاجرت اتصال کاتالوگ‌های خرید قدیمی انجام نشد:', e?.message);
+        }
+    }
 
     private isValidObjectId(id?: string): boolean {
         return !!id && /^[0-9a-fA-F]{24}$/.test(id);
@@ -192,10 +235,25 @@ export class InquiryService {
             const taken = await this.prisma.inquiry.findFirst({ where: { slug: normalized, id: { not: id } } });
             if (taken) throw new BadRequestException({ errorCode: 'SLUG_TAKEN', message: 'این آدرس قبلاً گرفته شده' });
         }
-        const { items, slug, deadline, ...rest } = dto;
+        const { items, slug, deadline, businessId, ...rest } = dto;
         const data: any = { ...rest };
         if (slug) data.slug = this.normalizeSlug(slug);
         if (deadline !== undefined) data.deadline = deadline ? new Date(deadline) : null;
+        // اتصال/تغییر/قطع اتصال کسب‌وکار (رشتهٔ خالی = قطع اتصال)
+        if (businessId !== undefined) {
+            if (businessId) {
+                if (!this.isValidObjectId(businessId)) {
+                    throw new BadRequestException({ errorCode: 'INVALID_BUSINESS', message: 'شناسه کسب‌وکار نامعتبر است' });
+                }
+                const biz = await this.prisma.business.findFirst({
+                    where: { id: businessId, ownerUserId: userId }, select: { id: true },
+                });
+                if (!biz) throw new ForbiddenException({ errorCode: 'NOT_YOUR_BUSINESS', message: 'این کسب‌وکار متعلق به شما نیست' });
+                data.businessId = businessId;
+            } else {
+                data.businessId = null;
+            }
+        }
 
         return this.prisma.$transaction(async (tx) => {
             // اگر اقلام ارسال شده → جایگزینی کامل (ساده و قطعی)
