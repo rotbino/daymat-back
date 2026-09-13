@@ -8,28 +8,35 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CacheHelper } from '../common/services/cache.helper';
+import { NotificationService } from '../notification/notification.service';
 
 /**
  * اعضای کاتالوگ — ابزار ارتباطات تجاری برای هر دسته‌بندی کالا (پخش فقط یک نمونه است):
  *
  *   نقش سیستمی:  مالک (= مالکِ کسب‌وکارِ کاتالوگ — مشتق، بالاترین دسترسی)
  *                مدیر (منصوبِ مالک — سهیم در مدیریت) | عضو
- *   لِین بیزینسی: همکار فروش (فروشنده/ویزیتور — با منطقهٔ فروش)
+ *   لِین بیزینسی: همکار فروش (فروشنده/بازاریاب-ویزیتور — با منطقهٔ فروش)
  *                خریدار (کسب‌وکارِ ثبت‌شده — منتسب به یک مسئول فروش برای مسیریابی تماس)
  *                تامین‌کننده (عضویت با کاتالوگِ خودش — شبکه‌سازی بین کاتالوگ‌ها)
+ *                سرویس‌دهندهٔ خدمات (عضویت با کاتالوگِ خدماتیِ خود — چرخهٔ تجارت خدمات)
  *
  *   جریان‌ها (یک در برای همه: «درخواست ارتباط تجاری» روی کاتالوگ):
- *   - هر سه نقش: درخواست → تایید مدیر (مالک کاتالوگ) → فعال
- *   - خریدارِ ثبت‌شده توسط مسئول فروش: تایید با صاحبِ کسب‌وکار (مسیر Push حفظ شده)
+ *   - هر چهار لِین: درخواست → تایید مدیر (مالک کاتالوگ) → فعال
+ *   - خریدارِ ثبت‌شده توسط مسئول فروش: تایید با صاحبِ کسب‌وکار (مسیر Push)
+ *   - تامین‌کننده/خدماتِ دعوت‌شده توسط مدیر: تایید با صاحبِ کاتالوگِ مقصد (مسیر Push)
+ *   - همکارِ فروشِ دعوت‌شده توسط مدیر: پذیرش خودِ دعوت‌شده (حریم خصوصی شماره)
+ *   - عضو تیم کسب‌وکار: سینک خودکار به کاتالوگ‌های کسب‌وکار (sellerVia=business_team) → تایید مدیر
  *   - تماس از آگهی: خریدارِ فعال با مسئولِ منتسب → شمارهٔ همان عضوِ فروش (resolveCallRoute)
+ *   - هر رویداد: اعلان درون‌برنامه‌ای + CatalogTeamEvent
  *
- *   همهٔ تغییرها: تاریخ دقیق + عامل + رویداد CatalogTeamEvent — برای شکایت‌ها.
+ *   همهٔ تغییرها: تاریخ دقیق + عامل + رویداد — برای شکایت‌ها.
  */
 @Injectable()
 export class CatalogMemberService {
     constructor(
         private prisma: PrismaService,
         private cache: CacheHelper,
+        private notifier: NotificationService,
     ) {}
 
     // ════════════════════════════════════════════════════════════
@@ -155,7 +162,8 @@ export class CatalogMemberService {
             row.status === 'active' ||
             row.sellerStatus === 'active' ||
             row.customerStatus === 'active' ||
-            row.supplierStatus === 'active'
+            row.supplierStatus === 'active' ||
+            row.serviceStatus === 'active'
         );
     }
 
@@ -188,6 +196,37 @@ export class CatalogMemberService {
         });
     }
 
+    /** نام نمایشی کاربر — برای متن اعلان‌ها */
+    private async userName(userId?: string | null): Promise<string> {
+        if (!userId) return 'کاربر';
+        const u = await this.prisma.user.findUnique({ where: { id: userId }, select: { fullName: true, phone: true } });
+        return u?.fullName?.trim() || u?.phone || 'کاربر';
+    }
+
+    /** اعلان به همهٔ مدیران کاتالوگ (مالک + مدیرهای فعال) — بدون خودِ عامل */
+    private async notifyManagers(
+        catalog: { id: string; ownerUserId: string; slug: string | null; name: string },
+        actorId: string | null | undefined,
+        type: string,
+        title: string,
+        body?: string,
+    ) {
+        const admins = await this.prisma.catalogMember.findMany({
+            where: { catalogId: catalog.id, role: 'catalog_admin', status: 'active' },
+            select: { userId: true },
+        });
+        const href = `/my-catalogs?tab=team&cat=${catalog.id}`;
+        await this.notifier.notify({
+            userIds: [catalog.ownerUserId, ...admins.map((a) => a.userId)].filter((u) => u && u !== actorId),
+            type,
+            title,
+            body,
+            actorUserId: actorId || null,
+            href,
+            catalogId: catalog.id,
+        });
+    }
+
     /** باطل‌سازی کش «کاتالوگ‌های من» برای کاربران متأثر */
     private async bustUsersCache(userIds: (string | null | undefined)[]) {
         const uniq = Array.from(new Set(userIds.filter(Boolean) as string[]));
@@ -212,6 +251,7 @@ export class CatalogMemberService {
             role: row.role,
             position: row.position || null,
             sellerStatus: row.sellerStatus || null,
+            sellerVia: row.sellerVia || null,
             sellerRole: row.sellerRole || 'seller',
             sellerRegion: row.sellerRegion || null,
             sellerBusiness: row.sellerBusiness
@@ -224,10 +264,17 @@ export class CatalogMemberService {
                 : null,
             customerJoinedAt: row.customerJoinedAt || null,
             supplierStatus: row.supplierStatus || null,
+            supplierVia: row.supplierVia || null,
             supplierCatalog: row.supplierCatalog
-                ? { id: row.supplierCatalog.id, name: row.supplierCatalog.name, slug: row.supplierCatalog.slug, logoUrl: row.supplierCatalog.logoUrl || null }
+                ? { id: row.supplierCatalog.id, name: row.supplierCatalog.name, slug: row.supplierCatalog.slug, logoUrl: row.supplierCatalog.logoUrl || null, salesType: row.supplierCatalog.salesType || null }
                 : null,
             supplierJoinedAt: row.supplierJoinedAt || null,
+            serviceStatus: row.serviceStatus || null,
+            serviceVia: row.serviceVia || null,
+            serviceCatalog: row.serviceCatalog
+                ? { id: row.serviceCatalog.id, name: row.serviceCatalog.name, slug: row.serviceCatalog.slug, logoUrl: row.serviceCatalog.logoUrl || null, salesType: row.serviceCatalog.salesType || null }
+                : null,
+            serviceJoinedAt: row.serviceJoinedAt || null,
             memberCity: row.memberCity || null,
             memberProvince: row.memberProvince || null,
             assignedSellerUserId: row.assignedSellerUserId || null,
@@ -258,10 +305,10 @@ export class CatalogMemberService {
         const ownerVisible = rows.some(
             (r) => r.userId === ownerUserId && r.status === 'active' &&
                 (r.sellerStatus === 'active' || r.customerStatus === 'active' || r.customerStatus === 'pending' ||
-                    r.supplierStatus === 'active' || r.role === 'catalog_admin'),
+                    r.supplierStatus === 'active' || r.serviceStatus === 'active' || r.role === 'catalog_admin'),
         );
         const adminRows = rows.filter(
-            (r) => r.role === 'catalog_admin' && r.status === 'active' && !r.sellerStatus && !r.customerStatus && !r.supplierStatus,
+            (r) => r.role === 'catalog_admin' && r.status === 'active' && !r.sellerStatus && !r.customerStatus && !r.supplierStatus && !r.serviceStatus,
         );
         const cards: any[] = adminRows.map((r) => ({
             ...this.memberCard(r, armSlugByBiz),
@@ -312,7 +359,8 @@ export class CatalogMemberService {
         user: { select: { id: true, fullName: true, phone: true, avatarUrl: true, city: true, province: true } },
         sellerBusiness: { select: { id: true, name: true, phone: true, city: true } },
         customerBusiness: { select: { id: true, name: true, phone: true, city: true } },
-        supplierCatalog: { select: { id: true, name: true, slug: true, logoUrl: true } },
+        supplierCatalog: { select: { id: true, name: true, slug: true, logoUrl: true, salesType: true } },
+        serviceCatalog: { select: { id: true, name: true, slug: true, logoUrl: true, salesType: true } },
     } as const;
 
     // ════════════════════════════════════════════════════════════
@@ -330,10 +378,10 @@ export class CatalogMemberService {
         const settings = await this.getEffectiveCatalogSettings(catalog.id);
         const ownerUserId = catalog.ownerUserId;
 
-        // ── نمای عمومی (کاربر لاگین‌شدهٔ غیرعضو) — همکاران فروش + تامین‌کننده‌ها، بدون شماره تماس ──
+        // ── نمای عمومی (کاربر لاگین‌شدهٔ غیرعضو) — همکاران فروش + تامین‌کننده‌ها + سرویس‌دهنده‌ها، بدون شماره تماس ──
         if (!isOwner && !isAdmin && !isSeller && !isPendingSeller) {
             const publicRows = await this.prisma.catalogMember.findMany({
-                where: { catalogId: catalog.id, OR: [{ sellerStatus: 'active' }, { supplierStatus: 'active' }] },
+                where: { catalogId: catalog.id, OR: [{ sellerStatus: 'active' }, { supplierStatus: 'active' }, { serviceStatus: 'active' }] },
                 include: this.MEMBER_INCLUDE,
                 orderBy: { createdAt: 'asc' },
             });
@@ -352,6 +400,14 @@ export class CatalogMemberService {
                 }));
             const publicSuppliers = publicRows
                 .filter((r) => r.supplierStatus === 'active')
+                .map((r) => ({
+                    ...this.memberCard(r, armSlugs),
+                    phone: null,
+                    isOwner: r.userId === ownerUserId,
+                    isAdmin: r.role === 'catalog_admin',
+                }));
+            const publicServices = publicRows
+                .filter((r) => r.serviceStatus === 'active')
                 .map((r) => ({
                     ...this.memberCard(r, armSlugs),
                     phone: null,
@@ -384,14 +440,16 @@ export class CatalogMemberService {
                     memberId: null,
                     sellerRegion: null,
                     position: null,
+                    pendingInvite: null,
                 },
                 staff,
                 sellers: publicSellers,
                 suppliers: publicSuppliers,
+                services: publicServices,
                 pendingRequests: [],
                 customers: [],
                 events: [],
-                stats: { sellers: publicSellers.length, suppliers: publicSuppliers.length, pendingRequests: 0, customers: 0 },
+                stats: { sellers: publicSellers.length, suppliers: publicSuppliers.length, services: publicServices.length, pendingRequests: 0, customers: 0 },
                 settings,
             };
         }
@@ -405,6 +463,7 @@ export class CatalogMemberService {
                     { sellerStatus: { in: ['active', 'pending'] } },
                     { customerStatus: { in: ['active', 'pending'] } },
                     { supplierStatus: { in: ['active', 'pending'] } },
+                    { serviceStatus: { in: ['active', 'pending'] } },
                     { role: 'catalog_admin', status: 'active' },
                 ],
             },
@@ -443,27 +502,51 @@ export class CatalogMemberService {
                 isAdmin: r.role === 'catalog_admin',
             }));
 
-        // درخواست‌های همکاریِ در انتظار تایید مدیر — تایپ‌دار برای UI
-        const pendingRequests = canManage
-            ? rows
-                  .filter((r) => r.sellerStatus === 'pending' || r.customerStatus === 'pending' || r.supplierStatus === 'pending')
-                  .map((r) => {
-                      const card = this.memberCard(r, armSlugs);
-                      if (r.sellerStatus === 'pending') {
-                          return { ...card, requestType: 'seller' as const, pendingGate: 'manager' as const, note: null };
-                      }
-                      if (r.supplierStatus === 'pending') {
-                          return { ...card, requestType: 'supplier' as const, pendingGate: 'manager' as const, note: null };
-                      }
-                      // لِین خریدار — دو مسیر: درخواستِ خودِ خریدار (تایید با مدیر) یا ثبتِ توسط فروشنده (تایید با صاحبِ کسب‌وکار)
-                      return {
-                          ...card,
-                          requestType: 'buyer' as const,
-                          pendingGate: (r.customerVia === 'self_request' ? 'manager' : 'business_owner') as 'manager' | 'business_owner',
-                          note: null,
-                      };
-                  })
-            : [];
+        const services = rows
+            .filter((r) => r.serviceStatus === 'active')
+            .map((r) => ({
+                ...this.memberCard(r, armSlugs),
+                isOwner: r.userId === ownerUserId,
+                isAdmin: r.role === 'catalog_admin',
+            }));
+
+        // درخواست‌های در انتظار — با تعیین «چه کسی باید تایید کند»:
+        //   manager        → مالک/مدیر کاتالوگ (درخواستِ خودِ متقاضی یا سینکِ تیم کسب‌وکار)
+        //   business_owner → صاحب کسب‌وکارِ خریدار (ثبتِ Push)
+        //   supplier_owner → صاحب کاتالوگِ تامین‌کننده (دعوتِ Push)
+        //   service_owner  → صاحب کاتالوگِ خدماتی (دعوتِ Push)
+        //   seller_self    → خودِ دعوت‌شده به فروش (حریم خصوصی شماره)
+        // صفِ مدیر فقط آیتم‌های manager را می‌بیند؛ بقیه در «درخواست‌های در انتظار تایید شما» یا نمای خودِ عضو رندر می‌شوند.
+        const allPending = rows.filter(
+            (r) => r.sellerStatus === 'pending' || r.customerStatus === 'pending' || r.supplierStatus === 'pending' || r.serviceStatus === 'pending',
+        );
+        const pendingGateOf = (r: any): 'manager' | 'business_owner' | 'supplier_owner' | 'service_owner' | 'seller_self' => {
+            if (r.sellerStatus === 'pending') return r.sellerVia === 'manager_invite' ? 'seller_self' : 'manager';
+            if (r.supplierStatus === 'pending') return r.supplierVia === 'manager_add' ? 'supplier_owner' : 'manager';
+            if (r.serviceStatus === 'pending') return r.serviceVia === 'manager_add' ? 'service_owner' : 'manager';
+            return r.customerVia === 'self_request' ? 'manager' : 'business_owner';
+        };
+        const pendingRequests = (canManage ? allPending : allPending.filter((r) => r.userId === actorId))
+            .filter((r) => {
+                const gate = pendingGateOf(r);
+                if (gate === 'manager') return canManage;
+                if (gate === 'seller_self') return r.userId === actorId;
+                return false; // business_owner/supplier_owner/service_owner → کارت «در انتظار تایید شما» (خارج از getTeam)
+            })
+            .map((r) => {
+                const card = this.memberCard(r, armSlugs);
+                const gate = pendingGateOf(r);
+                if (r.sellerStatus === 'pending') {
+                    return { ...card, requestType: 'seller' as const, pendingGate: gate, note: null };
+                }
+                if (r.supplierStatus === 'pending') {
+                    return { ...card, requestType: 'supplier' as const, pendingGate: gate, note: null };
+                }
+                if (r.serviceStatus === 'pending') {
+                    return { ...card, requestType: 'service' as const, pendingGate: gate, note: null };
+                }
+                return { ...card, requestType: 'buyer' as const, pendingGate: gate, note: null };
+            });
 
         let customers = rows
             .filter((r) => r.customerStatus === 'active' || r.customerStatus === 'pending')
@@ -531,16 +614,22 @@ export class CatalogMemberService {
                 memberId: myRow?.id || null,
                 sellerRegion: myRow?.sellerRegion || null,
                 position: myRow?.position || null,
+                // دعوتِ بازِ فروش — خودِ عضو باید بپذیرد/رد کند (نه مدیر)
+                pendingInvite: myRow?.status === 'active' && myRow.sellerStatus === 'pending' && myRow.sellerVia === 'manager_invite'
+                    ? { memberId: myRow.id }
+                    : null,
             },
             staff,
             sellers: scopedSellers,
             suppliers,
+            services,
             pendingRequests,
             customers: scopedCustomers,
             events,
             stats: {
                 sellers: sellers.length,
                 suppliers: suppliers.length,
+                services: services.length,
                 pendingRequests: canManage ? pendingRequests.length : undefined,
                 activeCustomers: customers.filter((c) => c.customerStatus === 'active').length,
                 pendingCustomers: customers.filter((c) => c.customerStatus === 'pending').length,
@@ -569,6 +658,7 @@ export class CatalogMemberService {
                     { sellerStatus: { in: ['active', 'pending'] } },
                     { customerStatus: { in: ['active', 'pending'] } },
                     { supplierStatus: { in: ['active', 'pending'] } },
+                    { serviceStatus: { in: ['active', 'pending'] } },
                     { role: 'catalog_admin' },
                 ],
             },
@@ -609,20 +699,117 @@ export class CatalogMemberService {
                 role: r.role,
                 position: r.position || null,
                 sellerStatus: r.sellerStatus || null,
+                sellerVia: r.sellerVia || null,
                 sellerRegion: r.sellerRegion || null,
                 sellerBusinessName: r.sellerBusiness?.name || null,
                 sellerJoinedAt: r.sellerJoinedAt || null,
                 customerStatus: r.customerStatus || null,
+                customerVia: r.customerVia || null,
                 customerBusinessName: r.customerBusiness?.name || null,
                 customerJoinedAt: r.customerJoinedAt || null,
                 supplierStatus: r.supplierStatus || null,
+                supplierVia: r.supplierVia || null,
                 supplierCatalogName: r.supplierCatalog?.name || null,
                 supplierJoinedAt: r.supplierJoinedAt || null,
+                serviceStatus: r.serviceStatus || null,
+                serviceVia: r.serviceVia || null,
+                serviceCatalogName: r.serviceCatalog?.name || null,
+                serviceJoinedAt: r.serviceJoinedAt || null,
                 assignedSeller: seller
                     ? { userId: r.assignedSellerUserId, fullName: seller.fullName, businessName: seller.businessName, phone: seller.phone }
                     : null,
             };
         });
+    }
+
+    /**
+     * درخواست‌های در انتظار تاییدِ «من» (مسیرهای Push):
+     *   customer  → صاحب کسب‌وکارِ خریدار (ثبت‌شده توسط عضوِ فروش)
+     *   supplier  → صاحب کاتالوگِ تامین‌کننده (دعوتِ مدیر کاتالوگِ خریدار)
+     *   service   → صاحب کاتالوگِ خدماتی (دعوتِ مدیر کاتالوگِ خریدار)
+     * هر آیتم دکمهٔ تایید/رد دارد — مستقل از کاتالوگ فعلیِ کاربر.
+     */
+    async getMyPendingApprovals(userId: string) {
+        const rows = await this.prisma.catalogMember.findMany({
+            where: {
+                OR: [
+                    {
+                        customerStatus: 'pending',
+                        customerVia: 'owner_add',
+                        customerBusiness: { OR: [{ ownerUserId: userId }, { creatorUserId: userId }] },
+                    },
+                    { supplierStatus: 'pending', supplierVia: 'manager_add', supplierCatalog: { is: { ownerUserId: userId } } },
+                    { serviceStatus: 'pending', serviceVia: 'manager_add', serviceCatalog: { is: { ownerUserId: userId } } },
+                ],
+            },
+            include: {
+                catalog: { select: { id: true, name: true, slug: true, logoUrl: true } },
+                user: { select: { id: true, fullName: true, avatarUrl: true } },
+                customerBusiness: { select: { id: true, name: true } },
+                supplierCatalog: { select: { id: true, name: true, slug: true } },
+                serviceCatalog: { select: { id: true, name: true, slug: true } },
+            },
+            orderBy: { updatedAt: 'desc' },
+            take: 50,
+        });
+        const items = rows.map((r) => {
+            const kind = r.customerStatus === 'pending' ? 'customer' : r.supplierStatus === 'pending' ? 'supplier' : 'service';
+            return {
+                memberId: r.id,
+                kind: kind as 'customer' | 'supplier' | 'service',
+                catalog: r.catalog,
+                person: r.user ? { id: r.user.id, fullName: r.user.fullName, avatarUrl: r.user.avatarUrl } : null,
+                entityName:
+                    kind === 'customer' ? (r.customerBusiness as any)?.name || null
+                    : kind === 'supplier' ? (r.supplierCatalog as any)?.name || null
+                    : (r.serviceCatalog as any)?.name || null,
+                entitySlug:
+                    kind === 'supplier' ? (r.supplierCatalog as any)?.slug || null
+                    : kind === 'service' ? (r.serviceCatalog as any)?.slug || null
+                    : null,
+                requestedById: r.invitedBy || r.customerAddedByUserId || null,
+                createdAt: r.updatedAt,
+            };
+        });
+        return { items, total: items.length };
+    }
+
+    /**
+     * خلاصهٔ درخواست‌های در انتظارِ کاتالوگ‌هایی که من مدیرشان هستم — بج قرمز روی برگهٔ اعضا
+     * (فقط لِین‌هایی که تاییدشده با مدیر است — نه مسیرهای Push)
+     */
+    async getMyPendingSummary(userId: string) {
+        const myCatalogs = await this.prisma.catalog.findMany({
+            where: { ownerUserId: userId, status: 'active' },
+            select: { id: true },
+        });
+        const adminRows = await this.prisma.catalogMember.findMany({
+            where: { userId, role: 'catalog_admin', status: 'active' },
+            select: { catalogId: true },
+        });
+        const catalogIds = Array.from(new Set([
+            ...myCatalogs.map((c) => c.id),
+            ...adminRows.map((r) => r.catalogId),
+        ]));
+        if (!catalogIds.length) return { total: 0, items: [] };
+        const pendings = await this.prisma.catalogMember.findMany({
+            where: {
+                catalogId: { in: catalogIds },
+                OR: [
+                    { sellerStatus: 'pending', sellerVia: { not: 'manager_invite' } },
+                    { customerStatus: 'pending', customerVia: 'self_request' },
+                    { supplierStatus: 'pending', supplierVia: { not: 'manager_add' } },
+                    { serviceStatus: 'pending', serviceVia: { not: 'manager_add' } },
+                ],
+            },
+            select: { catalogId: true },
+        });
+        const counts = new Map<string, number>();
+        for (const p of pendings) counts.set(p.catalogId, (counts.get(p.catalogId) || 0) + 1);
+        return {
+            total: pendings.length,
+            items: Array.from(counts.entries()).map(([catalogId, count]) => ({ catalogId, count })),
+        };
     }
 
     // ════════════════════════════════════════════════════════════
@@ -640,7 +827,7 @@ export class CatalogMemberService {
     async joinCoop(
         catalogId: string,
         userId: string,
-        dto: { type: 'seller' | 'buyer' | 'supplier'; sellerRole?: 'seller' | 'visitor'; businessId?: string; supplierCatalogId?: string; note?: string },
+        dto: { type: 'seller' | 'buyer' | 'supplier' | 'service'; sellerRole?: 'seller' | 'visitor'; businessId?: string; supplierCatalogId?: string; serviceCatalogId?: string; note?: string },
     ) {
         const catalog = await this.getCatalogOrThrow(catalogId);
         if (this.isOwner(catalog, userId)) {
@@ -648,7 +835,7 @@ export class CatalogMemberService {
         }
 
         const type = dto?.type;
-        if (!['seller', 'buyer', 'supplier'].includes(type)) {
+        if (!['seller', 'buyer', 'supplier', 'service'].includes(type)) {
             throw new BadRequestException({ errorCode: 'INVALID_TYPE', message: 'نوع همکاری نامعتبر است' });
         }
 
@@ -664,7 +851,8 @@ export class CatalogMemberService {
         const laneTaken =
             (type === 'seller' && (existing?.sellerStatus === 'active' || existing?.sellerStatus === 'pending')) ||
             (type === 'buyer' && (existing?.customerStatus === 'active' || existing?.customerStatus === 'pending')) ||
-            (type === 'supplier' && (existing?.supplierStatus === 'active' || existing?.supplierStatus === 'pending'));
+            (type === 'supplier' && (existing?.supplierStatus === 'active' || existing?.supplierStatus === 'pending')) ||
+            (type === 'service' && (existing?.serviceStatus === 'active' || existing?.serviceStatus === 'pending'));
         if (laneTaken) {
             throw new ConflictException({ errorCode: 'ALREADY_REQUESTED', message: 'درخواست ارتباط تجاری شما قبلاً ثبت شده است' });
         }
@@ -740,27 +928,60 @@ export class CatalogMemberService {
                 memberCity,
                 memberProvince,
             });
-        } else {
-            if (!dto.supplierCatalogId) {
-                throw new BadRequestException({ errorCode: 'SUPPLIER_CATALOG_REQUIRED', message: 'برای درخواست ارتباط تجاری به‌عنوان تامین‌کننده، ابتدا کاتالوگ خود را انتخاب یا بسازید' });
+        } else if (type === 'supplier' || type === 'service') {
+            const isService = type === 'service';
+            const rawCatalogId = isService ? dto.serviceCatalogId : dto.supplierCatalogId;
+            if (!rawCatalogId) {
+                throw new BadRequestException({
+                    errorCode: isService ? 'SERVICE_CATALOG_REQUIRED' : 'SUPPLIER_CATALOG_REQUIRED',
+                    message: isService
+                        ? 'برای درخواست تامین خدمات، اول کاتالوگ خدماتی خود را انتخاب یا بسازید'
+                        : 'برای درخواست ارتباط تجاری به‌عنوان تامین‌کننده، ابتدا کاتالوگ خود را انتخاب یا بسازید',
+                });
             }
-            const supCatalog = await this.prisma.catalog.findUnique({
-                where: { id: dto.supplierCatalogId },
-                select: { id: true, businessId: true, status: true, city: true, province: true, ownerUserId: true },
+            const srcCatalog = await this.prisma.catalog.findUnique({
+                where: { id: rawCatalogId },
+                select: { id: true, businessId: true, status: true, city: true, province: true, ownerUserId: true, salesType: true, name: true },
             });
-            if (!supCatalog || supCatalog.status === 'closed' || supCatalog.ownerUserId !== userId) {
-                throw new BadRequestException({ errorCode: 'INVALID_SUPPLIER_CATALOG', message: 'کاتالوگ انتخابی معتبر نیست' });
+            if (!srcCatalog || srcCatalog.status === 'closed' || srcCatalog.ownerUserId !== userId) {
+                throw new BadRequestException({ errorCode: 'INVALID_SOURCE_CATALOG', message: 'کاتالوگ انتخابی معتبر نیست' });
             }
-            if (supCatalog.id === catalog.id) {
-                throw new BadRequestException({ errorCode: 'SELF_SUPPLIER', message: 'کاتالوگ نمی‌تواند تامین‌کنندهٔ خودش باشد' });
+            if (srcCatalog.id === catalog.id) {
+                throw new BadRequestException({ errorCode: 'SELF_SOURCE', message: 'کاتالوگ نمی‌تواند شریکِ خودش باشد' });
             }
-            memberCity = supCatalog.city || memberCity;
-            memberProvince = supCatalog.province || memberProvince;
+            if (srcCatalog.businessId === catalog.businessId) {
+                throw new BadRequestException({ errorCode: 'OWN_BUSINESS', message: 'این کاتالوگ مالِ کسب‌وکارِ همین کاتالوگ است' });
+            }
+            if (isService && srcCatalog.salesType !== 'service') {
+                throw new BadRequestException({
+                    errorCode: 'SERVICE_CATALOG_REQUIRED',
+                    message: 'برای ارائهٔ خدمات، کاتالوگ شما باید از نوع خدمات باشد — اول کاتالوگ خدماتی بسازید',
+                });
+            }
+            memberCity = srcCatalog.city || memberCity;
+            memberProvince = srcCatalog.province || memberProvince;
+            // ✅ ناوردی: یک کاتالوگِ منبع فقط یک‌بار در هر لِین (حتی با کاربر دیگری)
+            const dupLane = await this.prisma.catalogMember.findFirst({
+                where: {
+                    catalogId: catalog.id,
+                    [isService ? 'serviceCatalogId' : 'supplierCatalogId']: srcCatalog.id,
+                    [isService ? 'serviceStatus' : 'supplierStatus']: { in: ['active', 'pending'] },
+                },
+            });
+            if (dupLane) {
+                throw new ConflictException({
+                    errorCode: 'ALREADY_REQUESTED',
+                    message: isService
+                        ? 'این کاتالوگ خدماتی قبلاً به‌عنوان سرویس‌دهنده ثبت شده است'
+                        : 'این کاتالوگ قبلاً به‌عنوان تامین‌کننده ثبت شده است',
+                });
+            }
             Object.assign(data, {
-                supplierCatalogId: supCatalog.id,
-                supplierStatus: 'pending' as const,
-                supplierJoinedAt: null as Date | null,
-                supplierLeftAt: null as Date | null,
+                [isService ? 'serviceCatalogId' : 'supplierCatalogId']: srcCatalog.id,
+                [isService ? 'serviceStatus' : 'supplierStatus']: 'pending' as const,
+                [isService ? 'serviceVia' : 'supplierVia']: 'self_request' as const,
+                [isService ? 'serviceJoinedAt' : 'supplierJoinedAt']: null as Date | null,
+                [isService ? 'serviceLeftAt' : 'supplierLeftAt']: null as Date | null,
                 memberCity,
                 memberProvince,
             });
@@ -774,11 +995,24 @@ export class CatalogMemberService {
 
         await this.event(catalog.id, userId, 'coop_requested', userId, dto?.note || null, { type });
         await this.bustUsersCache([userId]);
-        const label = type === 'seller' ? 'همکاری در فروش' : type === 'buyer' ? 'خریدار' : 'تامین‌کننده';
-        return { success: true, requestType: type, message: `درخواست ارتباط تجاری (${label}) ثبت شد — در انتظار تایید مدیر (مالک کاتالوگ)` };
+        const label =
+            type === 'seller' ? 'همکاری در فروش'
+            : type === 'buyer' ? 'تامین‌شوندگی (خرید)'
+            : type === 'service' ? 'تامین خدمات'
+            : 'تامین‌کنندگی';
+        // ✅ اطلاع‌رسانی به مدیران کاتالوگ — اعلان + پایهٔ شمارندهٔ قرمز
+        const requesterName = await this.userName(userId);
+        await this.notifyManagers(
+            catalog,
+            userId,
+            'catalog_coop_request',
+            `درخواست ${label} جدید از ${requesterName}`,
+            dto?.note || undefined,
+        );
+        return { success: true, requestType: type, message: `درخواست ${label} ثبت شد — در انتظار تایید مدیر کاتالوگ` };
     }
 
-    /** تایید درخواست همکار فروش — مالک/مدیر؛ نقش بیزینسی (فروشنده/ویزیتور) اینجا تعیین می‌شود */
+    /** تایید درخواست همکار فروش — مالک/مدیر؛ نقش بیزینسی (فروشنده/بازاریاب-ویزیتور) اینجا تعیین می‌شود */
     async approveSeller(catalogId: string, memberId: string, actorId: string, sellerRole?: 'seller' | 'visitor') {
         const catalog = await this.getCatalogOrThrow(catalogId);
         await this.assertTeamManager(catalog, actorId);
@@ -786,17 +1020,28 @@ export class CatalogMemberService {
         if (row.sellerStatus !== 'pending') {
             throw new ConflictException({ errorCode: 'NOT_PENDING', message: 'این درخواست در انتظار تایید نیست' });
         }
+        const finalRole = sellerRole || row.sellerRole || 'seller';
         await this.prisma.catalogMember.update({
             where: { id: row.id },
             data: {
                 sellerStatus: 'active',
                 sellerJoinedAt: new Date(),
                 sellerLeftAt: null,
-                sellerRole: sellerRole || row.sellerRole || 'seller',
+                sellerRole: finalRole,
             },
         });
-        await this.event(catalog.id, row.userId, 'seller_approved', actorId, sellerRole ? (sellerRole === 'visitor' ? 'ویزیتور' : 'فروشنده') : undefined);
+        await this.event(catalog.id, row.userId, 'seller_approved', actorId, finalRole === 'visitor' ? 'بازاریاب (ویزیتور)' : 'فروشنده');
         await this.bustUsersCache([row.userId, actorId]);
+        const roleLabel = finalRole === 'visitor' ? 'بازاریاب (ویزیتور)' : 'همکار فروش';
+        await this.notifier.notify({
+            userIds: [row.userId],
+            type: 'catalog_coop_approved',
+            title: `درخواست همکاری در فروش شما تایید شد`,
+            body: `حالا ${roleLabel} کاتالوگ «${catalog.name}» هستید`,
+            actorUserId: actorId,
+            href: catalog.slug ? `/${catalog.slug}` : `/my-catalogs?tab=team&cat=${catalog.id}`,
+            catalogId: catalog.id,
+        });
         return { success: true, message: 'به اعضا اضافه شد' };
     }
 
@@ -815,6 +1060,15 @@ export class CatalogMemberService {
         await this.syncOverallStatus(catalog.id, row.userId);
         await this.event(catalog.id, row.userId, 'seller_rejected', actorId, reason || null);
         await this.bustUsersCache([row.userId, actorId]);
+        await this.notifier.notify({
+            userIds: [row.userId],
+            type: 'catalog_coop_rejected',
+            title: `درخواست همکاری در فروش شما رد شد`,
+            body: reason || `مدیر کاتالوگ «${catalog.name}» درخواست شما را رد کرد`,
+            actorUserId: actorId,
+            href: catalog.slug ? `/${catalog.slug}` : null,
+            catalogId: catalog.id,
+        });
         return { success: true, message: 'درخواست ارتباط تجاری رد شد' };
     }
 
@@ -849,6 +1103,15 @@ export class CatalogMemberService {
             assignedSellerUserId,
         });
         await this.bustUsersCache([row.userId, actorId]);
+        await this.notifier.notify({
+            userIds: [row.userId],
+            type: 'catalog_coop_approved',
+            title: `درخواست تامین‌شوندگی شما تایید شد`,
+            body: `کسب‌وکار شما حالا در لیست خریداران «${catalog.name}» است`,
+            actorUserId: actorId,
+            href: catalog.slug ? `/${catalog.slug}` : `/my-catalogs?tab=team&cat=${catalog.id}`,
+            catalogId: catalog.id,
+        });
         return { success: true, message: 'به اعضا اضافه شد' };
     }
 
@@ -867,6 +1130,15 @@ export class CatalogMemberService {
         await this.syncOverallStatus(catalog.id, row.userId);
         await this.event(catalog.id, row.userId, 'buyer_rejected', actorId, reason || null);
         await this.bustUsersCache([row.userId, actorId]);
+        await this.notifier.notify({
+            userIds: [row.userId],
+            type: 'catalog_coop_rejected',
+            title: `درخواست تامین‌شوندگی شما رد شد`,
+            body: reason || `مدیر کاتالوگ «${catalog.name}» درخواست شما را رد کرد`,
+            actorUserId: actorId,
+            href: catalog.slug ? `/${catalog.slug}` : null,
+            catalogId: catalog.id,
+        });
         return { success: true, message: 'درخواست ارتباط تجاری رد شد' };
     }
 
@@ -886,6 +1158,15 @@ export class CatalogMemberService {
             supplierCatalogId: (row.supplierCatalog as any)?.id,
         });
         await this.bustUsersCache([row.userId, actorId]);
+        await this.notifier.notify({
+            userIds: [row.userId],
+            type: 'catalog_coop_approved',
+            title: `درخواست تامین‌کنندگی شما تایید شد`,
+            body: `کالاهای کاتالوگ شما حالا در «${catalog.name}» عرضه می‌شوند`,
+            actorUserId: actorId,
+            href: catalog.slug ? `/${catalog.slug}` : `/my-catalogs?tab=team&cat=${catalog.id}`,
+            catalogId: catalog.id,
+        });
         return { success: true, message: 'به اعضا اضافه شد' };
     }
 
@@ -904,7 +1185,346 @@ export class CatalogMemberService {
         await this.syncOverallStatus(catalog.id, row.userId);
         await this.event(catalog.id, row.userId, 'supplier_rejected', actorId, reason || null);
         await this.bustUsersCache([row.userId, actorId]);
+        await this.notifier.notify({
+            userIds: [row.userId],
+            type: 'catalog_coop_rejected',
+            title: `درخواست تامین‌کنندگی شما رد شد`,
+            body: reason || `مدیر کاتالوگ «${catalog.name}» درخواست شما را رد کرد`,
+            actorUserId: actorId,
+            href: catalog.slug ? `/${catalog.slug}` : null,
+            catalogId: catalog.id,
+        });
         return { success: true, message: 'درخواست ارتباط تجاری رد شد' };
+    }
+
+    // ════════════════════════════════════════════════════════════
+    //  لِین سرویس‌دهندهٔ خدمات — درخواست/تایید/رد (چرخهٔ تجارت خدمات)
+    // ════════════════════════════════════════════════════════════
+
+    /** تایید درخواست تامین خدمات — مالک/مدیر */
+    async approveService(catalogId: string, memberId: string, actorId: string) {
+        const catalog = await this.getCatalogOrThrow(catalogId);
+        await this.assertTeamManager(catalog, actorId);
+        const row = await this.getMemberById(catalog.id, memberId, { serviceCatalog: { select: { id: true, name: true } } });
+        if (row.serviceStatus !== 'pending') {
+            throw new ConflictException({ errorCode: 'NOT_PENDING', message: 'این درخواست در انتظار تایید نیست' });
+        }
+        await this.prisma.catalogMember.update({
+            where: { id: row.id },
+            data: { serviceStatus: 'active', serviceJoinedAt: new Date(), serviceLeftAt: null },
+        });
+        await this.event(catalog.id, row.userId, 'service_approved', actorId, null, {
+            serviceCatalogId: (row.serviceCatalog as any)?.id,
+        });
+        await this.bustUsersCache([row.userId, actorId]);
+        await this.notifier.notify({
+            userIds: [row.userId],
+            type: 'catalog_coop_approved',
+            title: `درخواست تامین خدمات شما تایید شد`,
+            body: `خدمات کاتالوگ شما حالا در «${catalog.name}» عرضه می‌شود`,
+            actorUserId: actorId,
+            href: catalog.slug ? `/${catalog.slug}` : `/my-catalogs?tab=team&cat=${catalog.id}`,
+            catalogId: catalog.id,
+        });
+        return { success: true, message: 'به اعضا اضافه شد' };
+    }
+
+    /** رد درخواست تامین خدمات — مالک/مدیر */
+    async rejectService(catalogId: string, memberId: string, actorId: string, reason?: string) {
+        const catalog = await this.getCatalogOrThrow(catalogId);
+        await this.assertTeamManager(catalog, actorId);
+        const row = await this.getMemberById(catalog.id, memberId);
+        if (row.serviceStatus !== 'pending') {
+            throw new ConflictException({ errorCode: 'NOT_PENDING', message: 'این درخواست در انتظار تایید نیست' });
+        }
+        await this.prisma.catalogMember.update({
+            where: { id: row.id },
+            data: { serviceStatus: 'removed', serviceLeftAt: new Date() },
+        });
+        await this.syncOverallStatus(catalog.id, row.userId);
+        await this.event(catalog.id, row.userId, 'service_rejected', actorId, reason || null);
+        await this.bustUsersCache([row.userId, actorId]);
+        await this.notifier.notify({
+            userIds: [row.userId],
+            type: 'catalog_coop_rejected',
+            title: `درخواست تامین خدمات شما رد شد`,
+            body: reason || `مدیر کاتالوگ «${catalog.name}» درخواست شما را رد کرد`,
+            actorUserId: actorId,
+            href: catalog.slug ? `/${catalog.slug}` : null,
+            catalogId: catalog.id,
+        });
+        return { success: true, message: 'درخواست ارتباط تجاری رد شد' };
+    }
+
+    // ════════════════════════════════════════════════════════════
+    //  دعوت از طرف مدیر کاتالوگ (مسیر Push) — تامین‌کننده / سرویس‌دهنده / همکار فروش
+    //  تایید نهایی با مقصدِ دعوت است، نه مدیرِ دعوت‌کننده
+    // ════════════════════════════════════════════════════════════
+
+    /** دعوت کاتالوگِ دیگر به‌عنوان تامین‌کننده — مالک/مدیر؛ تایید با صاحبِ کاتالوگِ تامین‌کننده */
+    async inviteSupplier(catalogId: string, actorId: string, dto: { supplierCatalogId: string; note?: string }) {
+        const catalog = await this.getCatalogOrThrow(catalogId);
+        await this.assertTeamManager(catalog, actorId);
+        const src = await this.prisma.catalog.findUnique({
+            where: { id: dto.supplierCatalogId },
+            select: { id: true, name: true, ownerUserId: true, businessId: true, status: true, slug: true },
+        });
+        if (!src || src.status === 'closed') {
+            throw new BadRequestException({ errorCode: 'INVALID_SOURCE_CATALOG', message: 'کاتالوگ انتخابی معتبر نیست' });
+        }
+        if (src.id === catalog.id || src.businessId === catalog.businessId) {
+            throw new BadRequestException({ errorCode: 'OWN_BUSINESS', message: 'کاتالوگِ همین کسب‌وکار تامین‌کننده نیست' });
+        }
+        const dup = await this.prisma.catalogMember.findFirst({
+            where: { catalogId: catalog.id, supplierCatalogId: src.id, supplierStatus: { in: ['active', 'pending'] } },
+        });
+        if (dup) {
+            throw new ConflictException({ errorCode: 'ALREADY_REQUESTED', message: 'این کاتالوگ قبلاً به‌عنوان تامین‌کننده ثبت شده است' });
+        }
+        const existingRow = await this.getMemberRow(catalog.id, src.ownerUserId);
+        const data: any = {
+            status: 'active' as const,
+            leftAt: null as Date | null,
+            supplierCatalogId: src.id,
+            supplierStatus: 'pending' as const,
+            supplierVia: 'manager_add' as const,
+            supplierJoinedAt: null as Date | null,
+            supplierLeftAt: null as Date | null,
+            invitedBy: actorId,
+        };
+        if (existingRow) {
+            await this.prisma.catalogMember.update({ where: { id: existingRow.id }, data });
+        } else {
+            await this.prisma.catalogMember.create({ data: { catalogId: catalog.id, userId: src.ownerUserId, ...data } });
+        }
+        await this.event(catalog.id, src.ownerUserId, 'supplier_invite_sent', actorId, dto?.note || null, { supplierCatalogId: src.id });
+        await this.bustUsersCache([src.ownerUserId]);
+        await this.notifier.notify({
+            userIds: [src.ownerUserId],
+            type: 'catalog_lane_invite',
+            title: `درخواست تامین‌کنندگی از «${catalog.name}»`,
+            body: dto?.note || 'کاتالوگ شما را به‌عنوان تامین‌کننده ثبت کرده — تایید یا رد کن',
+            actorUserId: actorId,
+            href: '/my-catalogs?tab=team',
+            catalogId: catalog.id,
+        });
+        return { success: true, message: 'درخواست تامین‌کنندگی ارسال شد — در انتظار تایید صاحب کاتالوگ' };
+    }
+
+    /** دعوت کاتالوگِ خدماتی به‌عنوان سرویس‌دهنده — مالک/مدیر؛ تایید با صاحبِ کاتالوگِ خدماتی */
+    async inviteService(catalogId: string, actorId: string, dto: { serviceCatalogId: string; note?: string }) {
+        const catalog = await this.getCatalogOrThrow(catalogId);
+        await this.assertTeamManager(catalog, actorId);
+        const src = await this.prisma.catalog.findUnique({
+            where: { id: dto.serviceCatalogId },
+            select: { id: true, name: true, ownerUserId: true, businessId: true, status: true, slug: true, salesType: true },
+        });
+        if (!src || src.status === 'closed') {
+            throw new BadRequestException({ errorCode: 'INVALID_SOURCE_CATALOG', message: 'کاتالوگ انتخابی معتبر نیست' });
+        }
+        if (src.salesType !== 'service') {
+            throw new BadRequestException({ errorCode: 'SERVICE_CATALOG_REQUIRED', message: 'این کاتالوگ از نوع خدمات نیست' });
+        }
+        if (src.id === catalog.id || src.businessId === catalog.businessId) {
+            throw new BadRequestException({ errorCode: 'OWN_BUSINESS', message: 'کاتالوگِ همین کسب‌وکار سرویس‌دهنده نیست' });
+        }
+        const dup = await this.prisma.catalogMember.findFirst({
+            where: { catalogId: catalog.id, serviceCatalogId: src.id, serviceStatus: { in: ['active', 'pending'] } },
+        });
+        if (dup) {
+            throw new ConflictException({ errorCode: 'ALREADY_REQUESTED', message: 'این کاتالوگ قبلاً به‌عنوان سرویس‌دهنده ثبت شده است' });
+        }
+        const existingRow = await this.getMemberRow(catalog.id, src.ownerUserId);
+        const data: any = {
+            status: 'active' as const,
+            leftAt: null as Date | null,
+            serviceCatalogId: src.id,
+            serviceStatus: 'pending' as const,
+            serviceVia: 'manager_add' as const,
+            serviceJoinedAt: null as Date | null,
+            serviceLeftAt: null as Date | null,
+            invitedBy: actorId,
+        };
+        if (existingRow) {
+            await this.prisma.catalogMember.update({ where: { id: existingRow.id }, data });
+        } else {
+            await this.prisma.catalogMember.create({ data: { catalogId: catalog.id, userId: src.ownerUserId, ...data } });
+        }
+        await this.event(catalog.id, src.ownerUserId, 'service_invite_sent', actorId, dto?.note || null, { serviceCatalogId: src.id });
+        await this.bustUsersCache([src.ownerUserId]);
+        await this.notifier.notify({
+            userIds: [src.ownerUserId],
+            type: 'catalog_lane_invite',
+            title: `درخواست تامین خدمات از «${catalog.name}»`,
+            body: dto?.note || 'کاتالوگ خدماتی شما ثبت شده — تایید یا رد کن',
+            actorUserId: actorId,
+            href: '/my-catalogs?tab=team',
+            catalogId: catalog.id,
+        });
+        return { success: true, message: 'درخواست تامین خدمات ارسال شد — در انتظار تایید صاحب کاتالوگ' };
+    }
+
+    /** دعوت یک کاربر به همکاری در فروش — مالک/مدیر؛ پذیرش با خودِ دعوت‌شده */
+    async inviteSeller(catalogId: string, actorId: string, dto: { userId: string; sellerRole?: 'seller' | 'visitor'; note?: string }) {
+        const catalog = await this.getCatalogOrThrow(catalogId);
+        await this.assertTeamManager(catalog, actorId);
+        const target = await this.prisma.user.findUnique({ where: { id: dto.userId }, select: { id: true, fullName: true, phone: true } });
+        if (!target) {
+            throw new NotFoundException({ errorCode: 'USER_NOT_FOUND', message: 'این کاربر در دیمت پیدا نشد' });
+        }
+        if (target.id === catalog.ownerUserId) {
+            throw new BadRequestException({ errorCode: 'IS_CATALOG_OWNER', message: 'مالک کاتالوگ از قبل همکار فروش است' });
+        }
+        const existing = await this.getMemberRow(catalog.id, target.id);
+        if (existing?.sellerStatus === 'active' || existing?.sellerStatus === 'pending') {
+            throw new ConflictException({ errorCode: 'ALREADY_REQUESTED', message: 'این کاربر از قبل عضو/متقاضی همکاری در فروش است' });
+        }
+        const data: any = {
+            status: 'active' as const,
+            leftAt: null as Date | null,
+            sellerStatus: 'pending' as const,
+            sellerVia: 'manager_invite' as const,
+            sellerRole: dto.sellerRole === 'visitor' ? 'visitor' : 'seller',
+            sellerJoinedAt: null as Date | null,
+            sellerLeftAt: null as Date | null,
+            invitedBy: actorId,
+        };
+        if (existing) {
+            await this.prisma.catalogMember.update({ where: { id: existing.id }, data });
+        } else {
+            await this.prisma.catalogMember.create({ data: { catalogId: catalog.id, userId: target.id, ...data } });
+        }
+        await this.event(catalog.id, target.id, 'seller_invite_sent', actorId, dto?.note || null, {
+            sellerRole: data.sellerRole,
+        });
+        await this.bustUsersCache([target.id]);
+        await this.notifier.notify({
+            userIds: [target.id],
+            type: 'catalog_seller_invite',
+            title: `دعوت به همکاری در فروش از «${catalog.name}»`,
+            body: dto?.note || 'مدیر کاتالوگ از شما دعوت کرده — بپذیرید یا رد کنید',
+            actorUserId: actorId,
+            href: `/my-catalogs?tab=team&cat=${catalog.id}`,
+            catalogId: catalog.id,
+        });
+        return { success: true, message: 'دعوت همکاری در فروش ارسال شد — در انتظار پاسخ کاربر' };
+    }
+
+    /** پذیرش دعوت همکاری در فروش — فقط خودِ دعوت‌شده */
+    async acceptSellerInvite(catalogId: string, userId: string) {
+        const catalog = await this.getCatalogOrThrow(catalogId);
+        const row = await this.getMemberRow(catalog.id, userId);
+        if (!row || row.sellerStatus !== 'pending' || row.sellerVia !== 'manager_invite') {
+            throw new ConflictException({ errorCode: 'NOT_PENDING', message: 'دعوت فعالی برای شما نیست' });
+        }
+        await this.prisma.catalogMember.update({
+            where: { id: row.id },
+            data: { sellerStatus: 'active', sellerJoinedAt: new Date(), sellerLeftAt: null },
+        });
+        await this.event(catalog.id, userId, 'seller_approved', userId, 'پذیرش دعوت');
+        await this.bustUsersCache([userId]);
+        await this.notifyManagers(catalog, userId, 'catalog_seller_invite_accepted', `${await this.userName(userId)} دعوت همکاری در فروش را پذیرفت`);
+        return { success: true, message: 'دعوت پذیرفته شد — حالا همکار فروش این کاتالوگ هستید' };
+    }
+
+    /** رد دعوت همکاری در فروش — فقط خودِ دعوت‌شده */
+    async declineSellerInvite(catalogId: string, userId: string) {
+        const catalog = await this.getCatalogOrThrow(catalogId);
+        const row = await this.getMemberRow(catalog.id, userId);
+        if (!row || row.sellerStatus !== 'pending' || row.sellerVia !== 'manager_invite') {
+            throw new ConflictException({ errorCode: 'NOT_PENDING', message: 'دعوت فعالی برای شما نیست' });
+        }
+        await this.prisma.catalogMember.update({
+            where: { id: row.id },
+            data: { sellerStatus: 'removed', sellerLeftAt: new Date() },
+        });
+        await this.syncOverallStatus(catalog.id, userId);
+        await this.event(catalog.id, userId, 'seller_invite_declined', userId);
+        await this.bustUsersCache([userId]);
+        await this.notifyManagers(catalog, userId, 'catalog_seller_invite_declined', `${await this.userName(userId)} دعوت همکاری در فروش را رد کرد`);
+        return { success: true, message: 'دعوت رد شد' };
+    }
+
+    /** تایید دعوت تامین‌کنندگی — فقط صاحبِ کاتالوگِ تامین‌کننده */
+    async confirmSupplier(catalogId: string, memberId: string, actorId: string) {
+        const catalog = await this.getCatalogOrThrow(catalogId);
+        const row = await this.getMemberById(catalog.id, memberId, { supplierCatalog: { select: { id: true, name: true, ownerUserId: true } } });
+        if (row.supplierStatus !== 'pending' || row.supplierVia !== 'manager_add') {
+            throw new ConflictException({ errorCode: 'NOT_PENDING', message: 'چیزی برای تایید نیست' });
+        }
+        if ((row.supplierCatalog as any)?.ownerUserId !== actorId) {
+            throw new ForbiddenException({ errorCode: 'NOT_SOURCE_OWNER', message: 'فقط صاحب کاتالوگ تامین‌کننده می‌تواند این دعوت را تایید کند' });
+        }
+        await this.prisma.catalogMember.update({
+            where: { id: row.id },
+            data: { supplierStatus: 'active', supplierJoinedAt: new Date(), supplierLeftAt: null },
+        });
+        await this.event(catalog.id, row.userId, 'supplier_approved', actorId, 'تایید دعوت تامین‌کنندگی');
+        await this.bustUsersCache([row.userId, actorId]);
+        await this.notifyManagers(catalog, actorId, 'catalog_lane_invite_confirmed', `کاتالوگ «${(row.supplierCatalog as any)?.name || ''}» تامین‌کنندگی شما را تایید کرد`);
+        return { success: true, message: 'تامین‌کنندگی تایید شد' };
+    }
+
+    /** رد دعوت تامین‌کنندگی — فقط صاحبِ کاتالوگِ تامین‌کننده */
+    async declineSupplier(catalogId: string, memberId: string, actorId: string, reason?: string) {
+        const catalog = await this.getCatalogOrThrow(catalogId);
+        const row = await this.getMemberById(catalog.id, memberId, { supplierCatalog: { select: { id: true, name: true, ownerUserId: true } } });
+        if (row.supplierStatus !== 'pending' || row.supplierVia !== 'manager_add') {
+            throw new ConflictException({ errorCode: 'NOT_PENDING', message: 'چیزی برای رد کردن نیست' });
+        }
+        if ((row.supplierCatalog as any)?.ownerUserId !== actorId) {
+            throw new ForbiddenException({ errorCode: 'NOT_SOURCE_OWNER', message: 'فقط صاحب کاتالوگ تامین‌کننده می‌تواند این دعوت را رد کند' });
+        }
+        await this.prisma.catalogMember.update({
+            where: { id: row.id },
+            data: { supplierStatus: 'removed', supplierLeftAt: new Date() },
+        });
+        await this.syncOverallStatus(catalog.id, row.userId);
+        await this.event(catalog.id, row.userId, 'supplier_invite_declined', actorId, reason || null);
+        await this.bustUsersCache([row.userId, actorId]);
+        await this.notifyManagers(catalog, actorId, 'catalog_lane_invite_declined', `کاتالوگ «${(row.supplierCatalog as any)?.name || ''}» تامین‌کنندگی شما را رد کرد`);
+        return { success: true, message: 'دعوت رد شد' };
+    }
+
+    /** تایید دعوت تامین خدمات — فقط صاحبِ کاتالوگِ خدماتی */
+    async confirmService(catalogId: string, memberId: string, actorId: string) {
+        const catalog = await this.getCatalogOrThrow(catalogId);
+        const row = await this.getMemberById(catalog.id, memberId, { serviceCatalog: { select: { id: true, name: true, ownerUserId: true } } });
+        if (row.serviceStatus !== 'pending' || row.serviceVia !== 'manager_add') {
+            throw new ConflictException({ errorCode: 'NOT_PENDING', message: 'چیزی برای تایید نیست' });
+        }
+        if ((row.serviceCatalog as any)?.ownerUserId !== actorId) {
+            throw new ForbiddenException({ errorCode: 'NOT_SOURCE_OWNER', message: 'فقط صاحب کاتالوگ خدماتی می‌تواند این دعوت را تایید کند' });
+        }
+        await this.prisma.catalogMember.update({
+            where: { id: row.id },
+            data: { serviceStatus: 'active', serviceJoinedAt: new Date(), serviceLeftAt: null },
+        });
+        await this.event(catalog.id, row.userId, 'service_approved', actorId, 'تایید دعوت تامین خدمات');
+        await this.bustUsersCache([row.userId, actorId]);
+        await this.notifyManagers(catalog, actorId, 'catalog_lane_invite_confirmed', `کاتالوگ «${(row.serviceCatalog as any)?.name || ''}» تامین خدمات شما را تایید کرد`);
+        return { success: true, message: 'تامین خدمات تایید شد' };
+    }
+
+    /** رد دعوت تامین خدمات — فقط صاحبِ کاتالوگِ خدماتی */
+    async declineService(catalogId: string, memberId: string, actorId: string, reason?: string) {
+        const catalog = await this.getCatalogOrThrow(catalogId);
+        const row = await this.getMemberById(catalog.id, memberId, { serviceCatalog: { select: { id: true, name: true, ownerUserId: true } } });
+        if (row.serviceStatus !== 'pending' || row.serviceVia !== 'manager_add') {
+            throw new ConflictException({ errorCode: 'NOT_PENDING', message: 'چیزی برای رد کردن نیست' });
+        }
+        if ((row.serviceCatalog as any)?.ownerUserId !== actorId) {
+            throw new ForbiddenException({ errorCode: 'NOT_SOURCE_OWNER', message: 'فقط صاحب کاتالوگ خدماتی می‌تواند این دعوت را رد کند' });
+        }
+        await this.prisma.catalogMember.update({
+            where: { id: row.id },
+            data: { serviceStatus: 'removed', serviceLeftAt: new Date() },
+        });
+        await this.syncOverallStatus(catalog.id, row.userId);
+        await this.event(catalog.id, row.userId, 'service_invite_declined', actorId, reason || null);
+        await this.bustUsersCache([row.userId, actorId]);
+        await this.notifyManagers(catalog, actorId, 'catalog_lane_invite_declined', `کاتالوگ «${(row.serviceCatalog as any)?.name || ''}» تامین خدمات شما را رد کرد`);
+        return { success: true, message: 'دعوت رد شد' };
     }
 
     /** حذف تامین‌کنندهٔ فعال — مالک/مدیر */
@@ -1102,6 +1722,60 @@ export class CatalogMemberService {
     }
 
     /**
+     * جستجوی کاتالوگ‌های دیگر برای «درخواست ارتباط» از پنل مدیریت —
+     *   تامین‌کنندگی (salesType != service) یا تامین خدمات (salesType == service)
+     * کاتالوگ‌های هم‌کسب‌وکار و شریک‌های قبلی حذف می‌شوند.
+     */
+    async partnerCatalogs(catalogId: string, actorId: string, q?: string) {
+        const catalog = await this.getCatalogOrThrow(catalogId);
+        const myRow = await this.getMemberRow(catalog.id, actorId);
+        const canManage = this.isOwner(catalog, actorId) || myRow?.status === 'active' && myRow.role === 'catalog_admin';
+        if (!canManage && !this.hasActiveSellerLane(myRow)) {
+            throw new ForbiddenException({ errorCode: 'NOT_TEAM_MEMBER', message: 'برای ثبت مشتری باید عضو تیم باشید' });
+        }
+        const term = (q || '').trim();
+        if (term.length < 2) return { items: [] };
+
+        // شریک‌های فعلی/در انتظار — خارج از پیشنهادها
+        const lanes = await this.prisma.catalogMember.findMany({
+            where: {
+                catalogId: catalog.id,
+                OR: [
+                    { supplierStatus: { in: ['active', 'pending'] } },
+                    { serviceStatus: { in: ['active', 'pending'] } },
+                ],
+            },
+            select: { supplierCatalogId: true, serviceCatalogId: true },
+        });
+        const takenCatalogIds = Array.from(
+            new Set([
+                ...lanes.map((l) => l.supplierCatalogId),
+                ...lanes.map((l) => l.serviceCatalogId),
+            ]).values(),
+        ).filter(Boolean) as string[];
+
+        const items = await this.prisma.catalog.findMany({
+            where: {
+                status: 'active',
+                id: { notIn: [...takenCatalogIds, catalog.id] },
+                businessId: { not: catalog.businessId },
+                OR: [
+                    { name: { contains: term } },
+                    { business: { is: { name: { contains: term } } } },
+                ],
+            },
+            select: {
+                id: true, name: true, slug: true, logoUrl: true, salesType: true, city: true, type: true,
+                business: { select: { id: true, name: true } },
+                owner: { select: { id: true, fullName: true } },
+            },
+            take: 8,
+            orderBy: { createdAt: 'desc' },
+        });
+        return { items };
+    }
+
+    /**
      * ثبت خریدار در کاتالوگ — توسط مسئول فروش/مدیر/مالک.
      * مشتریِ ثبت‌شده pending است تا صاحب کسب‌وکارش تایید کند.
      */
@@ -1194,6 +1868,17 @@ export class CatalogMemberService {
             assignedSellerUserId,
         });
         await this.bustUsersCache([bizResponsible, actorId]);
+        // ✅ اطلاع‌رسانی به مسئول کسب‌وکارِ مشتری — تایید/رد از کارت «در انتظار تایید شما»
+        await this.notifier.notify({
+            userIds: [bizResponsible],
+            type: 'catalog_customer_added',
+            title: `«${catalog.name}» شما را خریدار ثبت کرده`,
+            body: 'این ثبت را تایید یا رد کن — تا قبل از تایید، تماس شما مسیریابی نمی‌شود',
+            actorUserId: actorId,
+            href: '/my-catalogs?tab=team',
+            catalogId: catalog.id,
+            businessId: biz.id,
+        });
         return {
             success: true,
             memberId,
@@ -1220,6 +1905,15 @@ export class CatalogMemberService {
             assignedSellerUserId: row.assignedSellerUserId,
         });
         await this.bustUsersCache([row.userId, actorId, row.assignedSellerUserId]);
+        await this.notifier.notify({
+            userIds: [row.customerAddedByUserId || catalog.ownerUserId, row.assignedSellerUserId].filter((u) => u && u !== actorId),
+            type: 'catalog_customer_confirmed',
+            title: `«${(row.customerBusiness as any)?.name || 'مشتری'}» خریداربودنش را تایید کرد`,
+            body: `حالا تماسش به مسئول فروش منتسب‌شده در «${catalog.name}» می‌رسد`,
+            actorUserId: actorId,
+            href: `/my-catalogs?tab=team&cat=${catalog.id}`,
+            catalogId: catalog.id,
+        });
         return { success: true, message: 'عضویت مشتری تایید شد — تماس شما به مسئول فروش خودتان مسیریابی می‌شود' };
     }
 
@@ -1240,6 +1934,15 @@ export class CatalogMemberService {
         await this.syncOverallStatus(catalog.id, row.userId);
         await this.event(catalog.id, row.userId, 'customer_declined', actorId, reason || null);
         await this.bustUsersCache([row.userId, actorId, row.customerAddedByUserId]);
+        await this.notifier.notify({
+            userIds: [row.customerAddedByUserId || catalog.ownerUserId].filter((u) => u && u !== actorId),
+            type: 'catalog_customer_declined',
+            title: `«${(row.customerBusiness as any)?.name || 'مشتری'}» ثبت خریداربودنش را رد کرد`,
+            body: reason || null,
+            actorUserId: actorId,
+            href: `/my-catalogs?tab=team&cat=${catalog.id}`,
+            catalogId: catalog.id,
+        });
         return { success: true, message: 'ثبت مشتری رد شد' };
     }
 

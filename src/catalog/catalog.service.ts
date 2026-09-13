@@ -332,10 +332,56 @@ export class CatalogService {
             }
         }
 
+        // ✅ سینک تیم کسب‌وکار → کاتالوگ تازه — اعضای فعال تیم در صف تاییدِ همکاری در فروش می‌نشینند
+        try {
+            await this.syncBusinessTeamIntoNewCatalog(catalog.id, biz.id, userId);
+        } catch (err) {
+            console.error('catalog create: business-team sync failed:', err);
+        }
+
         // ⚠️ دیتای خود کاربر تغییر کرد → کش لیست کاتالوگ‌هایش فوراً باطل
         await this.bustUserCatalogs(userId);
 
         return catalog;
+    }
+
+    /** اعضای فعال تیم کسب‌وکار → sellerStatus=pending (sellerVia=business_team) در کاتالوگ تازه */
+    private async syncBusinessTeamIntoNewCatalog(catalogId: string, businessId: string, creatorUserId: string) {
+        const team = await this.prisma.businessMember.findMany({
+            where: { businessId, status: 'active', userId: { not: creatorUserId } },
+            select: { userId: true, business: { select: { ownerUserId: true, creatorUserId: true } } },
+        });
+        if (!team.length) return;
+        const cat = await this.prisma.catalog.findUnique({
+            where: { id: catalogId },
+            select: { id: true, name: true, ownerUserId: true },
+        });
+        if (!cat) return;
+        for (const m of team) {
+            if (m.userId === cat.ownerUserId) continue;
+            const row = await this.prisma.catalogMember.findUnique({
+                where: { catalogId_userId: { catalogId, userId: m.userId } },
+            });
+            if (row?.sellerStatus === 'active' || row?.sellerStatus === 'pending' || row?.sellerStatus === 'removed') continue;
+            const data: any = {
+                status: 'active' as const,
+                leftAt: null as Date | null,
+                sellerStatus: 'pending' as const,
+                sellerVia: 'business_team' as const,
+                sellerRole: 'seller' as const,
+                sellerJoinedAt: null as Date | null,
+                sellerLeftAt: null as Date | null,
+                invitedBy: creatorUserId,
+            };
+            if (row) {
+                await this.prisma.catalogMember.update({ where: { id: row.id }, data });
+            } else {
+                await this.prisma.catalogMember.create({ data: { catalogId, userId: m.userId, ...data } });
+            }
+            await this.prisma.catalogTeamEvent.create({
+                data: { catalogId, userId: m.userId, eventType: 'seller_requested', actorUserId: creatorUserId, note: 'سینک از تیم کسب‌وکار' },
+            });
+        }
     }
 
     // ============================================================

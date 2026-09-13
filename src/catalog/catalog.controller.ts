@@ -6,7 +6,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger'
 import { CatalogService } from './catalog.service';
 import { CatalogMemberService } from './catalog-member.service';
 import { CreateCatalogDto, UpdateCatalogDto, SaveVisitCardDto } from './catalog.dto';
-import { CoopJoinDto, AddCustomerDto, AssignCustomerDto, RejectCoopDto, DeclineCustomerDto, RegionDto, ApproveSellerDto, ApproveBuyerDto, SellerRoleDto } from './catalog-member.dto';
+import { CoopJoinDto, AddCustomerDto, AssignCustomerDto, RejectCoopDto, DeclineCustomerDto, RegionDto, ApproveSellerDto, ApproveBuyerDto, SellerRoleDto, InviteSupplierDto, InviteServiceDto, InviteSellerDto } from './catalog-member.dto';
 import { CurrentUser } from '../common/decorators/custom.decorators';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../common/guards/optional-jwt-auth.guard';
@@ -198,6 +198,22 @@ export class CatalogController {
         return this.catalogMemberService.getMyMemberships(user.id);
     }
 
+    @Get('team/my-pending-approvals')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'درخواست‌های در انتظار تاییدِ من (خریدارِ ثبت‌شده/تامین‌کننده/خدمات — مسیرهای Push)' })
+    async getMyPendingApprovals(@CurrentUser() user: any) {
+        return this.catalogMemberService.getMyPendingApprovals(user.id);
+    }
+
+    @Get('team/my-pending-summary')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'شمارندهٔ درخواست‌های در انتظارِ کاتالوگ‌های مدیریتی من — بج قرمز برگهٔ اعضا' })
+    async getMyPendingSummary(@CurrentUser() user: any) {
+        return this.catalogMemberService.getMyPendingSummary(user.id);
+    }
+
     @Get(':catalogId/team')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
@@ -219,9 +235,140 @@ export class CatalogController {
     @Post(':catalogId/team/join')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'درخواست ارتباط تجاری با کاتالوگ (همکار فروش | خریدار | تامین‌کننده)' })
+    @ApiOperation({ summary: 'درخواست ارتباط تجاری با کاتالوگ (همکار فروش | خریدار | تامین‌کننده | سرویس‌دهندهٔ خدمات)' })
     async joinCoop(@Param('catalogId') catalogId: string, @CurrentUser() user: any, @Body() dto: CoopJoinDto) {
         return this.catalogMemberService.joinCoop(catalogId, user.id, dto);
+    }
+
+    // ─── دعوت از طرف مدیر (مسیر Push) — تایید نهایی با مقصدِ دعوت ───
+
+    @Post(':catalogId/team/invitations/supplier')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'دعوت کاتالوگ دیگر به‌عنوان تامین‌کننده — تایید با صاحب کاتالوگ (مالک/مدیر)' })
+    async inviteSupplier(
+        @Param('catalogId') catalogId: string,
+        @CurrentUser() user: any,
+        @Body() dto: InviteSupplierDto,
+    ) {
+        return this.catalogMemberService.inviteSupplier(catalogId, user.id, dto);
+    }
+
+    @Post(':catalogId/team/invitations/service')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'دعوت کاتالوگ خدماتی به‌عنوان سرویس‌دهنده — تایید با صاحب کاتالوگ (مالک/مدیر)' })
+    async inviteService(
+        @Param('catalogId') catalogId: string,
+        @CurrentUser() user: any,
+        @Body() dto: InviteServiceDto,
+    ) {
+        return this.catalogMemberService.inviteService(catalogId, user.id, dto);
+    }
+
+    @Post(':catalogId/team/invitations/seller')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'دعوت کاربر به همکاری در فروش — پذیرش با خودِ دعوت‌شده (مالک/مدیر)' })
+    async inviteSeller(
+        @Param('catalogId') catalogId: string,
+        @CurrentUser() user: any,
+        @Body() dto: InviteSellerDto,
+    ) {
+        return this.catalogMemberService.inviteSeller(catalogId, user.id, dto);
+    }
+
+    @Post(':catalogId/team/seller-invite/accept')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'پذیرش دعوت همکاری در فروش — فقط خودِ دعوت‌شده' })
+    async acceptSellerInvite(@Param('catalogId') catalogId: string, @CurrentUser() user: any) {
+        return this.catalogMemberService.acceptSellerInvite(catalogId, user.id);
+    }
+
+    @Post(':catalogId/team/seller-invite/decline')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'رد دعوت همکاری در فروش — فقط خودِ دعوت‌شده' })
+    async declineSellerInvite(@Param('catalogId') catalogId: string, @CurrentUser() user: any) {
+        return this.catalogMemberService.declineSellerInvite(catalogId, user.id);
+    }
+
+    @Post(':catalogId/team/suppliers/:memberId/confirm')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'تایید دعوت تامین‌کنندگی — فقط صاحبِ کاتالوگِ تامین‌کننده' })
+    async confirmSupplier(
+        @Param('catalogId') catalogId: string,
+        @Param('memberId') memberId: string,
+        @CurrentUser() user: any,
+    ) {
+        return this.catalogMemberService.confirmSupplier(catalogId, memberId, user.id);
+    }
+
+    @Post(':catalogId/team/suppliers/:memberId/decline')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'رد دعوت تامین‌کنندگی — فقط صاحبِ کاتالوگِ تامین‌کننده' })
+    async declineSupplier(
+        @Param('catalogId') catalogId: string,
+        @Param('memberId') memberId: string,
+        @CurrentUser() user: any,
+        @Body() dto: RejectCoopDto,
+    ) {
+        return this.catalogMemberService.declineSupplier(catalogId, memberId, user.id, dto?.reason);
+    }
+
+    // ─── لِین سرویس‌دهندهٔ خدمات ───
+
+    @Post(':catalogId/team/services/:memberId/approve')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'تایید درخواست تامین خدمات (مالک/مدیر)' })
+    async approveService(
+        @Param('catalogId') catalogId: string,
+        @Param('memberId') memberId: string,
+        @CurrentUser() user: any,
+    ) {
+        return this.catalogMemberService.approveService(catalogId, memberId, user.id);
+    }
+
+    @Post(':catalogId/team/services/:memberId/reject')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'رد درخواست تامین خدمات (مالک/مدیر)' })
+    async rejectService(
+        @Param('catalogId') catalogId: string,
+        @Param('memberId') memberId: string,
+        @CurrentUser() user: any,
+        @Body() dto: RejectCoopDto,
+    ) {
+        return this.catalogMemberService.rejectService(catalogId, memberId, user.id, dto?.reason);
+    }
+
+    @Post(':catalogId/team/services/:memberId/confirm')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'تایید دعوت تامین خدمات — فقط صاحبِ کاتالوگِ خدماتی' })
+    async confirmService(
+        @Param('catalogId') catalogId: string,
+        @Param('memberId') memberId: string,
+        @CurrentUser() user: any,
+    ) {
+        return this.catalogMemberService.confirmService(catalogId, memberId, user.id);
+    }
+
+    @Post(':catalogId/team/services/:memberId/decline')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'رد دعوت تامین خدمات — فقط صاحبِ کاتالوگِ خدماتی' })
+    async declineService(
+        @Param('catalogId') catalogId: string,
+        @Param('memberId') memberId: string,
+        @CurrentUser() user: any,
+        @Body() dto: RejectCoopDto,
+    ) {
+        return this.catalogMemberService.declineService(catalogId, memberId, user.id, dto?.reason);
     }
 
     @Post(':catalogId/team/sellers/:memberId/approve')
@@ -392,6 +539,19 @@ export class CatalogController {
         @Query('q') q?: string,
     ) {
         return this.catalogMemberService.customerCandidates(catalogId, user.id, q);
+    }
+
+    @Get(':catalogId/team/partner-catalogs')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'جست‌وجوی کاتالوگ‌های دیگر برای درخواست تامین‌کنندگی/تامین خدمات' })
+    @ApiQuery({ name: 'q', required: false })
+    async partnerCatalogs(
+        @Param('catalogId') catalogId: string,
+        @CurrentUser() user: any,
+        @Query('q') q?: string,
+    ) {
+        return this.catalogMemberService.partnerCatalogs(catalogId, user.id, q);
     }
 
     @Post(':catalogId/team/customers')

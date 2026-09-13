@@ -111,6 +111,7 @@ model User {
   creditRequests           CreditRequest[]
   armsOwned                Arm[]                  @relation("ArmOwner")
   armMemberships           ArmMembership[]
+  notifications            Notification[]         @relation("UserNotifications")
   armMembershipRequests    ArmMembershipRequest[] @relation("ArmMembershipRequests")
   armLeaveRequests         ArmLeaveRequest[]      @relation("ArmLeaveRequests")
   credits                  Credit[]
@@ -219,6 +220,7 @@ model Catalog {
   files               File[]
   members             CatalogMember[]    @relation("CatMemberCatalog") // اعضای کاتالوگ (مالک/مدیر/همکار فروش/خریدار)
   supplierMemberships CatalogMember[]    @relation("CatMemberSupplierCatalog") // کاتالوگ‌هایی که این کاتالوگ ازشان تامین می‌کند
+  serviceMemberships  CatalogMember[]    @relation("CatMemberServiceCatalog") // کاتالوگ‌هایی که این کاتالوگ برایشان خدمات ارائه می‌کند
   teamEvents          CatalogTeamEvent[] @relation("CatTeamEventCatalog")
   ads                 Ad[]
   armMemberships      ArmMembership[]
@@ -322,7 +324,8 @@ model CatalogMember {
   sellerBusinessId String?   @db.ObjectId
   sellerBusiness   Business? @relation("CatMemberSellerBiz", fields: [sellerBusinessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   sellerStatus     String? // pending | active | removed — null = اصلاً در لِین فروش نیست
-  sellerRole       String? @default("seller") // seller | visitor — نقش بیزینسی لِین فروش (فروشنده/ویزیتور)
+  sellerRole       String? @default("seller") // seller | visitor — نقش بیزینسی لِین فروش (فروشنده/بازاریاب-ویزیتور)
+  sellerVia        String? // self_request | manager_invite | business_team — مسیر ورود (business_team = سینک خودکار از تیم کسب‌وکار)
   sellerJoinedAt   DateTime?
   sellerLeftAt     DateTime?
   sellerRegion     String? // منطقهٔ فروش آزاد (مثل «غرب تهران») — هر عضوِ فروش فقط از منطقهٔ خودش سفارش می‌گیرد
@@ -345,8 +348,17 @@ model CatalogMember {
   supplierCatalogId String?  @db.ObjectId
   supplierCatalog   Catalog? @relation("CatMemberSupplierCatalog", fields: [supplierCatalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   supplierStatus    String? // pending | active | removed — null = تامین‌کننده نیست
+  supplierVia       String? // self_request | manager_add — مسیر ورود به لِین (manager_add = تایید با صاحبِ کاتالوگِ تامین‌کننده)
   supplierJoinedAt  DateTime?
   supplierLeftAt    DateTime?
+
+  // ── لِین سرویس‌دهندهٔ خدمات ── عضویت با کاتالوگِ خدماتیِ خود (salesType=service) — چرخهٔ تجارت خدمات
+  serviceCatalogId String?  @db.ObjectId
+  serviceCatalog   Catalog? @relation("CatMemberServiceCatalog", fields: [serviceCatalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  serviceStatus    String? // pending | active | removed — null = سرویس‌دهنده نیست
+  serviceVia       String? // self_request | manager_add
+  serviceJoinedAt  DateTime?
+  serviceLeftAt    DateTime?
 
   // ── شهر/استانِ لحظهٔ درخواست همکاری — مالک کاتالوگ می‌بیند
   memberCity     String?
@@ -1286,4 +1298,32 @@ model ProductReference {
   @@index([isNew])
   @@index([armId])
   @@index([keywords])
+}
+
+// ============================================================
+// اعلان‌های درون‌برنامه‌ای — رویدادهای عضویت/ارتباط تجاری
+//   • با رویدادِ عضویت ساخته می‌شود (درخواست/تایید/رد/دعوت/سینک تیم)
+//   • href آمادهٔ فرانت است (کلیک → کاتالوگ/پنل/پروفایل مقصد)
+// ============================================================
+model Notification {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String   @db.ObjectId // گیرنده
+  user        User     @relation("UserNotifications", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  type        String // catalog_coop_request | catalog_coop_approved | catalog_coop_rejected |
+                      // catalog_customer_added | catalog_customer_confirmed | catalog_customer_declined |
+                      // catalog_seller_invite | catalog_seller_invite_accepted | catalog_seller_invite_declined |
+                      // catalog_lane_invite | catalog_lane_invite_confirmed | catalog_lane_invite_declined |
+                      // catalog_business_team_sync
+  title       String // متن اصلی اعلان (UX نوشته‌شده)
+  body        String?
+  actorUserId String?  @db.ObjectId // چه کسی باعث رویداد شد (برای نمایش «توسط …»)
+  href        String?  // مسیر مقصد کلیک — /[slug] یا /my-catalogs?tab=team&cat=…
+  catalogId   String?  @db.ObjectId // کاتالوگ مرتبط (برای گروه‌بندی/فیلتر آینده)
+  businessId  String?  @db.ObjectId
+  isRead      Boolean  @default(false)
+  readAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([userId, isRead, createdAt])
+  @@index([userId, createdAt])
 }

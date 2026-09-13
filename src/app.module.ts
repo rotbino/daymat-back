@@ -23,6 +23,7 @@ import {BusinessModule} from "./business/business.module";
 import {BrandModule} from "./brand/brand.module";
 import {ProductReferenceModule} from "./product-reference/product-reference.module";
 import {HealthModule} from "./health/health.module";
+import {NotificationModule} from "./notification/notification.module";
 
 
 @Global()
@@ -35,6 +36,7 @@ import {HealthModule} from "./health/health.module";
     ]),
     PrismaModule,
     HealthModule,   // ✅ GET /health — چک بک + دیتابیس برای فرانت
+    NotificationModule,   // ✅ اعلان‌های درون‌برنامه‌ای — global
     AuthModule,
     CommonModule,        // ✅ اضافه — سرویس انتشار سراسری
     FileModule,
@@ -50,7 +52,6 @@ import {HealthModule} from "./health/health.module";
     SettingsModule,
     ArmAdminModule,
     FeedbackModule,
-    CatalogModule,
 
     AdminModule,
     UnitModule,

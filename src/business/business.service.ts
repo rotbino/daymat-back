@@ -12,6 +12,7 @@ import {
     AddBusinessMemberDto, UpdateBusinessMemberDto,
 } from './business.dto';
 import { CacheHelper } from '../common/services/cache.helper';
+import { NotificationService } from '../notification/notification.service';
 
 /**
  * نهاد تجاری — کسب‌وکارِ «مرجع» و مشترک:
@@ -25,6 +26,7 @@ export class BusinessService {
     constructor(
         private prisma: PrismaService,
         private cache: CacheHelper,
+        private notifier: NotificationService,
     ) {}
 
     /** کاربرِ مسئولِ کسب‌وکار — مالکِ قدیمی یا ثبت‌کنندهٔ اول */
@@ -625,6 +627,8 @@ export class BusinessService {
         });
 
         await this.cache.bust(`profile:${targetUserId}`);
+        // ✅ سینک مستقیم تیم → کاتالوگ‌ها: عضو تازهٔ تیم در صف تاییدِ کاتالوگ‌های همین کسب‌وکار می‌نشیند
+        await this.syncTeamMemberToCatalogs(businessId, targetUserId, 'add', userId);
         return { success: true, member };
     }
 
@@ -706,8 +710,83 @@ export class BusinessService {
             data: { status: 'removed' },
         });
 
+        // ✅ سینک معکوس — لِین فروشِ عضو در کاتالوگ‌های همین کسب‌وکار هم برداشته می‌شود
+        await this.syncTeamMemberToCatalogs(businessId, target.userId, 'remove', userId);
+
         await this.cache.bust(`profile:${target.userId}`);
         return { success: true };
+    }
+
+    // ════════════════════════════════════════════════════════════
+    //  سینک تیم کسب‌وکار ↔ اعضای کاتالوگ‌ها
+    //  عضو جدید تیم → درخواست همکاری در فروش (pending) در همهٔ کاتالوگ‌های فعال کسب‌وکار
+    //  حذف عضو → برداشتن لِین فروش او از همان کاتالوگ‌ها
+    //  ساخت کاتالوگ جدید → سینک همهٔ اعضای فعال تیم (از catalog.service.create فراخوانی می‌شود)
+    // ════════════════════════════════════════════════════════════
+    async syncTeamMemberToCatalogs(
+        businessId: string,
+        targetUserId: string,
+        mode: 'add' | 'remove',
+        actorId?: string,
+    ) {
+        const catalogs = await this.prisma.catalog.findMany({
+            where: { businessId, status: 'active' },
+            select: { id: true, name: true, ownerUserId: true, slug: true },
+        });
+        const actor = actorId || null;
+        for (const cat of catalogs) {
+            if (cat.ownerUserId === targetUserId) continue; // مالک کاتالوگ — سینک معنا ندارد
+            const row = await this.prisma.catalogMember.findUnique({
+                where: { catalogId_userId: { catalogId: cat.id, userId: targetUserId } },
+            });
+            if (mode === 'add') {
+                // اگر خودش صریحاً خارج/reject شده، محترم است — دوباره دعوت نمی‌شود
+                if (row?.sellerStatus === 'active' || row?.sellerStatus === 'pending' || row?.sellerStatus === 'removed') continue;
+                const data: any = {
+                    status: 'active' as const,
+                    leftAt: null as Date | null,
+                    sellerStatus: 'pending' as const,
+                    sellerVia: 'business_team' as const,
+                    sellerRole: 'seller' as const,
+                    sellerJoinedAt: null as Date | null,
+                    sellerLeftAt: null as Date | null,
+                    invitedBy: actor,
+                };
+                if (row) {
+                    await this.prisma.catalogMember.update({ where: { id: row.id }, data });
+                } else {
+                    await this.prisma.catalogMember.create({ data: { catalogId: cat.id, userId: targetUserId, ...data } });
+                }
+                await this.prisma.catalogTeamEvent.create({
+                    data: { catalogId: cat.id, userId: targetUserId, eventType: 'seller_requested', actorUserId: actor, note: 'سینک از تیم کسب‌وکار' },
+                });
+                const memberName = await this.prisma.user.findUnique({ where: { id: targetUserId }, select: { fullName: true, phone: true } });
+                await this.notifier.notify({
+                    userIds: [cat.ownerUserId].filter((u) => u && u !== actor),
+                    type: 'catalog_business_team_sync',
+                    title: `${memberName?.fullName || memberName?.phone || 'عضو جدید'} از تیم کسب‌وکار به صف تایید اضافه شد`,
+                    body: `برای همکاری در فروش کاتالوگ «${cat.name}» — تایید یا رد کن`,
+                    actorUserId: actor,
+                    href: `/my-catalogs?tab=team&cat=${cat.id}`,
+                    catalogId: cat.id,
+                });
+            } else {
+                if (!row || (row.sellerStatus !== 'active' && row.sellerStatus !== 'pending')) continue;
+                await this.prisma.catalogMember.update({
+                    where: { id: row.id },
+                    data: { sellerStatus: 'removed', sellerLeftAt: new Date() },
+                });
+                // اگر لِین دیگری ندارد، کل رکورد هم بسته شود
+                const fresh = await this.prisma.catalogMember.findUnique({ where: { id: row.id } });
+                if (fresh && !(fresh.status === 'active' || fresh.customerStatus === 'active' || fresh.supplierStatus === 'active' || fresh.serviceStatus === 'active')) {
+                    await this.prisma.catalogMember.update({ where: { id: row.id }, data: { status: 'removed', leftAt: new Date() } });
+                }
+                await this.prisma.catalogTeamEvent.create({
+                    data: { catalogId: cat.id, userId: targetUserId, eventType: 'seller_removed', actorUserId: actor, note: 'حذف از تیم کسب‌وکار' },
+                });
+                await this.cache.bust(`my-catalogs:${targetUserId}`);
+            }
+        }
     }
 
 
