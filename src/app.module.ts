@@ -25,6 +25,7 @@ import {ProductReferenceModule} from "./product-reference/product-reference.modu
 import {HealthModule} from "./health/health.module";
 import {NotificationModule} from "./notification/notification.module";
 import {ContactModule} from "./contact/contact.module";
+import {InquiryModule} from "./inquiry/inquiry.module";
 
 
 @Global()
@@ -50,6 +51,7 @@ import {ContactModule} from "./contact/contact.module";
     BusinessModule,
     BrandModule,
     ProductReferenceModule,
+    InquiryModule,   // ✅ کاتالوگ خرید (استعلام قیمت)
     ActivityModule,
     SettingsModule,
     ArmAdminModule,

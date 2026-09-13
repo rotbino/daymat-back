@@ -116,7 +116,8 @@ model User {
   armLeaveRequests         ArmLeaveRequest[]      @relation("ArmLeaveRequests")
   credits                  Credit[]
   adInteractions           AdInteraction[]
-  buyLeads                 BuyLead[]
+  inquiries                Inquiry[]              @relation("InquiryOwner")
+  inquiryOffers            InquiryOffer[]         @relation("InquiryOfferer")
   feedbacks                Feedback[]
   searchLogs               SearchLog[]
   catalogInteractions      CatalogInteraction[]
@@ -180,6 +181,7 @@ model Business {
   catalogCustomerLanes CatalogMember[] @relation("CatMemberCustomerBiz") // کاتالوگ‌هایی که این کسب‌وکار خریدارشان است
   verifications      Verification[]         @relation("BusinessVerification")
   activities         BusinessActivity[]     @relation("BusinessActivity") // ✅ از Catalog برگشت
+  inquiries          Inquiry[]              @relation("InquiryBusiness") // ✅ کاتالوگ‌های خریدِ صادرشدهٔ این کسب‌وکار
 
   @@index([ownerUserId])
   @@index([creatorUserId])
@@ -232,7 +234,6 @@ model Catalog {
   leaveRequests       ArmLeaveRequest[]      @relation("ArmLeaveRequests")
   credits             Credit[]
   trustMetrics        TrustMetric[]
-  buyLeads            BuyLead[]
   creditRequests      CreditRequest[]
   catalogInteractions CatalogInteraction[]
   connectionRequests  ConnectionRequestLog[] @relation("ConnReqCatalog") // دفتر درخواست‌های ارتباطی ارسالی به این کاتالوگ
@@ -530,7 +531,6 @@ model Arm {
   leaveRequests            ArmLeaveRequest[]      @relation("ArmLeaveRequests")
   ads                      Ad[]
   adPublications           AdPublication[]        @relation("ArmAdPublications")
-  buyLeads                 BuyLead[]
   credits                  Credit[]
   trustMetrics             TrustMetric[]
   files                    File[]
@@ -877,30 +877,90 @@ model AdPublication {
   @@map("ad_publications")
 }
 
-model BuyLead {
-  id              String    @id @default(auto()) @map("_id") @db.ObjectId
-  armId           String    @db.ObjectId
-  arm             Arm       @relation(fields: [armId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  catalogId       String?
-  catalog         Catalog?  @relation(fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  createdByUserId String?   @db.ObjectId
-  user            User?     @relation(fields: [createdByUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  categoryId      String?
-  searchQuery     String
-  title           String
-  description     String?
-  city            String
-  quantityNeeded  Float?
-  deadline        String
-  contactMethod   String
-  contactValue    String
-  status          String    @default("open")
-  createdAt       DateTime  @default(now())
-  expiresAt       DateTime?
-  metadata        Json?
+// ============================================================
+// کاتالوگ خرید (استعلام قیمت) — محصول دوم دیمت، مستقل از بازار
+// طراحی برای همه: سوپرمارکت (لیست سادهٔ روزانه) تا کارخانه
+// (قطعهٔ صنعتی پیچیده با مشخصات اختیاری) — ساده به‌صورت پیش‌فرض،
+// پیشرفته به‌صورت اختیاری.
+// ============================================================
+model Inquiry {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  ownerUserId String    @db.ObjectId
+  owner       User      @relation("InquiryOwner", fields: [ownerUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  businessId  String?   @db.ObjectId
+  business    Business? @relation("InquiryBusiness", fields: [businessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  @@index([armId, status])
-  @@index([armId, createdAt])
+  title       String                      // «لیست خرید هفتگی سوپرمارکت»
+  description String?
+  slug        String?   @unique           // لینک عمومی اشتراک‌گذاری
+  visibility  String    @default("public") // public | unlisted (فقط با لینک)
+  status      String    @default("open")   // open | closed | archived
+  deadline    DateTime?                   // مهلت پاسخ (اختیاری)
+
+  countryCode  String?  @default("98")
+  province     String?
+  provinceCode String?
+  city         String?
+  cityCode     String?
+  deliveryNote String?                   // محل/شرایط تحویل (اختیاری)
+  paymentTerms String?                   // شرایط پرداخت (اختیاری)
+  tags         String[]                  // برچسب صنف برای رسیدن به تامین‌کنندهٔ درست
+
+  viewCount  Int @default(0)
+  offerCount Int @default(0)              // شمارندهٔ غیرنرمال برای نمایش سریع
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  expiresAt DateTime?
+
+  items  InquiryItem[]
+  offers InquiryOffer[]
+
+  @@index([status, createdAt])
+  @@index([ownerUserId])
+  @@index([cityCode])
+}
+
+// قلمِ خرید — ردیفِ لیست. فقط name اجباری است؛ بقیه اختیاری.
+model InquiryItem {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  inquiryId    String   @db.ObjectId
+  inquiry      Inquiry  @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  name         String            // «گوجه‌فرنگی» یا «یاتاقان TY-220»
+  quantity     Float?
+  unit         String?           // کیلوگرم / کارتن / عدد — متن آزاد
+  brand        String?           // اختیاری — برند یا سازندهٔ مدنظر
+  specs        Json?             // اختیاری — [{ key, value }] مشخصات فنی قطعه
+  imageUrl     String?           // اختیاری — عکس کالا/قطعه
+  referenceUrl String?           // اختیاری — لینک نمونه یا کاتالوگ سازنده
+  note         String?
+  order        Int     @default(0)
+  createdAt    DateTime @default(now())
+
+  @@index([inquiryId])
+}
+
+// پیشنهاد قیمت تامین‌کننده — یا روی کل لیست (itemId خالی) یا روی یک قلم
+model InquiryOffer {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  inquiryId     String   @db.ObjectId
+  inquiry       Inquiry  @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  itemId        String?  @db.ObjectId   // خالی = پیشنهاد روی کل لیست
+  offererUserId String   @db.ObjectId
+  offerer       User     @relation("InquiryOfferer", fields: [offererUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  businessId    String?  @db.ObjectId
+
+  price        Float?      // مبلغ پیشنهادی
+  currency     String  @default("IRT") // تومان
+  priceBasis   String?     // مبنا: «جمع کل» / «هر کیلو» / «هر عدد»
+  deliveryDays Int?        // زمان تحویل تخمینی
+  message      String?
+  contactPhone String?
+  status       String  @default("pending") // pending | accepted | rejected | withdrawn
+  createdAt    DateTime @default(now())
+
+  @@index([inquiryId, status])
+  @@index([offererUserId])
 }
 
 model AdView {

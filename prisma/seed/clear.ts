@@ -9,7 +9,6 @@ async function clearDatabase() {
         prisma.adView.deleteMany({}),
         prisma.callEvent.deleteMany({}),
         prisma.ad.deleteMany({}),
-        prisma.buyLead.deleteMany({}),
         prisma.armMembership.deleteMany({}),
         // ✅ مدل‌های حذف‌شده را حذف کنید
         // prisma.armCategorySelection.deleteMany({}), // حذف شد

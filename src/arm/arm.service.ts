@@ -1153,7 +1153,6 @@ export class ArmService {
             this.prisma.adView.deleteMany({ where: { ad: { armId: armId } } }),
             this.prisma.callEvent.deleteMany({ where: { ad: { armId: armId } } }),
             this.prisma.ad.deleteMany({ where: { armId: armId } }),
-            this.prisma.buyLead.deleteMany({ where: { armId: armId } }),
             this.prisma.armMembership.deleteMany({ where: { armId: armId } }),
             this.prisma.credit.deleteMany({ where: { armId: armId } }),
             this.prisma.creditRequest.deleteMany({ where: { armId: armId } }),
