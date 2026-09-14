@@ -533,6 +533,7 @@ model Arm {
   leaveRequests            ArmLeaveRequest[]      @relation("ArmLeaveRequests")
   ads                      Ad[]
   adPublications           AdPublication[]        @relation("ArmAdPublications")
+  inquiryPublications      InquiryPublication[]   @relation("ArmInquiryPublications")
   credits                  Credit[]
   trustMetrics             TrustMetric[]
   files                    File[]
@@ -884,6 +885,41 @@ model AdPublication {
 }
 
 // ============================================================
+// انتشار دفتر اعلام خرید در بازار — قرینهٔ AdPublication برای سمت خرید
+//   فروش: Catalog → Ad → AdPublication (آگهی × بازار)
+//   خرید: دفتر (Inquiry) → آگهی‌های خرید (InquiryItem) → InquiryPublication (دفتر × بازار)
+// ✅ یک دفتر خرید می‌تواند در چند بازار منتشر شود؛ هر بازار وضعیت انتشار خودش را دارد
+// (جایگزین مکانیزم موقت ArmMembership.inquiryId/inquiryPublishState — آن فیلدها لگسی می‌مانند)
+// ============================================================
+model InquiryPublication {
+  id        String  @id @default(auto()) @map("_id") @db.ObjectId
+  inquiryId String  @db.ObjectId
+  inquiry   Inquiry @relation("InquiryPublications", fields: [inquiryId], references: [id], onDelete: Cascade)
+
+  armId String @db.ObjectId
+  arm   Arm    @relation("ArmInquiryPublications", fields: [armId], references: [id], onDelete: Cascade)
+
+  // ✅ گروه کالای بازار — قرینهٔ AdPublication؛ برای فیلتر تابلوی خریداران (فعلاً خالی — پس از اتصال اقلام به درخت گروه)
+  categoryId   String?
+  categoryPath String[] @default([])
+
+  status          String  @default("published") // published | paused | unpublished | needs_category
+  rejectionReason String?
+  // ✅ انصراف صریح خریدار از انتشار این دفتر در این بازار — در publish دوبارهٔ کلی نادیده گرفته می‌شود
+  optOut          Boolean @default(false)
+
+  publishedAt   DateTime  @default(now())
+  publishedBy   String?   @db.ObjectId
+  unpublishedAt DateTime?
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([inquiryId, armId])
+  @@index([armId, status])
+  @@index([inquiryId, status])
+  @@map("inquiry_publications")
+}
+
+// ============================================================
 // اعلام خرید (استعلام قیمت) — محصول دوم دیمت، مستقل از بازار
 // طراحی برای همه: سوپرمارکت (لیست سادهٔ روزانه) تا کارخانه
 // (قطعهٔ صنعتی پیچیده با مشخصات اختیاری) — ساده به‌صورت پیش‌فرض،
@@ -936,6 +972,7 @@ model Inquiry {
   items  InquiryItem[]
   offers InquiryOffer[]
   members InquiryMember[] @relation("InqMemberInquiry") // ✅ تامین‌کننده‌های تاییدشدهٔ این اعلام خرید — شبکهٔ خرید↔فروش
+  publications InquiryPublication[] @relation("InquiryPublications") // ✅ بازارهای منتشرشدهٔ این دفتر
 
   @@index([status, createdAt])
   @@index([ownerUserId])

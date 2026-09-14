@@ -307,11 +307,27 @@ export class InquiryService implements OnModuleInit {
         if (!arm) {
             throw new NotFoundException({ errorCode: 'ARM_NOT_FOUND', message: 'بازار یافت نشد' });
         }
-        const memberships = await this.prisma.armMembership.findMany({
-            where: { armId: arm.id, inquiryPublishState: 'published' },
-            select: { inquiryId: true },
+
+        // ✅ تابلوی خریداران از InquiryPublication می‌خواند — قرینهٔ تابلوی قیمت (AdPublication)
+        //    یک دفتر می‌تواند در چند بازار منتشر باشد؛ اینجا فقط publicationهای همین بازار
+        const pubs = await this.prisma.inquiryPublication.findMany({
+            where: { armId: arm.id, status: 'published' },
+            select: { inquiryId: true, inquiry: { select: { ownerUserId: true } } },
         });
-        const inquiryIds = memberships.map((m) => m.inquiryId).filter(Boolean) as string[];
+
+        // ✅ خریدارِ مکث‌شده (businessStatus=paused) از تابلو غیب می‌شود — قرینهٔ فروشندهٔ مکث‌شده در تابلوی قیمت
+        const ownerIds = [...new Set(pubs.map((p) => p.inquiry.ownerUserId))];
+        const activeMembers = ownerIds.length
+            ? await this.prisma.armMembership.findMany({
+                  where: { armId: arm.id, userId: { in: ownerIds }, status: 'active', businessStatus: 'active' },
+                  select: { userId: true },
+              })
+            : [];
+        const activeOwnerSet = new Set(activeMembers.map((m) => m.userId));
+        const inquiryIds = pubs
+            .filter((p) => activeOwnerSet.has(p.inquiry.ownerUserId))
+            .map((p) => p.inquiryId);
+
         if (inquiryIds.length === 0) {
             return { items: [], total: 0, page: 1, limit: Math.min(50, Math.max(1, opts.limit ?? 20)) };
         }

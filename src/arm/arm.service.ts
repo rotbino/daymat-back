@@ -11,6 +11,7 @@ import { CreateArmDto, } from './dto/create-arm.dto';
 import { LocationService } from '../location/location.service';
 import { SystemRole } from "src/common/enums/prisma-enums";
 import { CatalogPublishService } from "../common/services/catalog-publish.service";
+import { InquiryPublishService } from "../common/services/inquiry-publish.service";
 import { checkMarketTypeMismatch, ARM_CATALOG_TYPES } from '../common/utils/arm.utils';
 import { CacheHelper } from '../common/services/cache.helper';
 
@@ -20,6 +21,7 @@ export class ArmService {
         private prisma: PrismaService,
         private locationService: LocationService,
         private catalogPublish: CatalogPublishService,
+        private inquiryPublish: InquiryPublishService,
         private cache: CacheHelper,
     ) {}
 
@@ -1219,7 +1221,9 @@ export class ArmService {
     }
 
     // ============================================================
-    // 16.5 تابلوی اعلام‌های خرید — انتشار اعلام خریدِ عضو به بازار (قرینهٔ کاتالوگ)
+    // 16.5 تابلوی اعلام‌های خرید — انتشار دفتر خرید در بازار (قرینهٔ انتشار کاتالوگ)
+    //   ذخیره در InquiryPublication (قرینهٔ AdPublication) — یک دفتر می‌تواند در چند بازار منتشر شود
+    //   مجوز: مالک دفتر (سوئیچ دفتر خودش) یا مدیر بازار (افزودن دفترِ خریدار به بازار — پنل مالک)
     // ============================================================
     async toggleInquiryPublish(userId: string, slug: string, inquiryId: string, published: boolean) {
         const arm = await this.prisma.arm.findUnique({
@@ -1234,39 +1238,104 @@ export class ArmService {
             where: { id: inquiryId },
             select: { id: true, ownerUserId: true, status: true },
         });
-        if (!inquiry || inquiry.ownerUserId !== userId) {
-            throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'فقط مالک اعلام خرید' });
+        if (!inquiry) {
+            throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'دفتر اعلام خرید یافت نشد' });
         }
 
-        const membership = await this.prisma.armMembership.findUnique({
+        const actorMembership = await this.prisma.armMembership.findUnique({
             where: { armId_userId: { armId: arm.id, userId } },
         });
-        if (!membership) {
-            throw new BadRequestException({ errorCode: 'NOT_MEMBER', message: 'ابتدا عضو این بازار شوید' });
+        const isOwner = inquiry.ownerUserId === userId;
+        const isArmAdmin = !!actorMembership
+            && actorMembership.status === 'active'
+            && (actorMembership.role === 'arm_owner' || actorMembership.role === 'arm_admin');
+        if (!isOwner && !isArmAdmin) {
+            throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'فقط مالک دفتر یا مدیر بازار' });
         }
 
         if (published) {
-            if (membership.status !== 'active') {
+            if (inquiry.status === 'archived') {
+                throw new BadRequestException({ errorCode: 'INQUIRY_ARCHIVED', message: 'این دفتر اعلام خرید بایگانی شده است' });
+            }
+            // عضویتِ مالک دفتر در این بازار باید فعال باشد (مدیر بازار هم از این گارد مستثنا نیست —
+            // دفترِ خریدارِ مکث‌شده نباید روی تابلو برود؛ اول عضویت را فعال کن)
+            const ownerMembership = await this.prisma.armMembership.findUnique({
+                where: { armId_userId: { armId: arm.id, userId: inquiry.ownerUserId } },
+            });
+            if (!ownerMembership || ownerMembership.status !== 'active') {
                 throw new BadRequestException({
-                    errorCode: 'MEMBERSHIP_PAUSED',
-                    message: 'عضویت شما در این بازار توسط مدیر بازار متوقف شده است',
+                    errorCode: 'NOT_MEMBER',
+                    message: 'مالک این دفتر عضو فعال این بازار نیست',
                 });
             }
-            if (inquiry.status === 'archived') {
-                throw new BadRequestException({ errorCode: 'INQUIRY_ARCHIVED', message: 'این اعلام خرید بایگانی شده است' });
+            if (ownerMembership.businessStatus !== 'active') {
+                throw new BadRequestException({
+                    errorCode: 'MEMBERSHIP_PAUSED',
+                    message: 'وضعیت تجاری خریدار در این بازار مکث است — اول فعالش کنید',
+                });
             }
-            const updated = await this.prisma.armMembership.update({
-                where: { id: membership.id },
-                data: { inquiryId, inquiryPublishState: 'published' },
-            });
-            return { membership: updated };
+            const publication = await this.inquiryPublish.publishInquiry(arm.id, inquiryId, userId, true);
+            return { publication };
         }
 
-        const updated = await this.prisma.armMembership.update({
-            where: { id: membership.id },
-            data: { inquiryPublishState: 'paused' },
+        // توقف انتشار — حذف نرم؛ رکورد و دسته‌بندی برای برگشت حفظ می‌شود
+        await this.inquiryPublish.unpublishInquiry(inquiryId, arm.id);
+        return { publication: null };
+    }
+
+    // ============================================================
+    // 16.6 دفترهای خریدِ یک عضو — برای انتخابگر «افزودن دفتر خرید» در پنل مالک
+    //   (قرینهٔ مدیریت کاتالوگ فروشندگان) — فقط مدیر بازار
+    // ============================================================
+    async listMemberInquiries(requesterId: string, slug: string, memberUserId: string) {
+        const arm = await this.prisma.arm.findUnique({
+            where: { slug },
+            select: { id: true },
         });
-        return { membership: updated };
+        if (!arm) {
+            throw new NotFoundException({ errorCode: 'ARM_NOT_FOUND', message: 'بازار یافت نشد' });
+        }
+
+        const requesterMembership = await this.prisma.armMembership.findUnique({
+            where: { armId_userId: { armId: arm.id, userId: requesterId } },
+        });
+        const isArmAdmin = !!requesterMembership
+            && requesterMembership.status === 'active'
+            && (requesterMembership.role === 'arm_owner' || requesterMembership.role === 'arm_admin');
+        if (!isArmAdmin) {
+            throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'فقط مدیر بازار' });
+        }
+
+        const inquiries = await this.prisma.inquiry.findMany({
+            where: { ownerUserId: memberUserId, status: { not: 'archived' } },
+            select: {
+                id: true, title: true, slug: true, status: true, city: true, tags: true, updatedAt: true,
+                _count: { select: { items: true, offers: true } },
+                publications: {
+                    where: { armId: arm.id },
+                    select: { status: true, publishedAt: true, optOut: true },
+                },
+            },
+            orderBy: { updatedAt: 'desc' },
+        });
+
+        return {
+            items: inquiries.map((i) => ({
+                id: i.id,
+                title: i.title,
+                slug: i.slug,
+                status: i.status,
+                city: i.city,
+                tags: i.tags,
+                itemsCount: i._count.items,
+                offersCount: i._count.offers,
+                updatedAt: i.updatedAt,
+                // وضعیت انتشار این دفتر در همین بازار (اگر رکوردی باشد)
+                publishState: i.publications[0]?.status ?? null,
+                publishedAt: i.publications[0]?.publishedAt ?? null,
+                optOut: i.publications[0]?.optOut ?? false,
+            })),
+        };
     }
 
     // ============================================================

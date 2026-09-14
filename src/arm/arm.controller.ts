@@ -332,13 +332,25 @@ export class ArmController {
     @Patch(':slug/inquiry-publish')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'روشن/خاموش کردن انتشار اعلام خرید در بازار (تابلوی اعلام‌های خرید)' })
+    @ApiOperation({ summary: 'روشن/خاموش کردن انتشار دفتر اعلام خرید در بازار (تابلوی خریداران — InquiryPublication)' })
     async toggleInquiryPublish(
         @Param('slug') slug: string,
         @CurrentUser() user: any,
         @Body() dto: { inquiryId: string; published: boolean },
     ) {
         return this.armService.toggleInquiryPublish(user.id, slug, dto.inquiryId, dto.published);
+    }
+
+    @Get(':slug/members/:userId/inquiries')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'دفترهای خریدِ یک عضو + وضعیت انتشارشان در این بازار — انتخابگر «افزودن دفتر خرید» پنل مالک' })
+    async listMemberInquiries(
+        @Param('slug') slug: string,
+        @Param('userId') userId: string,
+        @CurrentUser() user: any,
+    ) {
+        return this.armService.listMemberInquiries(user.id, slug, userId);
     }
 
     // ═══════════════════════════════════════════════════════════
