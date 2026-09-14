@@ -345,7 +345,7 @@ export class InquiryService implements OnModuleInit {
             include: {
                 items: { orderBy: { order: 'asc' } },
                 owner: { select: { id: true, fullName: true, avatarUrl: true } },
-                business: { select: { id: true, name: true, logoUrl: true, city: true } },
+                business: { select: { id: true, name: true, logoUrl: true, city: true, phone: true } },
             },
         });
         if (!inquiry || inquiry.status === 'archived') {
@@ -353,21 +353,14 @@ export class InquiryService implements OnModuleInit {
         }
         const isOwner = !!userId && userId === inquiry.ownerUserId;
 
-        // ✅ گیت کاتالوگ خصوصی — فقط تامین‌کننده‌های تاییدشده محتوایش را می‌بینند
+        // ✅ گیت خصوصی نسخهٔ جدید (تصمیم مالک): لیست برای همه قابل دیدن است؛
+        //    فقط ثبت پیشنهاد محدود به تامین‌کننده‌های تاییدشده است (گیت در addOffer).
+        //    فلگ limited به فرانت می‌گوید دکمهٔ قیمت را برای غیرعضو به «درخواست همکاری» تبدیل کند.
         let isMember = false;
+        let limitedView = false;
         if (!isOwner && inquiry.visibility === 'private') {
             isMember = await this.isActiveMember(inquiry.id, userId as string);
-            if (!isMember) {
-                return {
-                    limited: true,
-                    id: inquiry.id,
-                    slug: inquiry.slug,
-                    title: inquiry.title, // عنوان برای گویا بودن درخواست عضویت
-                    visibility: 'private',
-                    isOwner: false,
-                    isMember: false,
-                };
-            }
+            limitedView = !isMember;
         }
 
         // شمارش بازدید — fire & forget (بازدید مالک حساب نمی‌شود)
@@ -393,7 +386,7 @@ export class InquiryService implements OnModuleInit {
             return { ...inquiry, isOwner, offers: offers.map((o) => ({ ...o, business: o.businessId ? bizMap[o.businessId] ?? null : null })) };
         }
 
-        return { ...inquiry, isOwner: false, isMember };
+        return { ...inquiry, isOwner: false, isMember, limited: limitedView };
     }
 
     // ═══════════════════════════════════════════════════════
@@ -616,7 +609,7 @@ export class InquiryService implements OnModuleInit {
         if (inquiry.visibility === 'private' && !(await this.isActiveMember(inquiryId, userId))) {
             throw new ForbiddenException({
                 errorCode: 'PRIVATE_INQUIRY',
-                message: 'این اعلام خرید خصوصی است — فقط تامین‌کننده‌های تاییدشده می‌توانند قیمت بدهند',
+                message: 'این اعلام خرید خصوصیه — اول به خریدار درخواست همکاری بده؛ بعد از تایید او، همیشه می‌تونی به درخواست‌های قیمتش پیشنهاد بدي',
             });
         }
         if (dto.itemId && !this.isValidObjectId(dto.itemId)) {
