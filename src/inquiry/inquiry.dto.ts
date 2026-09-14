@@ -1,5 +1,5 @@
 // src/inquiry/inquiry.dto.ts
-// صفحه خرید (استعلام قیمت) — DTO ها
+// صفحه درخواست خرید (استعلام قیمت) — DTO ها
 // فلسفه: ساده به‌صورت پیش‌فرض (فقط عنوان + چند قلم)، پیشرفته اختیاری
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
@@ -98,7 +98,7 @@ export class UpdateInquiryItemDto {
 }
 
 export class CreateInquiryDto {
-    @ApiProperty({ example: 'لیست خرید هفتگی سوپرمارکت', description: 'عنوان صفحه خرید' })
+    @ApiProperty({ example: 'لیست خرید هفتگی سوپرمارکت', description: 'عنوان صفحه درخواست خرید' })
     @IsNotEmpty({ message: 'عنوان الزامی است' })
     @IsString()
     @MaxLength(140)
@@ -178,7 +178,7 @@ export class CreateInquiryDto {
     @IsString()
     businessId?: string;
 
-    @ApiPropertyOptional({ type: [InquiryUnitDto], description: 'واحدهای اختصاصی این صفحه خرید (از مرجع واحد)', required: false })
+    @ApiPropertyOptional({ type: [InquiryUnitDto], description: 'واحدهای اختصاصی این صفحه درخواست خرید (از مرجع واحد)', required: false })
     @IsOptional()
     @IsArray()
     @ArrayMaxSize(50)
@@ -267,7 +267,7 @@ export class UpdateOfferDto {
     status: string;
 }
 
-// ═══ اعضای صفحه خرید — تامین‌کننده‌های تاییدشده (شبکهٔ خرید↔فروش) ═══
+// ═══ اعضای صفحه درخواست خرید — تامین‌کننده‌های تاییدشده (شبکهٔ خرید↔فروش) ═══
 
 export class AddInquiryMemberDto {
     @ApiProperty({ description: 'کاتالوگ فروشِ تامین‌کننده (باید متعلق به تامین‌کننده باشد)' })
