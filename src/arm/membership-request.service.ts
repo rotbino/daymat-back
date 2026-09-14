@@ -446,7 +446,7 @@ export class MembershipRequestService {
                 data: {
                     armId: arm.id, userId: request.userId, eventType: 'request_approved',
                     actorUserId: adminUserId,
-                    note: roleType === 'seller' ? 'تایید درخواست فروشندگی' : 'تایید کاتالوگ خریداری',
+                    note: roleType === 'seller' ? 'تایید درخواست فروشندگی' : 'تایید درخواست خریداری',
                 },
             });
             await this.prisma.armMembershipEvent.create({

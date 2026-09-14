@@ -1,5 +1,5 @@
 // src/inquiry/inquiry.service.ts
-// صفحه کاتالوگ خرید (استعلام قیمت) — سرویس
+// اعلام خرید (استعلام قیمت) — سرویس
 import {
     Injectable, NotFoundException, ForbiddenException, BadRequestException, ConflictException, OnModuleInit,
 } from '@nestjs/common';
@@ -27,7 +27,7 @@ export class InquiryService implements OnModuleInit {
 
     /**
      * مهاجرت داده‌های قدیمی (idempotent — در هر بوت اجرا می‌شود):
-     * صفحه‌های خریدِ بدون businessId (ساخته‌شده قبل از قابلیت اتصال) که مالکشان دقیقاً یک کسب‌وکار دارد،
+     * اعلام‌های خریدِ بدون businessId (ساخته‌شده قبل از قابلیت اتصال) که مالکشان دقیقاً یک کسب‌وکار دارد،
      * به همان کسب‌وکار وصل می‌شوند تا در پروفایل کسب‌وکار نمایش داده شوند.
      * مالک چند-کسب‌وکاری دست‌نخورده می‌ماند (اتصال مبهم است — از فرم ویرایش انتخاب می‌شود).
      */
@@ -65,11 +65,11 @@ export class InquiryService implements OnModuleInit {
                     attached++;
                 }
                 if (attached > 0) {
-                    console.log(`[inquiry] ${attached} صفحه کاتالوگ خریدِ بدون کسب‌وکار به کسب‌وکارِ یگانهٔ مالک وصل شد`);
+                    console.log(`[inquiry] ${attached} اعلام خریدِ بدون کسب‌وکار به کسب‌وکارِ یگانهٔ مالک وصل شد`);
                 }
             }
         } catch (e: any) {
-            console.warn('[inquiry] مهاجرت اتصال صفحه‌های خرید قدیمی انجام نشد:', e?.message);
+            console.warn('[inquiry] مهاجرت اتصال اعلام‌های خرید قدیمی انجام نشد:', e?.message);
         }
 
         // ─── مهاجرت «اعلام خرید» برای کاتالوگ‌های قدیمی ───
@@ -93,7 +93,7 @@ export class InquiryService implements OnModuleInit {
                 }).catch(() => { /* noop */ });
             }
             if (legacy.length > 0) {
-                console.log(`[inquiry] اقلام ${legacy.length} صفحه کاتالوگ خرید قدیمی «اعلام خرید فعال» گرفتند (رفتار قبل حفظ شد)`);
+                console.log(`[inquiry] اقلام ${legacy.length} اعلام خرید قدیمی «اعلام خرید فعال» گرفتند (رفتار قبل حفظ شد)`);
             }
         } catch (e: any) {
             console.warn('[inquiry] مهاجرت اعلام خرید اقلام قدیمی انجام نشد:', e?.message);
@@ -104,7 +104,7 @@ export class InquiryService implements OnModuleInit {
         return !!id && /^[0-9a-fA-F]{24}$/.test(id);
     }
 
-    /** آیا این کاربر (با یکی از کاتالوگ‌های فروشش) تامین‌کنندهٔ تاییدشدهٔ این صفحه کاتالوگ خرید است؟ */
+    /** آیا این کاربر (با یکی از کاتالوگ‌های فروشش) تامین‌کنندهٔ تاییدشدهٔ این اعلام خرید است؟ */
     private async isActiveMember(inquiryId: string, userId: string): Promise<boolean> {
         if (!userId) return false;
         const cnt = await this.prisma.inquiryMember.count({
@@ -113,7 +113,7 @@ export class InquiryService implements OnModuleInit {
         return cnt > 0;
     }
 
-    /** 🔔 اعلان «اعلام خرید فوری» به تامین‌کننده‌های تاییدشده — قلب شبکهٔ خرید↔فروش */
+    /** 🔔 اعلان «قلم فوری» به تامین‌کننده‌های تاییدشده — قلب شبکهٔ خرید↔فروش */
     private async notifyUrgentAnnounce(
         inquiry: { id: string; title: string; slug: string | null; ownerUserId: string },
         itemName: string,
@@ -128,8 +128,8 @@ export class InquiryService implements OnModuleInit {
             void this.notification.notify({
                 userIds: targets,
                 type: 'inquiry_urgent_item',
-                title: 'اعلام خرید فوری',
-                body: `«${itemName}» — در صفحه کاتالوگ خرید ${inquiry.title}`,
+                title: 'قلم فوری',
+                body: `«${itemName}» — در اعلام خرید ${inquiry.title}`,
                 actorUserId: inquiry.ownerUserId,
                 href: `/${inquiry.slug || inquiry.id}`,
             });
@@ -199,7 +199,7 @@ export class InquiryService implements OnModuleInit {
     async resolvePublicSlug(rawSlug: string) {
         const slug = (rawSlug ?? '').trim();
         if (!slug) {
-            throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'صفحه کاتالوگ خرید پیدا نشد' });
+            throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'اعلام خرید پیدا نشد' });
         }
         const inquiry = await this.prisma.inquiry.findFirst({
             where: { slug, status: { not: 'archived' } },
@@ -213,7 +213,7 @@ export class InquiryService implements OnModuleInit {
             },
         });
         if (!inquiry) {
-            throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'صفحه کاتالوگ خرید پیدا نشد' });
+            throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'اعلام خرید پیدا نشد' });
         }
         return inquiry;
     }
@@ -298,7 +298,7 @@ export class InquiryService implements OnModuleInit {
         return inquiry;
     }
 
-    // ─── دیوار عمومی (فهرست صفحه‌های خرید باز) ───
+    // ─── دیوار عمومی (فهرست اعلام‌های خرید باز) ───
     async publicList(opts: { q?: string; city?: string; tag?: string; page?: number; limit?: number }) {
         const page = Math.max(1, opts.page ?? 1);
         const limit = Math.min(50, Math.max(1, opts.limit ?? 20));
@@ -324,14 +324,14 @@ export class InquiryService implements OnModuleInit {
         return { items, total, page, limit };
     }
 
-    // ─── صفحه‌های خرید من ───
+    // ─── اعلام‌های خرید من ───
     async mine(userId: string) {
         return this.prisma.inquiry.findMany({
             where: { ownerUserId: userId, status: { not: 'archived' } },
             orderBy: { createdAt: 'desc' },
             select: {
                 ...PUBLIC_LIST_SELECT,
-                metadata: true, // 🪪 کارت ویزیت ذخیره‌شدهٔ صفحهٔ خرید
+                metadata: true, // 🪪 کارت ویزیت ذخیره‌شدهٔ اعلام خرید
                 _count: { select: { items: true } },
             },
         });
@@ -349,7 +349,7 @@ export class InquiryService implements OnModuleInit {
             },
         });
         if (!inquiry || inquiry.status === 'archived') {
-            throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'صفحه کاتالوگ خرید پیدا نشد' });
+            throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'اعلام خرید پیدا نشد' });
         }
         const isOwner = !!userId && userId === inquiry.ownerUserId;
 
@@ -397,7 +397,7 @@ export class InquiryService implements OnModuleInit {
     }
 
     // ═══════════════════════════════════════════════════════
-    // 🪪 کارت ویزیت صفحهٔ خرید — ذخیرهٔ مشخصات (JSON) در metadata
+    // 🪪 کارت ویزیت اعلام خرید — ذخیرهٔ مشخصات (JSON) در metadata
     // قرینهٔ کاتالوگ فروش؛ کاربر طرح کارت را یک‌بار می‌سازد و زحمتش از بین نمی‌رود
     // ═══════════════════════════════════════════════════════
     async saveVisitCard(id: string, userId: string, spec: Record<string, any> | null | undefined) {
@@ -405,7 +405,7 @@ export class InquiryService implements OnModuleInit {
             where: { id, ownerUserId: userId, status: { not: 'archived' } },
             select: { id: true, metadata: true },
         });
-        if (!owned) throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'صفحه کاتالوگ خرید پیدا نشد' });
+        if (!owned) throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'اعلام خرید پیدا نشد' });
 
         // 🛡️ گارد حجم — تصاویر dataURL فشرده سمت کلاینت می‌آیند؛ سقف منطقی ۱.۵MB
         if (spec !== undefined && spec !== null && JSON.stringify(spec).length > 1_500_000) {
@@ -430,7 +430,7 @@ export class InquiryService implements OnModuleInit {
     // ─── ویرایش (مالک) ───
     async update(id: string, userId: string, dto: UpdateInquiryDto) {
         const inquiry = await this.prisma.inquiry.findUnique({ where: { id } });
-        if (!inquiry) throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'صفحه کاتالوگ خرید پیدا نشد' });
+        if (!inquiry) throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'اعلام خرید پیدا نشد' });
         if (inquiry.ownerUserId !== userId) {
             throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'اجازهٔ ویرایش ندارید' });
         }
@@ -497,21 +497,21 @@ export class InquiryService implements OnModuleInit {
     // ─── حذف (مالک) ───
     async remove(id: string, userId: string) {
         const inquiry = await this.prisma.inquiry.findUnique({ where: { id } });
-        if (!inquiry) throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'صفحه کاتالوگ خرید پیدا نشد' });
+        if (!inquiry) throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'اعلام خرید پیدا نشد' });
         if (inquiry.ownerUserId !== userId) {
             throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'اجازهٔ حذف ندارید' });
         }
         await this.prisma.inquiry.delete({ where: { id } });
-        return { message: 'صفحه کاتالوگ خرید حذف شد' };
+        return { message: 'اعلام خرید حذف شد' };
     }
 
-    // ═══ مدیریت قلم‌به‌قلم (پنل صفحه کاتالوگ خرید) ═══
+    // ═══ مدیریت قلم‌به‌قلم (پنل اعلام خرید) ═══
 
     private async assertOwner(id: string, userId: string) {
         const inquiry = await this.prisma.inquiry.findUnique({ where: { id }, select: { id: true, ownerUserId: true } });
-        if (!inquiry) throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'صفحه کاتالوگ خرید پیدا نشد' });
+        if (!inquiry) throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'اعلام خرید پیدا نشد' });
         if (inquiry.ownerUserId !== userId) {
-            throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'فقط صاحب صفحه کاتالوگ خرید می‌تواند اقلام را مدیریت کند' });
+            throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'فقط صاحب اعلام خرید می‌تواند اقلام را مدیریت کند' });
         }
     }
 
@@ -535,7 +535,7 @@ export class InquiryService implements OnModuleInit {
                 urgentAt: urgent ? new Date() : null,
             },
         });
-        // 🔔 اعلام خرید فوری → اعلان به تامین‌کننده‌های تاییدشده
+        // 🔔 قلم فوری → اعلان به تامین‌کننده‌های تاییدشده
         if (urgent) {
             const ing = await this.prisma.inquiry.findUnique({
                 where: { id: inquiryId },
@@ -601,7 +601,7 @@ export class InquiryService implements OnModuleInit {
     async addOffer(inquiryId: string, userId: string, dto: CreateOfferDto) {
         const inquiry = await this.prisma.inquiry.findUnique({ where: { id: inquiryId } });
         if (!inquiry || inquiry.status === 'archived') {
-            throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'صفحه کاتالوگ خرید پیدا نشد' });
+            throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'اعلام خرید پیدا نشد' });
         }
         if (inquiry.status !== 'open') {
             throw new BadRequestException({ errorCode: 'INQUIRY_CLOSED', message: 'این استعلام بسته شده است' });
@@ -610,13 +610,13 @@ export class InquiryService implements OnModuleInit {
             throw new BadRequestException({ errorCode: 'DEADLINE_PASSED', message: 'مهلت ارسال پیشنهاد گذشته است' });
         }
         if (inquiry.ownerUserId === userId) {
-            throw new BadRequestException({ errorCode: 'OWN_INQUIRY', message: 'روی صفحه کاتالوگ خرید خودتان نمی‌توانید پیشنهاد بدهید' });
+            throw new BadRequestException({ errorCode: 'OWN_INQUIRY', message: 'روی اعلام خرید خودتان نمی‌توانید پیشنهاد بدهید' });
         }
         // ✅ گیت کاتالوگ خصوصی — فقط تامین‌کننده‌های تاییدشده قیمت می‌دهند
         if (inquiry.visibility === 'private' && !(await this.isActiveMember(inquiryId, userId))) {
             throw new ForbiddenException({
                 errorCode: 'PRIVATE_INQUIRY',
-                message: 'این صفحه کاتالوگ خرید خصوصی است — فقط تامین‌کننده‌های تاییدشده می‌توانند قیمت بدهند',
+                message: 'این اعلام خرید خصوصی است — فقط تامین‌کننده‌های تاییدشده می‌توانند قیمت بدهند',
             });
         }
         if (dto.itemId && !this.isValidObjectId(dto.itemId)) {
@@ -678,9 +678,9 @@ export class InquiryService implements OnModuleInit {
     // ─── پیشنهادهای یک استعلام (فقط مالک) ───
     async getOffers(inquiryId: string, userId: string) {
         const inquiry = await this.prisma.inquiry.findUnique({ where: { id: inquiryId } });
-        if (!inquiry) throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'صفحه کاتالوگ خرید پیدا نشد' });
+        if (!inquiry) throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'اعلام خرید پیدا نشد' });
         if (inquiry.ownerUserId !== userId) {
-            throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'فقط صاحب صفحه کاتالوگ خرید پیشنهادها را می‌بیند' });
+            throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'فقط صاحب اعلام خرید پیشنهادها را می‌بیند' });
         }
         const offers = await this.prisma.inquiryOffer.findMany({
             where: { inquiryId, status: { not: 'withdrawn' } },
@@ -707,7 +707,7 @@ export class InquiryService implements OnModuleInit {
             }
         } else {
             if (!inquiry || inquiry.ownerUserId !== userId) {
-                throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'فقط صاحب صفحه کاتالوگ خرید می‌تواند تصمیم بگیرد' });
+                throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'فقط صاحب اعلام خرید می‌تواند تصمیم بگیرد' });
             }
         }
         const updated = await this.prisma.inquiryOffer.update({ where: { id: offerId }, data: { status: dto.status } });
@@ -719,7 +719,7 @@ export class InquiryService implements OnModuleInit {
                 userIds: [offer.offererUserId],
                 type: 'inquiry_offer_status',
                 title: dto.status === 'accepted' ? 'پیشنهادت پذیرفته شد' : 'پیشنهادت رد شد',
-                body: inquiry.title ? `صفحه کاتالوگ خرید «${inquiry.title}»` : undefined,
+                body: inquiry.title ? `اعلام خرید «${inquiry.title}»` : undefined,
                 actorUserId: userId,
                 href: `/${inquiry.slug || offer.inquiryId}`,
                 businessId: inquiry.businessId ?? null,
@@ -743,13 +743,13 @@ export class InquiryService implements OnModuleInit {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // ✅ اعضای صفحه کاتالوگ خرید — تامین‌کننده‌های تاییدشده (شبکهٔ خرید↔فروش)
-    //    همهٔ ارتباطات کاتالوگ‌به‌کاتالوگ می‌شود: خریدار از روی صفحه کاتالوگ خریدش
-    //    تامین‌کننده اضافه می‌کند؛ تامین‌کننده اعلام خریدهای فوری را در
+    // ✅ اعضای اعلام خرید — تامین‌کننده‌های تاییدشده (شبکهٔ خرید↔فروش)
+    //    همهٔ ارتباطات کاتالوگ‌به‌کاتالوگ می‌شود: خریدار از روی اعلام خریدش
+    //    تامین‌کننده اضافه می‌کند؛ تامین‌کننده اقلام فوری را در
     //    پنل کاتالوگ فروشش می‌بیند و قیمت می‌دهد.
     // ═══════════════════════════════════════════════════════════════════
 
-    /** فهرست تامین‌کننده‌های این صفحه کاتالوگ خرید (مالک — تب «تامین‌کنندگان» پنل خرید) */
+    /** فهرست تامین‌کننده‌های این اعلام خرید (مالک — تب «تامین‌کنندگان» پنل خرید) */
     async getMembers(inquiryId: string, userId: string) {
         await this.assertOwner(inquiryId, userId);
         return this.prisma.inquiryMember.findMany({
@@ -804,7 +804,7 @@ export class InquiryService implements OnModuleInit {
             where: { id: inquiryId },
             select: { id: true, title: true, businessId: true, ownerUserId: true },
         });
-        if (!inquiry) throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'صفحه کاتالوگ خرید پیدا نشد' });
+        if (!inquiry) throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'اعلام خرید پیدا نشد' });
 
         const existing = await this.prisma.inquiryMember.findUnique({
             where: { inquiryId_catalogId: { inquiryId, catalogId: dto.catalogId } },
@@ -839,7 +839,7 @@ export class InquiryService implements OnModuleInit {
             userIds: [member.userId],
             type: 'inquiry_member_invite',
             title: 'دعوت به تامین‌کنندگی',
-            body: `صفحه کاتالوگ خرید «${inquiry.title}» تو را به‌عنوان تامین‌کننده دعوت کرده`,
+            body: `اعلام خرید «${inquiry.title}» تو را به‌عنوان تامین‌کننده دعوت کرده`,
             actorUserId: userId,
             href: '/my-catalogs?tab=leads',
             businessId: inquiry.businessId ?? null,
@@ -851,10 +851,10 @@ export class InquiryService implements OnModuleInit {
     async requestAccess(inquiryId: string, userId: string, dto: RequestInquiryAccessDto) {
         const inquiry = await this.prisma.inquiry.findUnique({ where: { id: inquiryId } });
         if (!inquiry || inquiry.status === 'archived') {
-            throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'صفحه کاتالوگ خرید پیدا نشد' });
+            throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'اعلام خرید پیدا نشد' });
         }
         if (inquiry.ownerUserId === userId) {
-            throw new BadRequestException({ errorCode: 'OWN_INQUIRY', message: 'این صفحه کاتالوگ خرید مال خودتان است' });
+            throw new BadRequestException({ errorCode: 'OWN_INQUIRY', message: 'این اعلام خرید مال خودتان است' });
         }
         if (!this.isValidObjectId(dto.catalogId)) {
             throw new BadRequestException({ errorCode: 'INVALID_CATALOG', message: 'کاتالوگ نامعتبر است' });
@@ -888,7 +888,7 @@ export class InquiryService implements OnModuleInit {
             userIds: [inquiry.ownerUserId],
             type: 'inquiry_member_request',
             title: 'درخواست تامین‌کنندگی',
-            body: `«${catalog.name}» درخواست عضویت در صفحه کاتالوگ خرید «${inquiry.title}» را دارد`,
+            body: `«${catalog.name}» درخواست عضویت در اعلام خرید «${inquiry.title}» را دارد`,
             actorUserId: userId,
             href: '/my-inquiries?tab=members',
             businessId: inquiry.businessId ?? null,
@@ -904,7 +904,7 @@ export class InquiryService implements OnModuleInit {
             where: { id: inquiryId },
             select: { id: true, title: true, slug: true, ownerUserId: true, businessId: true },
         });
-        if (!inquiry) throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'صفحه کاتالوگ خرید پیدا نشد' });
+        if (!inquiry) throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'اعلام خرید پیدا نشد' });
 
         const isBuyer = inquiry.ownerUserId === userId;
         const isSupplier = member.userId === userId;
@@ -937,7 +937,7 @@ export class InquiryService implements OnModuleInit {
                 userIds: [member.userId],
                 type: 'inquiry_member_approved',
                 title: 'تامین‌کنندهٔ تایید شدید',
-                body: `در صفحه کاتالوگ خرید «${inquiry.title}» تایید شدید — اعلام خریدهایش را می‌بینید`,
+                body: `در اعلام خرید «${inquiry.title}» تایید شدید — اقلامش را می‌بینید`,
                 actorUserId: userId,
                 href: '/my-catalogs?tab=leads',
                 businessId: inquiry.businessId ?? null,
@@ -959,7 +959,7 @@ export class InquiryService implements OnModuleInit {
     /**
      * ✅ فرصت‌های فروش تامین‌کننده — سمت کاتالوگ فروش:
      *    دعوت‌های در انتظار (buyer_add) + درخواست‌های من در انتظار خریدار (supplier_request)
-     *    + اعلام خریدهای فوریِ صفحه‌های خریدی که تامین‌کنندهٔ تاییدشده‌شانم (تب «کاتالوگ خریدها»)
+     *    + اقلام فوریِ اعلام‌های خریدی که تامین‌کنندهٔ تاییدشده‌شانم (تب «سرنخ‌های فروش»)
      */
     async opportunities(userId: string) {
         const myCatalogs = await this.prisma.catalog.findMany({

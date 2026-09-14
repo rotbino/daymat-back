@@ -97,7 +97,7 @@ export class CatalogMemberService {
     // ════════════════════════════════════════════════════════════
 
     private CONN_TYPE_LABEL: Record<string, string> = {
-        customer: 'کاتالوگ خرید',
+        customer: 'اعلام خرید',
         supplier: 'درخواست تامین‌کنندگی',
         service: 'درخواست تامین خدمات',
         seller: 'دعوت به همکاری در فروش',
@@ -821,8 +821,8 @@ export class CatalogMemberService {
             return { ...c, sellerName: s ? (s.fullName || s.businessName) : null };
         });
 
-        // ✅ صفحه‌های خریدِ خریدارها — شبکهٔ خرید↔فروش:
-        //    خریدار از روی صفحه کاتالوگ خریدش شناخته می‌شود، نه فقط کسب‌وکارش
+        // ✅ اعلام‌های خریدِ خریدارها — شبکهٔ خرید↔فروش:
+        //    خریدار از روی اعلام خریدش شناخته می‌شود، نه فقط کسب‌وکارش
         const buyerUserIds = Array.from(new Set(
             customers.filter((c) => c.customerStatus === 'active').map((c) => c.userId),
         ));
