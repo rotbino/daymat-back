@@ -275,6 +275,7 @@ export class InquiryService implements OnModuleInit {
             orderBy: { createdAt: 'desc' },
             select: {
                 ...PUBLIC_LIST_SELECT,
+                metadata: true, // 🪪 کارت ویزیت ذخیره‌شدهٔ صفحهٔ خرید
                 _count: { select: { items: true } },
             },
         });
@@ -337,6 +338,37 @@ export class InquiryService implements OnModuleInit {
         }
 
         return { ...inquiry, isOwner: false, isMember };
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 🪪 کارت ویزیت صفحهٔ خرید — ذخیرهٔ مشخصات (JSON) در metadata
+    // قرینهٔ کاتالوگ فروش؛ کاربر طرح کارت را یک‌بار می‌سازد و زحمتش از بین نمی‌رود
+    // ═══════════════════════════════════════════════════════
+    async saveVisitCard(id: string, userId: string, spec: Record<string, any> | null | undefined) {
+        const owned = await this.prisma.inquiry.findFirst({
+            where: { id, ownerUserId: userId, status: { not: 'archived' } },
+            select: { id: true, metadata: true },
+        });
+        if (!owned) throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'صفحه درخواست خرید پیدا نشد' });
+
+        // 🛡️ گارد حجم — تصاویر dataURL فشرده سمت کلاینت می‌آیند؛ سقف منطقی ۱.۵MB
+        if (spec !== undefined && spec !== null && JSON.stringify(spec).length > 1_500_000) {
+            throw new BadRequestException({ errorCode: 'SPEC_TOO_LARGE', message: 'حجم مشخصات کارت ویزیت بیش از حد مجاز است' });
+        }
+
+        const newMetadata: Record<string, any> = { ...((owned.metadata as any) || {}) };
+        if (spec === null) {
+            delete newMetadata.visitCard; // حذف کارت ذخیره‌شده
+        } else if (spec !== undefined) {
+            newMetadata.visitCard = { ...spec, updatedAt: new Date().toISOString() };
+        }
+
+        await this.prisma.inquiry.update({
+            where: { id },
+            data: { metadata: newMetadata as any },
+        });
+
+        return { success: true, visitCard: newMetadata.visitCard ?? null };
     }
 
     // ─── ویرایش (مالک) ───

@@ -12,7 +12,13 @@ import fastifyMultipart from '@fastify/multipart';
 async function bootstrap() {
     const app = await NestFactory.create<NestFastifyApplication>(
         AppModule,
-        new FastifyAdapter({ logger: true }),
+        new FastifyAdapter({
+            logger: true,
+            // ⚠️ اسلاگ‌های فارسی بعد از percent-encode طولانی می‌شوند (هر حرف ≈ ۶ کاراکتر)؛
+            // پیش‌فرض Fastify فقط ۱۰۰ کاراکتر است → خطای 414 بدون هدر CORS
+            // → مرورگر آن را قطعی شبکه می‌بیند → لوپ /server-unavailable
+            maxParamLength: 500,
+        }),
     );
 
     // ✅ ثبت multipart برای Fastify

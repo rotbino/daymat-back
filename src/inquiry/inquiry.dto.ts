@@ -4,7 +4,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
     IsNotEmpty, IsOptional, IsString, MaxLength, IsIn, IsNumber, IsBoolean,
-    IsArray, IsISO8601, ArrayMaxSize, ValidateNested,
+    IsArray, IsISO8601, ArrayMaxSize, ValidateNested, IsObject,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -300,4 +300,13 @@ export class DecideInquiryMemberDto {
     @ApiProperty({ enum: ['active', 'declined', 'removed'], description: 'تایید (active) | رد (declined) | حذف/خروج (removed)' })
     @IsIn(['active', 'declined', 'removed'])
     status: 'active' | 'declined' | 'removed';
+}
+
+/** 🪪 ذخیره/حذف مشخصات کارت ویزیت صفحه درخواست خرید (JSON) — قرینهٔ کاتالوگ فروش */
+export class SaveInquiryVisitCardDto {
+    /** مشخصات کامل کارت ویزیت (JSON آزاد — فشرده‌سازی تصاویر سمت کلاینت) — null = حذف کارت ذخیره‌شده */
+    @ApiPropertyOptional({ description: 'مشخصات کارت ویزیت (JSON) — null برای حذف', nullable: true, type: Object })
+    @IsOptional()
+    @IsObject()
+    spec?: Record<string, any> | null;
 }

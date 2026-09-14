@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { InquiryService } from './inquiry.service';
-import { CreateInquiryDto, UpdateInquiryDto, CreateOfferDto, UpdateOfferDto, InquiryItemDto, UpdateInquiryItemDto, AddInquiryMemberDto, RequestInquiryAccessDto, DecideInquiryMemberDto } from './inquiry.dto';
+import { CreateInquiryDto, UpdateInquiryDto, CreateOfferDto, UpdateOfferDto, InquiryItemDto, UpdateInquiryItemDto, AddInquiryMemberDto, RequestInquiryAccessDto, DecideInquiryMemberDto, SaveInquiryVisitCardDto } from './inquiry.dto';
 import { CurrentUser } from '../common/decorators/custom.decorators';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../common/guards/optional-jwt-auth.guard';
@@ -84,6 +84,15 @@ export class InquiryController {
     @ApiOperation({ summary: 'ویرایش صفحه درخواست خرید (مالک)' })
     update(@Param('id') id: string, @CurrentUser() user: any, @Body() dto: UpdateInquiryDto) {
         return this.inquiryService.update(id, user.id, dto);
+    }
+
+    // 🪪 کارت ویزیت صفحهٔ خرید — قرینهٔ کاتالوگ فروش (ذخیره/حذف JSON در metadata)
+    @Patch(':id/visit-card')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'ذخیره/حذف مشخصات کارت ویزیت صفحه درخواست خرید (JSON) — کارت کاربر گم نشود' })
+    saveVisitCard(@Param('id') id: string, @CurrentUser() user: any, @Body() dto: SaveInquiryVisitCardDto) {
+        return this.inquiryService.saveVisitCard(id, user.id, dto.spec);
     }
 
     @Delete(':id')
