@@ -329,6 +329,18 @@ export class ArmController {
         return this.armService.toggleCatalogPublish(user.id, slug, dto.catalogId, dto.published);
     }
 
+    @Patch(':slug/inquiry-publish')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'روشن/خاموش کردن انتشار اعلام خرید در بازار (تابلوی اعلام‌های خرید)' })
+    async toggleInquiryPublish(
+        @Param('slug') slug: string,
+        @CurrentUser() user: any,
+        @Body() dto: { inquiryId: string; published: boolean },
+    ) {
+        return this.armService.toggleInquiryPublish(user.id, slug, dto.inquiryId, dto.published);
+    }
+
     // ═══════════════════════════════════════════════════════════
     // 1.5 بازارهای فعال پیشنهادی (عمومی)
     // ⚠️ باید قبل از @Get(':slug') باشد وگرنه 'suggested' به‌عنوان slug تفسیر می‌شود

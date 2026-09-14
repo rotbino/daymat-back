@@ -563,6 +563,10 @@ model ArmMembership {
 
   publishState String? // 'published' | 'paused' | null — وضعیت انتشار کاتالوگ در بازار
 
+  // ✅ تابلوی اعلام‌های خرید بازار — اعلام خریدِ عضو + وضعیت انتشارش (قرینهٔ کاتالوگ)
+  inquiryId           String?  @db.ObjectId
+  inquiryPublishState String?  // 'published' | 'paused' | null
+
   // ✅ businessId برای seller و buyer اجباری است، اما arm_owner می‌تواند null باشد
   // (مالک بازار نماینده کسب‌وکار نیست — خود بازار مال اوست)
   businessId String?   @db.ObjectId

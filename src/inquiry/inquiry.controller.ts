@@ -16,7 +16,25 @@ export class InquiryController {
     constructor(private inquiryService: InquiryService) {}
 
     // ─── عمومی: دیوار اعلام‌های خرید ───
-    @Get('public')
+        // ─── تابلوی اعلام‌های خرید بازار — باید قبل از :idOrSlug باشد ───
+    @Get('arm/:slug')
+    @UseGuards(OptionalJwtAuthGuard)
+    @ApiOperation({ summary: 'تابلوی اعلام‌های خرید بازار — اعلام‌های منتشرشدهٔ اعضا' })
+    async armBoard(
+        @Param('slug') slug: string,
+        @Query('search') search?: string,
+        @Query('page') page?: string,
+        @Query('limit') limit?: string,
+        @CurrentUser() user?: any,
+    ) {
+        return this.inquiryService.armBoard(slug, {
+            search,
+            page: page ? parseInt(page, 10) : undefined,
+            limit: limit ? parseInt(limit, 10) : undefined,
+        }, user?.id);
+    }
+
+@Get('public')
     @ApiOperation({ summary: 'دیوار عمومی اعلام‌های خرید باز (بدون نیاز به ورود)' })
     @ApiQuery({ name: 'q', required: false })
     @ApiQuery({ name: 'city', required: false })

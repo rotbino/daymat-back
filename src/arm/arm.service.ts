@@ -1219,6 +1219,57 @@ export class ArmService {
     }
 
     // ============================================================
+    // 16.5 تابلوی اعلام‌های خرید — انتشار اعلام خریدِ عضو به بازار (قرینهٔ کاتالوگ)
+    // ============================================================
+    async toggleInquiryPublish(userId: string, slug: string, inquiryId: string, published: boolean) {
+        const arm = await this.prisma.arm.findUnique({
+            where: { slug },
+            select: { id: true, name: true },
+        });
+        if (!arm) {
+            throw new NotFoundException({ errorCode: 'ARM_NOT_FOUND', message: 'بازار یافت نشد' });
+        }
+
+        const inquiry = await this.prisma.inquiry.findUnique({
+            where: { id: inquiryId },
+            select: { id: true, ownerUserId: true, status: true },
+        });
+        if (!inquiry || inquiry.ownerUserId !== userId) {
+            throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'فقط مالک اعلام خرید' });
+        }
+
+        const membership = await this.prisma.armMembership.findUnique({
+            where: { armId_userId: { armId: arm.id, userId } },
+        });
+        if (!membership) {
+            throw new BadRequestException({ errorCode: 'NOT_MEMBER', message: 'ابتدا عضو این بازار شوید' });
+        }
+
+        if (published) {
+            if (membership.status !== 'active') {
+                throw new BadRequestException({
+                    errorCode: 'MEMBERSHIP_PAUSED',
+                    message: 'عضویت شما در این بازار توسط مدیر بازار متوقف شده است',
+                });
+            }
+            if (inquiry.status === 'archived') {
+                throw new BadRequestException({ errorCode: 'INQUIRY_ARCHIVED', message: 'این اعلام خرید بایگانی شده است' });
+            }
+            const updated = await this.prisma.armMembership.update({
+                where: { id: membership.id },
+                data: { inquiryId, inquiryPublishState: 'published' },
+            });
+            return { membership: updated };
+        }
+
+        const updated = await this.prisma.armMembership.update({
+            where: { id: membership.id },
+            data: { inquiryPublishState: 'paused' },
+        });
+        return { membership: updated };
+    }
+
+    // ============================================================
     // 17. بازارهای فعال عمومی
     // ============================================================
     async suggestedArms(catalogId?: string, userId?: string, limit = 6) {

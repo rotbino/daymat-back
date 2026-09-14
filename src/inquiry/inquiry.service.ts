@@ -298,6 +298,54 @@ export class InquiryService implements OnModuleInit {
         return inquiry;
     }
 
+    // ─── تابلوی اعلام‌های خرید بازار (قرینهٔ تابلوی قیمت/vitrine) ───
+    async armBoard(armSlug: string, opts: { search?: string; page?: number; limit?: number }, _userId?: string) {
+        const arm = await this.prisma.arm.findUnique({
+            where: { slug: armSlug },
+            select: { id: true, name: true },
+        });
+        if (!arm) {
+            throw new NotFoundException({ errorCode: 'ARM_NOT_FOUND', message: 'بازار یافت نشد' });
+        }
+        const memberships = await this.prisma.armMembership.findMany({
+            where: { armId: arm.id, inquiryPublishState: 'published' },
+            select: { inquiryId: true },
+        });
+        const inquiryIds = memberships.map((m) => m.inquiryId).filter(Boolean) as string[];
+        if (inquiryIds.length === 0) {
+            return { items: [], total: 0, page: 1, limit: Math.min(50, Math.max(1, opts.limit ?? 20)) };
+        }
+        const where: any = {
+            id: { in: inquiryIds },
+            status: 'open',
+            OR: [{ expiresAt: { isSet: false } }, { expiresAt: { gt: new Date() } }],
+        };
+        const q = opts.search?.trim();
+        if (q) {
+            where.OR = [...where.OR, { title: { contains: q } }, { description: { contains: q } }, { tags: { has: q } }];
+        }
+        const page = Math.max(1, opts.page ?? 1);
+        const limit = Math.min(50, Math.max(1, opts.limit ?? 20));
+        const [items, total] = await Promise.all([
+            this.prisma.inquiry.findMany({
+                where,
+                select: {
+                    id: true, slug: true, title: true, description: true, city: true,
+                    visibility: true, deadline: true, viewCount: true, createdAt: true, tags: true,
+                    business: { select: { id: true, name: true, logoUrl: true, city: true } },
+                    owner: { select: { id: true, fullName: true } },
+                    items: { where: { urgent: true }, select: { id: true, name: true, quantity: true, unit: true } },
+                    _count: { select: { items: true, offers: true } },
+                },
+                orderBy: { createdAt: 'desc' },
+                skip: (page - 1) * limit,
+                take: limit,
+            }),
+            this.prisma.inquiry.count({ where }),
+        ]);
+        return { items, total, page, limit };
+    }
+
     // ─── دیوار عمومی (فهرست اعلام‌های خرید باز) ───
     async publicList(opts: { q?: string; city?: string; tag?: string; page?: number; limit?: number }) {
         const page = Math.max(1, opts.page ?? 1);
@@ -305,14 +353,14 @@ export class InquiryService implements OnModuleInit {
         const where: any = {
             status: 'open',
             visibility: 'public',
-            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+            OR: [{ expiresAt: { isSet: false } }, { expiresAt: { gt: new Date() } }],
         };
         if (opts.q?.trim()) {
             const q = opts.q.trim();
-            where.OR.push({ title: { contains: q } }, { description: { contains: q } }, { tags: { contains: q } });
+            where.OR.push({ title: { contains: q } }, { description: { contains: q } }, { tags: { has: q } });
         }
         if (opts.city?.trim()) where.city = { contains: opts.city.trim() };
-        if (opts.tag?.trim()) where.tags = { contains: opts.tag.trim() };
+        if (opts.tag?.trim()) where.tags = { has: opts.tag.trim() };
 
         const [items, total] = await Promise.all([
             this.prisma.inquiry.findMany({
