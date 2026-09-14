@@ -1,17 +1,12 @@
 // src/inquiry/inquiry.service.ts
 // صفحه درخواست قیمت (استعلام قیمت) — سرویس
 import {
-    Injectable, NotFoundException, ForbiddenException, BadRequestException, OnModuleInit,
+    Injectable, NotFoundException, ForbiddenException, BadRequestException, ConflictException, OnModuleInit,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { CreateInquiryDto, UpdateInquiryDto, CreateOfferDto, UpdateOfferDto, InquiryItemDto, UpdateInquiryItemDto, InquiryUnitDto, AddInquiryMemberDto, RequestInquiryAccessDto } from './inquiry.dto';
-
-const RESERVED_SLUGS = [
-    'admin', 'api', 'login', 'logout', 'register', 'my-catalogs', 'my-inquiries',
-    'inquiries', 'catalogs', 'business', 'profile', 'market', 'markets', 'home',
-    'docs', 'assets', 'static', 'new', 'explore', 'saved-ads', 'notifications', 'credit',
-];
+import { RESERVED_SLUGS } from '../common/reserved-slugs';
 
 const PUBLIC_LIST_SELECT = {
     id: true, title: true, description: true, slug: true, status: true,
@@ -136,7 +131,7 @@ export class InquiryService implements OnModuleInit {
                 title: 'اعلام خرید فوری',
                 body: `«${itemName}» — در صفحه درخواست قیمت ${inquiry.title}`,
                 actorUserId: inquiry.ownerUserId,
-                href: `/inquiries/${inquiry.slug || inquiry.id}`,
+                href: `/${inquiry.slug || inquiry.id}`,
             });
         } catch { /* اعلان هرگز جریان اصلی را نمی‌شکند */ }
     }
@@ -150,16 +145,77 @@ export class InquiryService implements OnModuleInit {
             .substring(0, 40);
     }
 
-    /** اسلاگ خودکار از عنوان + پسوند کوتاه رندم (چون عنوان فارسی ممکن است نرمال‌سازی شود) */
+    /** اسلاگ خودکار از عنوان + پسوند کوتاه رندم (چون عنوان فارسی ممکن است نرمال‌سازی شود)
+     *  ✅ فضای اسلاگ سراسری است: کاتالوگ فروش + بازار + صفحهٔ اعلان خرید همه روی ریشه بالا می‌آیند.
+     *  اسلاگ دلخواهِ رد شده (تکراری/رزرو/کوتاه) استثنا می‌دهد؛ خودکار پسوند می‌گیرد. */
     private async buildUniqueSlug(title: string, custom?: string): Promise<string> {
-        let base = this.normalizeSlug(custom ?? '') || this.normalizeSlug(title) || 'kharid';
+        const customNormalized = this.normalizeSlug(custom ?? '');
+        if (customNormalized) {
+            if (customNormalized.length < 3) {
+                throw new BadRequestException({ errorCode: 'INVALID_SLUG', message: 'آدرس صفحه باید حداقل ۳ حرف باشد' });
+            }
+            if (RESERVED_SLUGS.includes(customNormalized.toLowerCase())) {
+                throw new BadRequestException({ errorCode: 'SLUG_RESERVED', message: 'این آدرس قابل انتخاب نیست' });
+            }
+            const taken = await this.slugTakenAnywhere(customNormalized);
+            if (taken) {
+                throw new ConflictException({ errorCode: 'SLUG_TAKEN', message: 'این آدرس قبلاً گرفته شده است' });
+            }
+            return customNormalized;
+        }
+        let base = this.normalizeSlug(title) || 'kharid';
         if (RESERVED_SLUGS.includes(base.toLowerCase())) base = `${base}-kharid`;
         for (let i = 0; i < 6; i++) {
             const candidate = i === 0 ? base : `${base}-${Math.random().toString(36).slice(2, 6)}`;
-            const exists = await this.prisma.inquiry.findFirst({ where: { slug: candidate }, select: { id: true } });
-            if (!exists) return candidate;
+            if (!(await this.slugTakenAnywhere(candidate))) return candidate;
         }
         return `${base}-${Date.now().toString(36)}`;
+    }
+
+    /** آیا این اسلاگ در هر سه جدول (کاتالوگ/بازار/اعلام خرید) گرفته شده؟ */
+    private async slugTakenAnywhere(slug: string, excludeInquiryId?: string): Promise<boolean> {
+        const [cat, arm, inq] = await Promise.all([
+            this.prisma.catalog.findFirst({ where: { slug }, select: { id: true } }),
+            this.prisma.arm.findFirst({ where: { slug }, select: { id: true } }),
+            this.prisma.inquiry.findFirst({
+                where: { slug, ...(excludeInquiryId ? { id: { not: excludeInquiryId } } : {}) },
+                select: { id: true },
+            }),
+        ]);
+        return !!(cat || arm || inq);
+    }
+
+    /** چک زندهٔ آزاد بودن آدرس — همان فضای سراسری سه-جدولی (فرم ساخت/ویرایش) */
+    async checkSlugAvailability(raw: string, excludeId?: string) {
+        const slug = this.normalizeSlug(raw);
+        if (!slug || slug.length < 3) return { available: false, reason: 'invalid', slug };
+        if (RESERVED_SLUGS.includes(slug.toLowerCase())) return { available: false, reason: 'reserved', slug };
+        const taken = await this.slugTakenAnywhere(slug, excludeId);
+        return { available: !taken, slug };
+    }
+
+    /** رزولور سبک اسلاگ برای مسیر ریشه /{slug} — فقط متادیتا؛ بازدید شمارش نمی‌شود
+     *  (صفحهٔ کامل توسط کلاینت با /:idOrSlug گرفته می‌شود — اینجا فقط تصمیم رندر + سئو) */
+    async resolvePublicSlug(rawSlug: string) {
+        const slug = (rawSlug ?? '').trim();
+        if (!slug) {
+            throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'صفحه درخواست قیمت پیدا نشد' });
+        }
+        const inquiry = await this.prisma.inquiry.findFirst({
+            where: { slug, status: { not: 'archived' } },
+            select: {
+                id: true, slug: true, title: true, description: true,
+                visibility: true, status: true, city: true, deadline: true,
+                viewCount: true, offerCount: true, createdAt: true,
+                owner: { select: { id: true, fullName: true, avatarUrl: true } },
+                business: { select: { id: true, name: true, logoUrl: true, city: true } },
+                _count: { select: { items: true } },
+            },
+        });
+        if (!inquiry) {
+            throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'صفحه درخواست قیمت پیدا نشد' });
+        }
+        return inquiry;
     }
 
     private cleanItems(items?: InquiryItemDto[]) {
@@ -380,10 +436,11 @@ export class InquiryService implements OnModuleInit {
         }
         if (dto.slug && dto.slug !== inquiry.slug) {
             const normalized = this.normalizeSlug(dto.slug);
-            if (!normalized || RESERVED_SLUGS.includes(normalized.toLowerCase())) {
+            if (!normalized || normalized.length < 3 || RESERVED_SLUGS.includes(normalized.toLowerCase())) {
                 throw new BadRequestException({ errorCode: 'INVALID_SLUG', message: 'این آدرس قابل انتخاب نیست' });
             }
-            const taken = await this.prisma.inquiry.findFirst({ where: { slug: normalized, id: { not: id } } });
+            // ✅ فضای سراسری — کاتالوگ فروش و بازار هم شمرده می‌شوند
+            const taken = await this.slugTakenAnywhere(normalized, id);
             if (taken) throw new BadRequestException({ errorCode: 'SLUG_TAKEN', message: 'این آدرس قبلاً گرفته شده' });
         }
         const { items, slug, deadline, businessId, units, ...rest } = dto;
@@ -612,7 +669,7 @@ export class InquiryService implements OnModuleInit {
             title: 'پیشنهاد قیمت جدید',
             body: `${offerer?.fullName || 'تامین‌کننده'} برای «${itemName || inquiry.title}» قیمت پیشنهاد داد`,
             actorUserId: userId,
-            href: `/inquiries/${inquiry.slug || inquiry.id}`,
+            href: `/${inquiry.slug || inquiry.id}`,
             businessId: inquiry.businessId ?? null,
         });
         return offer;
@@ -664,7 +721,7 @@ export class InquiryService implements OnModuleInit {
                 title: dto.status === 'accepted' ? 'پیشنهادت پذیرفته شد' : 'پیشنهادت رد شد',
                 body: inquiry.title ? `صفحه درخواست قیمت «${inquiry.title}»` : undefined,
                 actorUserId: userId,
-                href: `/inquiries/${inquiry.slug || offer.inquiryId}`,
+                href: `/${inquiry.slug || offer.inquiryId}`,
                 businessId: inquiry.businessId ?? null,
             });
         }

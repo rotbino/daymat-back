@@ -12,6 +12,7 @@ import { CatalogRole } from '../common/enums/prisma-enums';
 import { CacheHelper } from '../common/services/cache.helper';
 import { CatalogPublishService } from '../common/services/catalog-publish.service';
 import { checkMarketTypeMismatch } from '../common/utils/arm.utils';
+import { RESERVED_SLUGS } from '../common/reserved-slugs';
 
 /** عمر کش لیست‌های عمومی کاتالوگ — ۵ دقیقه */
 const PUBLIC_LIST_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -26,13 +27,6 @@ const PUBLIC_LIST_CACHE_TTL_MS = 5 * 60 * 1000;
  */
 @Injectable()
 export class CatalogService {
-    private readonly RESERVED_SLUGS = [
-        'dashboard', 'api', 'admin', 'login', 'register', 'profile',
-        'c', 'ad', 'arm', 'arms', 'business', 'docs', 'feedback',
-        'credit', 'saved-ads', 'no-arm', 'new-home', 'catalog', 'catalogs',
-        'market', 'my-catalogs', 'notifications',
-    ];
-
     constructor(
         private prisma: PrismaService,
         private cache: CacheHelper,
@@ -54,21 +48,23 @@ export class CatalogService {
         if (!slug || slug.length < 3) {
             throw new BadRequestException({ errorCode: 'INVALID_SLUG', message: 'آدرس کاتالوگ باید حداقل ۳ حرف باشد' });
         }
-        if (this.RESERVED_SLUGS.includes(slug.toLowerCase())) {
+        if (RESERVED_SLUGS.includes(slug.toLowerCase())) {
             throw new BadRequestException({ errorCode: 'SLUG_RESERVED', message: 'این آدرس قابل انتخاب نیست' });
         }
         return slug;
     }
 
+    // ✅ فضای اسلاگ سراسری است (کاتالوگ + بازار + صفحهٔ اعلان خرید همه روی ریشه بالا می‌آیند)
     private async ensureSlugAvailable(slug: string, excludeId?: string): Promise<void> {
-        const [cat, arm] = await Promise.all([
+        const [cat, arm, inq] = await Promise.all([
             this.prisma.catalog.findFirst({
                 where: { slug, ...(excludeId ? { id: { not: excludeId } } : {}) },
                 select: { id: true },
             }),
             this.prisma.arm.findFirst({ where: { slug }, select: { id: true } }),
+            this.prisma.inquiry.findFirst({ where: { slug }, select: { id: true } }),
         ]);
-        if (cat || arm) {
+        if (cat || arm || inq) {
             throw new ConflictException({ errorCode: 'SLUG_TAKEN', message: 'این آدرس قبلاً گرفته شده است' });
         }
     }
@@ -76,15 +72,16 @@ export class CatalogService {
     async checkSlugAvailability(raw: string, excludeId?: string) {
         const slug = this.normalizeSlug(raw);
         if (!slug || slug.length < 3) return { available: false, reason: 'invalid', slug };
-        if (this.RESERVED_SLUGS.includes(slug.toLowerCase())) return { available: false, reason: 'reserved', slug };
-        const [cat, arm] = await Promise.all([
+        if (RESERVED_SLUGS.includes(slug.toLowerCase())) return { available: false, reason: 'reserved', slug };
+        const [cat, arm, inq] = await Promise.all([
             this.prisma.catalog.findFirst({
                 where: { slug, ...(excludeId ? { id: { not: excludeId } } : {}) },
                 select: { id: true },
             }),
             this.prisma.arm.findFirst({ where: { slug }, select: { id: true } }),
+            this.prisma.inquiry.findFirst({ where: { slug }, select: { id: true } }),
         ]);
-        return { available: !cat && !arm, slug };
+        return { available: !cat && !arm && !inq, slug };
     }
 
     // ─── مالکیت ───

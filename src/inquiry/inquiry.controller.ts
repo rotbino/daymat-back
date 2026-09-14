@@ -71,6 +71,25 @@ export class InquiryController {
         return this.inquiryService.opportunities(user.id);
     }
 
+    // ⚠️ قبل از :idOrSlug — وگرنه greedy می‌شود
+    // ✅ فضای اسلاگ سراسری (کاتالوگ + بازار + صفحهٔ اعلان خرید) — چک زندهٔ فرم ساخت/ویرایش
+    @Get('check-slug')
+    @ApiOperation({ summary: 'بررسی آزاد بودن آدرس صفحهٔ اعلان خرید' })
+    @ApiQuery({ name: 'slug', required: true })
+    @ApiQuery({ name: 'excludeId', required: false })
+    checkSlug(@Query('slug') slug: string, @Query('excludeId') excludeId?: string) {
+        return this.inquiryService.checkSlugAvailability(slug ?? '', excludeId || undefined);
+    }
+
+    // ⚠️ قبل از :idOrSlug — وگرنه greedy می‌شود
+    // رزولور سبک برای مسیر ریشه /{slug} — فقط متادیتا؛ بازدید را شمارش نمی‌کند (کلاینت کاملش را می‌گیرد)
+    @Get('slug-resolve')
+    @ApiOperation({ summary: 'رزولور سبک اسلاگ برای مسیر ریشه /{slug}' })
+    @ApiQuery({ name: 'slug', required: true })
+    resolveSlug(@Query('slug') slug: string) {
+        return this.inquiryService.resolvePublicSlug(slug ?? '');
+    }
+
     @Get(':idOrSlug')
     @UseGuards(OptionalJwtAuthGuard)
     @ApiOperation({ summary: 'جزئیات صفحه درخواست قیمت با شناسه یا اسلاگ (مالک: با پیشنهادها)' })
