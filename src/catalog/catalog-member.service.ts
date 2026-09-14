@@ -821,6 +821,29 @@ export class CatalogMemberService {
             return { ...c, sellerName: s ? (s.fullName || s.businessName) : null };
         });
 
+        // ✅ کاتالوگ‌های خریدِ خریدارها — شبکهٔ خرید↔فروش:
+        //    خریدار از روی کاتالوگ خریدش شناخته می‌شود، نه فقط کسب‌وکارش
+        const buyerUserIds = Array.from(new Set(
+            customers.filter((c) => c.customerStatus === 'active').map((c) => c.userId),
+        ));
+        let purchaseCatalogsByUser = new Map<string, { id: string; title: string; slug: string | null }[]>();
+        if (buyerUserIds.length) {
+            const buyerInquiries = await this.prisma.inquiry.findMany({
+                where: { ownerUserId: { in: buyerUserIds }, status: { not: 'archived' } },
+                select: { id: true, title: true, slug: true, ownerUserId: true },
+                orderBy: { createdAt: 'desc' },
+            });
+            for (const q of buyerInquiries) {
+                const list = purchaseCatalogsByUser.get(q.ownerUserId) ?? [];
+                list.push({ id: q.id, title: q.title, slug: q.slug });
+                purchaseCatalogsByUser.set(q.ownerUserId, list);
+            }
+        }
+        customers = customers.map((c) => ({
+            ...c,
+            purchaseCatalogs: purchaseCatalogsByUser.get(c.userId) ?? [],
+        }));
+
         // عضوِ فروش فقط خریدارهای خودش را می‌بیند
         const scopedCustomers = canManage ? customers : customers.filter((c) => c.assignedSellerUserId === actorId);
         const scopedSellers = canManage

@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
-import { CreateInquiryDto, UpdateInquiryDto, CreateOfferDto, UpdateOfferDto, InquiryItemDto, UpdateInquiryItemDto, InquiryUnitDto } from './inquiry.dto';
+import { CreateInquiryDto, UpdateInquiryDto, CreateOfferDto, UpdateOfferDto, InquiryItemDto, UpdateInquiryItemDto, InquiryUnitDto, AddInquiryMemberDto, RequestInquiryAccessDto } from './inquiry.dto';
 
 const RESERVED_SLUGS = [
     'admin', 'api', 'login', 'logout', 'register', 'my-catalogs', 'my-inquiries',
@@ -107,6 +107,38 @@ export class InquiryService implements OnModuleInit {
 
     private isValidObjectId(id?: string): boolean {
         return !!id && /^[0-9a-fA-F]{24}$/.test(id);
+    }
+
+    /** آیا این کاربر (با یکی از کاتالوگ‌های فروشش) تامین‌کنندهٔ تاییدشدهٔ این کاتالوگ خرید است؟ */
+    private async isActiveMember(inquiryId: string, userId: string): Promise<boolean> {
+        if (!userId) return false;
+        const cnt = await this.prisma.inquiryMember.count({
+            where: { inquiryId, userId, status: 'active' },
+        });
+        return cnt > 0;
+    }
+
+    /** 🔔 اعلان «اعلام خرید فوری» به تامین‌کننده‌های تاییدشده — قلب شبکهٔ خرید↔فروش */
+    private async notifyUrgentAnnounce(
+        inquiry: { id: string; title: string; slug: string | null; ownerUserId: string },
+        itemName: string,
+    ) {
+        try {
+            const members = await this.prisma.inquiryMember.findMany({
+                where: { inquiryId: inquiry.id, status: 'active' },
+                select: { userId: true },
+            });
+            const targets = members.map((m) => m.userId).filter((id) => id !== inquiry.ownerUserId);
+            if (!targets.length) return;
+            void this.notification.notify({
+                userIds: targets,
+                type: 'inquiry_urgent_item',
+                title: 'اعلام خرید فوری',
+                body: `«${itemName}» — در کاتالوگ خرید ${inquiry.title}`,
+                actorUserId: inquiry.ownerUserId,
+                href: `/inquiries/${inquiry.slug || inquiry.id}`,
+            });
+        } catch { /* اعلان هرگز جریان اصلی را نمی‌شکند */ }
     }
 
     private normalizeSlug(input: string): string {
@@ -264,6 +296,23 @@ export class InquiryService implements OnModuleInit {
         }
         const isOwner = !!userId && userId === inquiry.ownerUserId;
 
+        // ✅ گیت کاتالوگ خصوصی — فقط تامین‌کننده‌های تاییدشده محتوایش را می‌بینند
+        let isMember = false;
+        if (!isOwner && inquiry.visibility === 'private') {
+            isMember = await this.isActiveMember(inquiry.id, userId as string);
+            if (!isMember) {
+                return {
+                    limited: true,
+                    id: inquiry.id,
+                    slug: inquiry.slug,
+                    title: inquiry.title, // عنوان برای گویا بودن درخواست عضویت
+                    visibility: 'private',
+                    isOwner: false,
+                    isMember: false,
+                };
+            }
+        }
+
         // شمارش بازدید — fire & forget (بازدید مالک حساب نمی‌شود)
         if (!isOwner) {
             this.prisma.inquiry.update({ where: { id: inquiry.id }, data: { viewCount: { increment: 1 } } })
@@ -287,7 +336,7 @@ export class InquiryService implements OnModuleInit {
             return { ...inquiry, isOwner, offers: offers.map((o) => ({ ...o, business: o.businessId ? bizMap[o.businessId] ?? null : null })) };
         }
 
-        return { ...inquiry, isOwner: false };
+        return { ...inquiry, isOwner: false, isMember };
     }
 
     // ─── ویرایش (مالک) ───
@@ -388,7 +437,7 @@ export class InquiryService implements OnModuleInit {
             where: { inquiryId }, orderBy: { order: 'desc' }, select: { order: true },
         });
         const urgent = dto.urgent === true;
-        return this.prisma.inquiryItem.create({
+        const item = await this.prisma.inquiryItem.create({
             data: {
                 ...cleaned,
                 inquiryId,
@@ -397,6 +446,15 @@ export class InquiryService implements OnModuleInit {
                 urgentAt: urgent ? new Date() : null,
             },
         });
+        // 🔔 اعلام خرید فوری → اعلان به تامین‌کننده‌های تاییدشده
+        if (urgent) {
+            const ing = await this.prisma.inquiry.findUnique({
+                where: { id: inquiryId },
+                select: { id: true, title: true, slug: true, ownerUserId: true },
+            });
+            if (ing) void this.notifyUrgentAnnounce(ing, item.name);
+        }
+        return item;
     }
 
     /** ویرایش یک قلم — merge فیلدهای ارسال‌شده (تاگل اعلام خرید فقط urgent می‌فرستد) */
@@ -429,7 +487,16 @@ export class InquiryService implements OnModuleInit {
             data.urgentAt = dto.urgent ? (item.urgentAt ?? new Date()) : null;
         }
         if (Object.keys(data).length === 0) return item;
-        return this.prisma.inquiryItem.update({ where: { id: itemId }, data });
+        const updated = await this.prisma.inquiryItem.update({ where: { id: itemId }, data });
+        // 🔔 اعلام خرید تازه (خاموش→روشن) → اعلان به تامین‌کننده‌های تاییدشده
+        if (typeof dto.urgent === 'boolean' && dto.urgent && !item.urgent) {
+            const ing = await this.prisma.inquiry.findUnique({
+                where: { id: inquiryId },
+                select: { id: true, title: true, slug: true, ownerUserId: true },
+            });
+            if (ing) void this.notifyUrgentAnnounce(ing, updated.name);
+        }
+        return updated;
     }
 
     /** حذف یک قلم */
@@ -455,6 +522,13 @@ export class InquiryService implements OnModuleInit {
         }
         if (inquiry.ownerUserId === userId) {
             throw new BadRequestException({ errorCode: 'OWN_INQUIRY', message: 'روی کاتالوگ خرید خودتان نمی‌توانید پیشنهاد بدهید' });
+        }
+        // ✅ گیت کاتالوگ خصوصی — فقط تامین‌کننده‌های تاییدشده قیمت می‌دهند
+        if (inquiry.visibility === 'private' && !(await this.isActiveMember(inquiryId, userId))) {
+            throw new ForbiddenException({
+                errorCode: 'PRIVATE_INQUIRY',
+                message: 'این کاتالوگ خرید خصوصی است — فقط تامین‌کننده‌های تاییدشده می‌توانند قیمت بدهند',
+            });
         }
         if (dto.itemId && !this.isValidObjectId(dto.itemId)) {
             throw new BadRequestException({ errorCode: 'INVALID_ITEM', message: 'قلم نامعتبر است' });
@@ -577,5 +651,290 @@ export class InquiryService implements OnModuleInit {
             },
         });
         return offers;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // ✅ اعضای کاتالوگ خرید — تامین‌کننده‌های تاییدشده (شبکهٔ خرید↔فروش)
+    //    همهٔ ارتباطات کاتالوگ‌به‌کاتالوگ می‌شود: خریدار از روی کاتالوگ خریدش
+    //    تامین‌کننده اضافه می‌کند؛ تامین‌کننده اعلام خریدهای فوری را در
+    //    پنل کاتالوگ فروشش می‌بیند و قیمت می‌دهد.
+    // ═══════════════════════════════════════════════════════════════════
+
+    /** فهرست تامین‌کننده‌های این کاتالوگ خرید (مالک — تب «تامین‌کنندگان» پنل خرید) */
+    async getMembers(inquiryId: string, userId: string) {
+        await this.assertOwner(inquiryId, userId);
+        return this.prisma.inquiryMember.findMany({
+            where: { inquiryId },
+            orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
+            include: {
+                catalog: { select: { id: true, name: true, slug: true, logoUrl: true, city: true } },
+                user: { select: { id: true, fullName: true, avatarUrl: true } },
+            },
+        });
+    }
+
+    /** جست‌وجوی کاتالوگ فروش برای دعوت — فعال‌ها، بدون عضویت قبلی */
+    async supplierCandidates(inquiryId: string, userId: string, q?: string) {
+        await this.assertOwner(inquiryId, userId);
+        const members = await this.prisma.inquiryMember.findMany({
+            where: { inquiryId },
+            select: { catalogId: true },
+        });
+        const where: any = { status: 'active', id: { notIn: members.map((m) => m.catalogId) } };
+        if (q?.trim()) where.name = { contains: q.trim() };
+        const items = await this.prisma.catalog.findMany({
+            where,
+            select: { id: true, name: true, slug: true, logoUrl: true, city: true },
+            orderBy: { createdAt: 'desc' },
+            take: 20,
+        });
+        return { items };
+    }
+
+    /** دعوت تامین‌کننده توسط خریدار (buyer_add) — تایید نهایی با تامین‌کننده */
+    async addMember(inquiryId: string, userId: string, dto: AddInquiryMemberDto) {
+        await this.assertOwner(inquiryId, userId);
+        if (!this.isValidObjectId(dto.catalogId)) {
+            throw new BadRequestException({ errorCode: 'INVALID_CATALOG', message: 'کاتالوگ نامعتبر است' });
+        }
+        const catalog = await this.prisma.catalog.findUnique({
+            where: { id: dto.catalogId },
+            select: {
+                id: true, name: true, status: true,
+                business: { select: { ownerUserId: true, creatorUserId: true } },
+            },
+        });
+        if (!catalog || catalog.status !== 'active') {
+            throw new BadRequestException({ errorCode: 'CATALOG_NOT_FOUND', message: 'کاتالوگ تامین‌کننده پیدا نشد' });
+        }
+        const supplierUserId = catalog.business.ownerUserId || catalog.business.creatorUserId || null;
+        if (supplierUserId === userId) {
+            throw new BadRequestException({ errorCode: 'OWN_CATALOG', message: 'کاتالوگ فروش خودتان را نمی‌توانید تامین‌کننده کنید' });
+        }
+        const inquiry = await this.prisma.inquiry.findUnique({
+            where: { id: inquiryId },
+            select: { id: true, title: true, businessId: true, ownerUserId: true },
+        });
+        if (!inquiry) throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'کاتالوگ خرید پیدا نشد' });
+
+        const existing = await this.prisma.inquiryMember.findUnique({
+            where: { inquiryId_catalogId: { inquiryId, catalogId: dto.catalogId } },
+        });
+        let member;
+        if (existing) {
+            if (existing.status === 'active') {
+                throw new BadRequestException({ errorCode: 'ALREADY_MEMBER', message: 'این تامین‌کننده قبلاً عضو شده' });
+            }
+            if (existing.status === 'pending') {
+                throw new BadRequestException({ errorCode: 'PENDING', message: 'وضعیت این تامین‌کننده هنوز در انتظار است' });
+            }
+            // declined/removed → دعوت دوباره
+            member = await this.prisma.inquiryMember.update({
+                where: { id: existing.id },
+                data: { status: 'pending', via: 'buyer_add', userId: supplierUserId ?? existing.userId, note: dto.note ?? null },
+            });
+        } else {
+            member = await this.prisma.inquiryMember.create({
+                data: {
+                    inquiryId,
+                    catalogId: dto.catalogId,
+                    userId: supplierUserId!,
+                    status: 'pending',
+                    via: 'buyer_add',
+                    note: dto.note ?? null,
+                },
+            });
+        }
+        // 🔔 به تامین‌کننده — دعوت به تامین‌کنندگی
+        void this.notification.notify({
+            userIds: [member.userId],
+            type: 'inquiry_member_invite',
+            title: 'دعوت به تامین‌کنندگی',
+            body: `کاتالوگ خرید «${inquiry.title}» تو را به‌عنوان تامین‌کننده دعوت کرده`,
+            actorUserId: userId,
+            href: '/my-catalogs?tab=leads',
+            businessId: inquiry.businessId ?? null,
+        });
+        return member;
+    }
+
+    /** درخواست عضویت تامین‌کننده (از گیت صفحهٔ عمومی کاتالوگ خصوصی) — تایید با خریدار */
+    async requestAccess(inquiryId: string, userId: string, dto: RequestInquiryAccessDto) {
+        const inquiry = await this.prisma.inquiry.findUnique({ where: { id: inquiryId } });
+        if (!inquiry || inquiry.status === 'archived') {
+            throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'کاتالوگ خرید پیدا نشد' });
+        }
+        if (inquiry.ownerUserId === userId) {
+            throw new BadRequestException({ errorCode: 'OWN_INQUIRY', message: 'این کاتالوگ خرید مال خودتان است' });
+        }
+        if (!this.isValidObjectId(dto.catalogId)) {
+            throw new BadRequestException({ errorCode: 'INVALID_CATALOG', message: 'کاتالوگ نامعتبر است' });
+        }
+        const catalog = await this.prisma.catalog.findFirst({
+            where: {
+                id: dto.catalogId,
+                OR: [{ business: { ownerUserId: userId } }, { business: { creatorUserId: userId } }],
+            },
+            select: { id: true, name: true, status: true },
+        });
+        if (!catalog || catalog.status !== 'active') {
+            throw new ForbiddenException({ errorCode: 'NOT_YOUR_CATALOG', message: 'این کاتالوگ فروش متعلق به شما نیست' });
+        }
+        const existing = await this.prisma.inquiryMember.findUnique({
+            where: { inquiryId_catalogId: { inquiryId, catalogId: catalog.id } },
+        });
+        if (existing && (existing.status === 'active' || existing.status === 'pending')) {
+            return existing; // عضو یا در انتظار — همان را برگردان
+        }
+        const member = existing
+            ? await this.prisma.inquiryMember.update({
+                  where: { id: existing.id },
+                  data: { status: 'pending', via: 'supplier_request', userId, note: dto.note ?? null },
+              })
+            : await this.prisma.inquiryMember.create({
+                  data: { inquiryId, catalogId: catalog.id, userId, status: 'pending', via: 'supplier_request', note: dto.note ?? null },
+              });
+        // 🔔 به خریدار — درخواست تامین‌کنندگی
+        void this.notification.notify({
+            userIds: [inquiry.ownerUserId],
+            type: 'inquiry_member_request',
+            title: 'درخواست تامین‌کنندگی',
+            body: `«${catalog.name}» درخواست عضویت در کاتالوگ خرید «${inquiry.title}» را دارد`,
+            actorUserId: userId,
+            href: '/my-inquiries?tab=members',
+            businessId: inquiry.businessId ?? null,
+        });
+        return member;
+    }
+
+    /** تایید/رد/حذف عضو — بسته به مسیر: تایید دعوت با تامین‌کننده، تایید درخواست با خریدار؛ رد/حذف با هر دو */
+    async decideMember(inquiryId: string, memberId: string, userId: string, status: 'active' | 'declined' | 'removed') {
+        const member = await this.prisma.inquiryMember.findFirst({ where: { id: memberId, inquiryId } });
+        if (!member) throw new NotFoundException({ errorCode: 'MEMBER_NOT_FOUND', message: 'عضو پیدا نشد' });
+        const inquiry = await this.prisma.inquiry.findUnique({
+            where: { id: inquiryId },
+            select: { id: true, title: true, slug: true, ownerUserId: true, businessId: true },
+        });
+        if (!inquiry) throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'کاتالوگ خرید پیدا نشد' });
+
+        const isBuyer = inquiry.ownerUserId === userId;
+        const isSupplier = member.userId === userId;
+        if (!isBuyer && !isSupplier) {
+            throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'اجازهٔ این کار را ندارید' });
+        }
+
+        // رد / حذف — هر دو طرف مجاز
+        if (status !== 'active') {
+            return this.prisma.inquiryMember.update({
+                where: { id: member.id },
+                data: { status: status === 'removed' ? 'removed' : 'declined' },
+            });
+        }
+
+        // تایید — فقط مسیر درستش
+        if (member.via === 'buyer_add' && !isSupplier) {
+            throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'تایید دعوت با تامین‌کننده است' });
+        }
+        if (member.via === 'supplier_request' && !isBuyer) {
+            throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'تایید درخواست با خریدار است' });
+        }
+        const updated = await this.prisma.inquiryMember.update({
+            where: { id: member.id },
+            data: { status: 'active' },
+        });
+        // 🔔 به طرف مقابل
+        if (member.via === 'supplier_request') {
+            void this.notification.notify({
+                userIds: [member.userId],
+                type: 'inquiry_member_approved',
+                title: 'تامین‌کنندهٔ تایید شدید',
+                body: `در کاتالوگ خرید «${inquiry.title}» تایید شدید — اعلام خریدهایش را می‌بینید`,
+                actorUserId: userId,
+                href: '/my-catalogs?tab=leads',
+                businessId: inquiry.businessId ?? null,
+            });
+        } else {
+            void this.notification.notify({
+                userIds: [inquiry.ownerUserId],
+                type: 'inquiry_member_confirmed',
+                title: 'تامین‌کنندهٔ جدید',
+                body: `تامین‌کننده دعوت شما را برای «${inquiry.title}» پذیرفت`,
+                actorUserId: userId,
+                href: '/my-inquiries?tab=members',
+                businessId: inquiry.businessId ?? null,
+            });
+        }
+        return updated;
+    }
+
+    /**
+     * ✅ فرصت‌های فروش تامین‌کننده — سمت کاتالوگ فروش:
+     *    دعوت‌های در انتظار (buyer_add) + درخواست‌های من در انتظار خریدار (supplier_request)
+     *    + اعلام خریدهای فوریِ کاتالوگ‌های خریدی که تامین‌کنندهٔ تاییدشده‌شانم (تب «درخواست خریدها»)
+     */
+    async opportunities(userId: string) {
+        const myCatalogs = await this.prisma.catalog.findMany({
+            where: {
+                status: 'active',
+                business: { OR: [{ ownerUserId: userId }, { creatorUserId: userId }] },
+            },
+            select: { id: true, name: true, slug: true, logoUrl: true },
+        });
+        const catalogIds = myCatalogs.map((c) => c.id);
+        if (catalogIds.length === 0) {
+            return { catalogs: [], invitations: [], requests: [], leads: [] };
+        }
+
+        const memberships = await this.prisma.inquiryMember.findMany({
+            where: { catalogId: { in: catalogIds }, status: { in: ['pending', 'active'] } },
+            include: {
+                inquiry: {
+                    select: {
+                        id: true, title: true, slug: true, visibility: true, status: true,
+                        city: true, deliveryNote: true, paymentTerms: true, deadline: true,
+                        business: { select: { id: true, name: true, logoUrl: true, city: true } },
+                        items: { where: { urgent: true }, orderBy: { urgentAt: 'desc' } },
+                    },
+                },
+                user: { select: { id: true, fullName: true } },
+            },
+        });
+
+        const invitations = memberships
+            .filter((m) => m.status === 'pending' && m.via === 'buyer_add' && m.inquiry.status !== 'archived')
+            .map((m) => ({
+                memberId: m.id,
+                inquiry: {
+                    id: m.inquiry.id, title: m.inquiry.title, slug: m.inquiry.slug, city: m.inquiry.city,
+                    urgentCount: m.inquiry.items.length,
+                },
+                buyer: m.inquiry.business,
+                ownerName: m.user?.fullName || null,
+                note: m.note,
+                createdAt: m.createdAt,
+            }));
+
+        const requests = memberships
+            .filter((m) => m.status === 'pending' && m.via === 'supplier_request')
+            .map((m) => ({
+                memberId: m.id,
+                inquiry: { id: m.inquiry.id, title: m.inquiry.title, slug: m.inquiry.slug },
+                createdAt: m.createdAt,
+            }));
+
+        const leads = memberships
+            .filter((m) => m.status === 'active' && m.inquiry.status !== 'archived' && m.inquiry.items.length > 0)
+            .map((m) => ({
+                memberId: m.id,
+                inquiry: {
+                    id: m.inquiry.id, title: m.inquiry.title, slug: m.inquiry.slug, city: m.inquiry.city,
+                    deliveryNote: m.inquiry.deliveryNote, paymentTerms: m.inquiry.paymentTerms,
+                    deadline: m.inquiry.deadline,
+                },
+                buyer: m.inquiry.business,
+                items: m.inquiry.items,
+            }));
+
+        return { catalogs: myCatalogs, invitations, requests, leads };
     }
 }

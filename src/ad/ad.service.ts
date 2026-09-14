@@ -2443,6 +2443,37 @@ export class AdService {
             }
         }
 
+        // ═══ ✅ NEW — راهنمای شبکهٔ خرید↔فروش: «هر دو کاتالوگ را داشته باش» ═══
+        //    کسب‌وکارِ فعال دارید ولی کاتالوگ خرید/فروش ندارید → یادآوری پایدار تا بسازد
+        //    (بدون آن عضوگیریِ کاتالوگ‌به‌کاتالوگ ممکن نیست — درخواست‌ها بی‌مقصد می‌مانند)
+        try {
+            const [hasBiz, salesCatalogCount, purchaseCatalogCount] = await Promise.all([
+                this.prisma.business.count({ where: { OR: [{ ownerUserId: userId }, { creatorUserId: userId }], status: 'active' } }),
+                this.prisma.catalog.count({ where: { status: 'active', business: { OR: [{ ownerUserId: userId }, { creatorUserId: userId }] } } }),
+                this.prisma.inquiry.count({ where: { ownerUserId: userId, status: { not: 'archived' } } }),
+            ]);
+            if (hasBiz > 0 && purchaseCatalogCount === 0) {
+                items.unshift({
+                    id: 'network-no-purchase-catalog',
+                    type: 'network-no-purchase-catalog',
+                    severity: 'info',
+                    title: 'کاتالوگ خرید نداری — شبکهٔ تامینت ناقص است',
+                    body: 'تامین‌کننده‌ها از روی کاتالوگ خریدت بهت وصل می‌شن و اعلام خریدهای فوریت رو می‌بینن',
+                    action: { label: 'ساخت کاتالوگ خرید', href: '/inquiries/new' },
+                });
+            }
+            if (hasBiz > 0 && salesCatalogCount === 0) {
+                items.unshift({
+                    id: 'network-no-sales-catalog',
+                    type: 'network-no-sales-catalog',
+                    severity: 'info',
+                    title: 'کاتالوگ فروش نداری — دیده نمی‌شی',
+                    body: 'با کاتالوگ فروش، خریدارها از روی کاتالوگ خریدشان بهت وصل می‌شن و سرنخ فروش می‌گیری',
+                    action: { label: 'ساخت کاتالوگ فروش', href: '/business/register' },
+                });
+            }
+        } catch { /* راهنما هرگز جریان اصلی را نمی‌شکند */ }
+
         const unread = items.filter((i) => i.severity !== 'info').length;
         return { items, unread };
     }

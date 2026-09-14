@@ -123,6 +123,7 @@ model User {
   catalogInteractions      CatalogInteraction[]
   catalogMemberships       CatalogMember[]        @relation("CatMemberUser") // کاتالوگ‌هایی که عضوشان است (همکار فروش/خریدار/تامین‌کننده/مدیر)
   catalogAssignedCustomers CatalogMember[]        @relation("CatMemberAssignee") // خریدارهایی که به او به‌عنوان مسئول فروش منتسب شده‌اند
+  inquiryMemberships       InquiryMember[]        @relation("InqMemberUser") // ✅ کاتالوگ‌های خریدی که (با کاتالوگ فروشش) تامین‌کنندهٔشان است
   catalogTeamEvents        CatalogTeamEvent[]     @relation("CatTeamEventUser") // رویدادهای تیمیِ مربوط به کاربر
   phoneContacts            UserContact[]          @relation("ContactOwner")       // ✅ دفترچهٔ مخاطبینِ آپلودشدهٔ کاربر
   discoveredInContacts     UserContact[]          @relation("ContactMatchedUser") // ✅ در دفترچهٔ چه کسانی پیدا شده
@@ -227,6 +228,7 @@ model Catalog {
   members             CatalogMember[]    @relation("CatMemberCatalog") // اعضای کاتالوگ (مالک/مدیر/همکار فروش/خریدار)
   supplierMemberships CatalogMember[]    @relation("CatMemberSupplierCatalog") // کاتالوگ‌هایی که این کاتالوگ ازشان تامین می‌کند
   serviceMemberships  CatalogMember[]    @relation("CatMemberServiceCatalog") // کاتالوگ‌هایی که این کاتالوگ برایشان خدمات ارائه می‌کند
+  inquirySupplierMemberships InquiryMember[] @relation("InqMemberSupplierCatalog") // ✅ کاتالوگ‌های خریدی که این کاتالوگ تامین‌کنندهٔ تاییدشدهٔشان است
   teamEvents          CatalogTeamEvent[] @relation("CatTeamEventCatalog")
   ads                 Ad[]
   armMemberships      ArmMembership[]
@@ -893,7 +895,8 @@ model Inquiry {
   title       String                      // «لیست خرید هفتگی سوپرمارکت»
   description String?
   slug        String?   @unique           // لینک عمومی اشتراک‌گذاری
-  visibility  String    @default("public") // public | unlisted (فقط با لینک)
+  // عمومی = دیوار + همه | فقط با لینک | خصوصی = فقط تامین‌کننده‌های تاییدشده (اعضای InquiryMember)
+  visibility  String    @default("public") // public | unlisted | private
   status      String    @default("open")   // open | closed | archived
   deadline    DateTime?                   // مهلت پاسخ (اختیاری)
 
@@ -925,6 +928,7 @@ model Inquiry {
 
   items  InquiryItem[]
   offers InquiryOffer[]
+  members InquiryMember[] @relation("InqMemberInquiry") // ✅ تامین‌کننده‌های تاییدشدهٔ این کاتالوگ خرید — شبکهٔ خرید↔فروش
 
   @@index([status, createdAt])
   @@index([ownerUserId])
@@ -981,6 +985,35 @@ model InquiryOffer {
 
   @@index([inquiryId, status])
   @@index([offererUserId])
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// ✅ عضویت کاتالوگ‌به‌کاتالوگ: تامین‌کننده (کاتالوگ فروش) ↔ خریدار (کاتالوگ خرید)
+//    «همهٔ ارتباطات می‌شود کاتالوگ خرید و کاتالوگ فروش» — قبلاً بیزینس ادد می‌شد.
+//    عضوِ فعال: اعلام خریدهای فوریِ خریدار را در تب «درخواست خریدها»ی پنل فروشش می‌بیند
+//    و رویشان قیمت می‌دهد؛ در کاتالوگ‌های خریدِ خصوصی، فقط همین‌ها می‌بینند و قیمت می‌دهند.
+//    دو مسیر: buyer_add (خریدار دعوت می‌کند → تایید با تامین‌کننده)
+//             supplier_request (تامین‌کننده درخواست عضویت می‌دهد → تایید با خریدار)
+// ────────────────────────────────────────────────────────────────────────────
+model InquiryMember {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  inquiryId String   @db.ObjectId
+  inquiry   Inquiry  @relation("InqMemberInquiry", fields: [inquiryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  catalogId String   @db.ObjectId // کاتالوگ فروشِ تامین‌کننده
+  catalog   Catalog  @relation("InqMemberSupplierCatalog", fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  userId    String   @db.ObjectId // مالکِ تامین‌کننده — برای دسترسی و اعلان
+  user      User     @relation("InqMemberUser", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  status    String   @default("pending") // pending | active | declined | removed
+  via       String   @default("buyer_add") // buyer_add | supplier_request
+  note      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([inquiryId, catalogId])
+  @@index([catalogId, status])
+  @@index([inquiryId, status])
+  @@index([userId, status])
 }
 
 model AdView {

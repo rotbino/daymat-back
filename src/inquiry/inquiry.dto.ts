@@ -118,9 +118,9 @@ export class CreateInquiryDto {
     @Type(() => InquiryItemDto)
     items?: InquiryItemDto[];
 
-    @ApiPropertyOptional({ enum: ['public', 'unlisted'], default: 'public', description: 'عمومی یا فقط با لینک' })
+    @ApiPropertyOptional({ enum: ['public', 'unlisted', 'private'], default: 'public', description: 'عمومی (دیوار) | فقط با لینک | خصوصی (فقط تامین‌کننده‌های تاییدشده)' })
     @IsOptional()
-    @IsIn(['public', 'unlisted'])
+    @IsIn(['public', 'unlisted', 'private'])
     visibility?: string;
 
     @ApiPropertyOptional({ example: '2026-09-20T18:00:00.000Z', description: 'مهلت پاسخ (اختیاری)', required: false })
@@ -197,7 +197,7 @@ export class UpdateInquiryDto {
     @IsOptional() @IsString() @MaxLength(1500) description?: string;
     @IsOptional() @IsArray() @ArrayMaxSize(200) @ValidateNested({ each: true }) @Type(() => InquiryItemDto)
     items?: InquiryItemDto[];
-    @IsOptional() @IsIn(['public', 'unlisted']) visibility?: string;
+    @IsOptional() @IsIn(['public', 'unlisted', 'private']) visibility?: string;
     @IsOptional() @IsIn(['open', 'closed', 'archived']) status?: string;
     @IsOptional() @IsISO8601({}) deadline?: string;
     @IsOptional() @IsString() @MaxLength(60) slug?: string;
@@ -265,4 +265,39 @@ export class UpdateOfferDto {
     @ApiProperty({ enum: ['accepted', 'rejected', 'withdrawn'], description: 'پذیرش/رد توسط مالک، انصراف توسط پیشنهاددهنده' })
     @IsIn(['accepted', 'rejected', 'withdrawn'])
     status: string;
+}
+
+// ═══ اعضای کاتالوگ خرید — تامین‌کننده‌های تاییدشده (شبکهٔ خرید↔فروش) ═══
+
+export class AddInquiryMemberDto {
+    @ApiProperty({ description: 'کاتالوگ فروشِ تامین‌کننده (باید متعلق به تامین‌کننده باشد)' })
+    @IsNotEmpty({ message: 'کاتالوگ تامین‌کننده الزامی است' })
+    @IsString()
+    catalogId: string;
+
+    @ApiPropertyOptional({ description: 'یادداشت دعوت', required: false })
+    @IsOptional()
+    @IsString()
+    @MaxLength(300)
+    note?: string;
+}
+
+export class RequestInquiryAccessDto {
+    @ApiProperty({ description: 'کاتالوگ فروش خودم که با آن درخواست عضویت می‌دهم' })
+    @IsNotEmpty({ message: 'کاتالوگ فروش الزامی است' })
+    @IsString()
+    catalogId: string;
+
+    @ApiPropertyOptional({ description: 'پیام به خریدار', required: false })
+    @IsOptional()
+    @IsString()
+    @MaxLength(300)
+    note?: string;
+}
+
+/** تغییر وضعیت عضو — تایید/رد/حذف؛ نقش مجاز در سرویس تشخیص داده می‌شود */
+export class DecideInquiryMemberDto {
+    @ApiProperty({ enum: ['active', 'declined', 'removed'], description: 'تایید (active) | رد (declined) | حذف/خروج (removed)' })
+    @IsIn(['active', 'declined', 'removed'])
+    status: 'active' | 'declined' | 'removed';
 }
