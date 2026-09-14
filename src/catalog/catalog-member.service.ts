@@ -821,8 +821,8 @@ export class CatalogMemberService {
             return { ...c, sellerName: s ? (s.fullName || s.businessName) : null };
         });
 
-        // ✅ کاتالوگ‌های خریدِ خریدارها — شبکهٔ خرید↔فروش:
-        //    خریدار از روی کاتالوگ خریدش شناخته می‌شود، نه فقط کسب‌وکارش
+        // ✅ صفحه‌های خریدِ خریدارها — شبکهٔ خرید↔فروش:
+        //    خریدار از روی صفحه خریدش شناخته می‌شود، نه فقط کسب‌وکارش
         const buyerUserIds = Array.from(new Set(
             customers.filter((c) => c.customerStatus === 'active').map((c) => c.userId),
         ));

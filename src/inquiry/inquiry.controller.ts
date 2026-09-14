@@ -1,5 +1,5 @@
 // src/inquiry/inquiry.controller.ts
-// کاتالوگ خرید (استعلام قیمت) — کنترلر
+// صفحه خرید (استعلام قیمت) — کنترلر
 import {
     Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards,
 } from '@nestjs/common';
@@ -15,9 +15,9 @@ import { OptionalJwtAuthGuard } from '../common/guards/optional-jwt-auth.guard';
 export class InquiryController {
     constructor(private inquiryService: InquiryService) {}
 
-    // ─── عمومی: دیوار کاتالوگ‌های خرید ───
+    // ─── عمومی: دیوار صفحه‌های خرید ───
     @Get('public')
-    @ApiOperation({ summary: 'دیوار عمومی کاتالوگ‌های خرید باز (بدون نیاز به ورود)' })
+    @ApiOperation({ summary: 'دیوار عمومی صفحه‌های خرید باز (بدون نیاز به ورود)' })
     @ApiQuery({ name: 'q', required: false })
     @ApiQuery({ name: 'city', required: false })
     @ApiQuery({ name: 'tag', required: false })
@@ -41,7 +41,7 @@ export class InquiryController {
     @Post()
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'ساخت کاتالوگ خرید جدید' })
+    @ApiOperation({ summary: 'ساخت صفحه خرید جدید' })
     create(@CurrentUser() user: any, @Body() dto: CreateInquiryDto) {
         return this.inquiryService.create(user.id, dto);
     }
@@ -49,7 +49,7 @@ export class InquiryController {
     @Get('mine')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'کاتالوگ‌های خرید من' })
+    @ApiOperation({ summary: 'صفحه‌های خرید من' })
     mine(@CurrentUser() user: any) {
         return this.inquiryService.mine(user.id);
     }
@@ -66,14 +66,14 @@ export class InquiryController {
     @Get('opportunities')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'فرصت‌های فروش تامین‌کننده — دعوت‌ها + اعلام خریدهای فوریِ کاتالوگ‌های خریدِ عضوش' })
+    @ApiOperation({ summary: 'فرصت‌های فروش تامین‌کننده — دعوت‌ها + اعلام خریدهای فوریِ صفحه‌های خریدِ عضوش' })
     opportunities(@CurrentUser() user: any) {
         return this.inquiryService.opportunities(user.id);
     }
 
     @Get(':idOrSlug')
     @UseGuards(OptionalJwtAuthGuard)
-    @ApiOperation({ summary: 'جزئیات کاتالوگ خرید با شناسه یا اسلاگ (مالک: با پیشنهادها)' })
+    @ApiOperation({ summary: 'جزئیات صفحه خرید با شناسه یا اسلاگ (مالک: با پیشنهادها)' })
     findByIdOrSlug(@Param('idOrSlug') idOrSlug: string, @CurrentUser() user?: any) {
         return this.inquiryService.findByIdOrSlug(idOrSlug, user?.id);
     }
@@ -81,7 +81,7 @@ export class InquiryController {
     @Patch(':id')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'ویرایش کاتالوگ خرید (مالک)' })
+    @ApiOperation({ summary: 'ویرایش صفحه خرید (مالک)' })
     update(@Param('id') id: string, @CurrentUser() user: any, @Body() dto: UpdateInquiryDto) {
         return this.inquiryService.update(id, user.id, dto);
     }
@@ -89,7 +89,7 @@ export class InquiryController {
     @Delete(':id')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'حذف کاتالوگ خرید (مالک)' })
+    @ApiOperation({ summary: 'حذف صفحه خرید (مالک)' })
     remove(@Param('id') id: string, @CurrentUser() user: any) {
         return this.inquiryService.remove(id, user.id);
     }
@@ -98,7 +98,7 @@ export class InquiryController {
     @Post(':id/items')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'افزودن یک قلم به کاتالوگ خرید (مالک — هر بار یک کالا)' })
+    @ApiOperation({ summary: 'افزودن یک قلم به صفحه خرید (مالک — هر بار یک کالا)' })
     addItem(@Param('id') id: string, @CurrentUser() user: any, @Body() dto: InquiryItemDto) {
         return this.inquiryService.addItem(id, user.id, dto);
     }
@@ -123,7 +123,7 @@ export class InquiryController {
     @Post(':id/offers')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'ثبت پیشنهاد قیمت روی کاتالوگ خرید' })
+    @ApiOperation({ summary: 'ثبت پیشنهاد قیمت روی صفحه خرید' })
     addOffer(@Param('id') id: string, @CurrentUser() user: any, @Body() dto: CreateOfferDto) {
         return this.inquiryService.addOffer(id, user.id, dto);
     }
@@ -144,12 +144,12 @@ export class InquiryController {
         return this.inquiryService.updateOffer(offerId, user.id, dto);
     }
 
-    // ─── اعضای کاتالوگ خرید — تامین‌کننده‌های تاییدشده (شبکهٔ خرید↔فروش) ───
+    // ─── اعضای صفحه خرید — تامین‌کننده‌های تاییدشده (شبکهٔ خرید↔فروش) ───
 
     @Get(':id/members')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'فهرست تامین‌کننده‌های این کاتالوگ خرید (مالک)' })
+    @ApiOperation({ summary: 'فهرست تامین‌کننده‌های این صفحه خرید (مالک)' })
     getMembers(@Param('id') id: string, @CurrentUser() user: any) {
         return this.inquiryService.getMembers(id, user.id);
     }
