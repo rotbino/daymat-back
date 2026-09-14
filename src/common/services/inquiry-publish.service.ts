@@ -1,8 +1,8 @@
 // src/common/services/inquiry-publish.service.ts
 // ========================================================================
-// موتور انتشار دفتر اعلام خرید در بازار — قرینهٔ CatalogPublishService (سمت خرید)
+// موتور انتشار تابلوی خرید در بازار — قرینهٔ CatalogPublishService (سمت خرید)
 //   فروش: Catalog → Ad → AdPublication
-//   خرید: دفتر (Inquiry) → آگهی‌های خرید (InquiryItem urgent) → InquiryPublication
+//   خرید: تابلوی خرید (Inquiry) → اقلام فوری (InquiryItem urgent) → InquiryPublication
 // یک دفتر می‌تواند همزمان در چند بازار منتشر باشد — هر بازار وضعیت خودش را دارد.
 // ========================================================================
 import { Injectable, Logger } from '@nestjs/common';

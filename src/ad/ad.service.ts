@@ -518,6 +518,14 @@ export class AdService {
         const config = arm.config as any || {};
         const priceTableConfig = config?.modules?.priceTable || {};
 
+        // ✅ گیت ماژول — اگر مدیر «تابلوی قیمت» را در ماژول‌ها خاموش کرده باشد، تابلو وجود ندارد
+        if (priceTableConfig.enabled === false) {
+            throw new NotFoundException({
+                errorCode: 'BOARD_DISABLED',
+                message: 'تابلوی قیمت این بازار غیرفعال است',
+            });
+        }
+
         // ✅ چک کن آیا کاربر حق دیدن قیمت‌ها رو داره (per-user — بیرون از کش)
         const canViewPrices = await this.canViewVitrinePrices(arm, userId, priceTableConfig);
 

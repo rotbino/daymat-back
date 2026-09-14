@@ -332,7 +332,7 @@ export class ArmController {
     @Patch(':slug/inquiry-publish')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'روشن/خاموش کردن انتشار دفتر اعلام خرید در بازار (تابلوی خریداران — InquiryPublication)' })
+    @ApiOperation({ summary: 'انتشار/توقف «تابلوی خرید» خریدار در تابلوی خرید بازار (InquiryPublication)' })
     async toggleInquiryPublish(
         @Param('slug') slug: string,
         @CurrentUser() user: any,
@@ -344,7 +344,7 @@ export class ArmController {
     @Get(':slug/members/:userId/inquiries')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'دفترهای خریدِ یک عضو + وضعیت انتشارشان در این بازار — انتخابگر «افزودن دفتر خرید» پنل مالک' })
+    @ApiOperation({ summary: 'تابلوهای خریدِ یک عضو + وضعیت انتشارشان در این بازار — انتخابگر «تابلوی خرید» پنل مالک' })
     async listMemberInquiries(
         @Param('slug') slug: string,
         @Param('userId') userId: string,

@@ -302,14 +302,23 @@ export class InquiryService implements OnModuleInit {
     async armBoard(armSlug: string, opts: { search?: string; page?: number; limit?: number }, _userId?: string) {
         const arm = await this.prisma.arm.findUnique({
             where: { slug: armSlug },
-            select: { id: true, name: true },
+            select: { id: true, name: true, config: true },
         });
         if (!arm) {
             throw new NotFoundException({ errorCode: 'ARM_NOT_FOUND', message: 'بازار یافت نشد' });
         }
 
+        // ✅ گیت ماژول — اگر مدیر «تابلوی خرید بازار» را در ماژول‌ها خاموش کرده باشد، تابلو وجود ندارد
+        const armCfg = (arm.config as any) || {};
+        if (armCfg?.modules?.buyLead?.enabled === false) {
+            throw new NotFoundException({
+                errorCode: 'BOARD_DISABLED',
+                message: 'تابلوی خرید این بازار غیرفعال است',
+            });
+        }
+
         // ✅ تابلوی خریداران از InquiryPublication می‌خواند — قرینهٔ تابلوی قیمت (AdPublication)
-        //    یک دفتر می‌تواند در چند بازار منتشر باشد؛ اینجا فقط publicationهای همین بازار
+        //    یک تابلوی خرید می‌تواند در چند بازار منتشر باشد؛ اینجا فقط publicationهای همین بازار
         const pubs = await this.prisma.inquiryPublication.findMany({
             where: { armId: arm.id, status: 'published' },
             select: { inquiryId: true, inquiry: { select: { ownerUserId: true } } },

@@ -1284,7 +1284,7 @@ export class ArmService {
     }
 
     // ============================================================
-    // 16.6 دفترهای خریدِ یک عضو — برای انتخابگر «افزودن دفتر خرید» در پنل مالک
+    // 16.6 تابلوهای خریدِ یک عضو — برای انتخابگر «تابلوی خرید» در پنل مالک
     //   (قرینهٔ مدیریت کاتالوگ فروشندگان) — فقط مدیر بازار
     // ============================================================
     async listMemberInquiries(requesterId: string, slug: string, memberUserId: string) {
@@ -1330,7 +1330,7 @@ export class ArmService {
                 itemsCount: i._count.items,
                 offersCount: i._count.offers,
                 updatedAt: i.updatedAt,
-                // وضعیت انتشار این دفتر در همین بازار (اگر رکوردی باشد)
+                // وضعیت انتشار این تابلوی خرید در همین بازار (اگر رکوردی باشد)
                 publishState: i.publications[0]?.status ?? null,
                 publishedAt: i.publications[0]?.publishedAt ?? null,
                 optOut: i.publications[0]?.optOut ?? false,
