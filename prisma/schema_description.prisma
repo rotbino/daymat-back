@@ -251,7 +251,7 @@ model ArmConfig {
   availableFilters         String[] @default([])                     // فیلترهای در دسترس: ["category", "city", "price_range", "unit"]
 
   // نمایش
-  showBuyLeadButton        Boolean  @default(true)                    // نمایش دکمه «ثبت درخواست قیمت» در این بازار
+  showBuyLeadButton        Boolean  @default(true)                    // نمایش دکمه «ثبت کاتالوگ خرید» در این بازار
   showSearchBar            Boolean  @default(true)                    // نمایش نوار جستجو در تابلوی این بازار
   showCategoryFilter       Boolean  @default(true)                    // نمایش فیلتر دسته‌بندی در تابلوی این بازار
   showLocationFilter       Boolean  @default(true)                    // نمایش فیلتر موقعیت جغرافیایی در تابلوی این بازار
@@ -425,8 +425,8 @@ model Ad {
 }
 
 // ---------------------- BuyLead (دِیمَت خرید) ----------------------
-// درخواست قیمت از سمت خریداران.
-// از تبدیل جستجو به درخواست قیمت ساخته می‌شود.
+// کاتالوگ خرید از سمت خریداران.
+// از تبدیل جستجو به کاتالوگ خرید ساخته می‌شود.
 model BuyLead {
   id              String   @id @default(auto()) @map("_id") @db.ObjectId
   armId           String   @db.ObjectId
@@ -438,7 +438,7 @@ model BuyLead {
   categoryId      String?  @db.ObjectId
   category        ProductCategory? @relation(fields: [categoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  searchQuery     String                                            // متن جستجوی اولیه (برای تبدیل جستجو به درخواست قیمت)
+  searchQuery     String                                            // متن جستجوی اولیه (برای تبدیل جستجو به کاتالوگ خرید)
   title           String                                            // عنوان
   description     String?                                           // توضیحات
   city            String                                            // شهر
