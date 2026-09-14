@@ -913,6 +913,12 @@ model Inquiry {
   //    در فرم ساخت/ویرایش، سلکتِ واحد اقلام از همین + واحدهای مرجع پر می‌شود
   units Json?
 
+  // ✅ امکان ارسال قیمت برای خریدهای غیر فوری (سایر کالاها) — خریدار در تنظیمات کنترل می‌کند؛
+  //    خاموش = تامین‌کننده فقط روی اقلام با «اعلام خرید فعال» قیمت می‌دهد
+  allowNonUrgentOffers Boolean @default(true)
+  // ✅ مهاجرت یک‌بارهٔ کاتالوگ‌های قدیمی (اقلامشان در مدل قدیمی همه درخواست بودند → اعلام خرید فعال)
+  legacyUrgentMigrated Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   expiresAt DateTime?
@@ -942,10 +948,15 @@ model InquiryItem {
   referenceUrl    String?           // اختیاری — لینک نمونه یا کاتالوگ سازنده
   note            String?
   order           Int     @default(0)
+  // ✅ اعلام خرید فعال — قلم بالای کاتالوگ عمومی در «درخواست‌های خرید جاری» می‌نشیند
+  //    و تامین‌کننده‌ها می‌توانند رویش قیمت بدهند؛ خاموش = «سایر کالاهایی که معمولا می‌خرد»
+  urgent          Boolean  @default(false)
+  urgentAt        DateTime?            // زمان اعلام — برای مرتب‌سازی (جدیدترین اول)
   createdAt       DateTime @default(now())
 
   @@index([inquiryId])
   @@index([referenceItemId])
+  @@index([urgent])
 }
 
 // پیشنهاد قیمت تامین‌کننده — یا روی کل لیست (itemId خالی) یا روی یک قلم
@@ -954,6 +965,7 @@ model InquiryOffer {
   inquiryId     String   @db.ObjectId
   inquiry       Inquiry  @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
   itemId        String?  @db.ObjectId   // خالی = پیشنهاد روی کل لیست
+  itemName      String?                 // ✅ نام قلم در لحظهٔ ثبت (اسنپ‌شات — با حذف قلم هم معلوم می‌ماند)
   offererUserId String   @db.ObjectId
   offerer       User     @relation("InquiryOfferer", fields: [offererUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   businessId    String?  @db.ObjectId

@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { InquiryService } from './inquiry.service';
-import { CreateInquiryDto, UpdateInquiryDto, CreateOfferDto, UpdateOfferDto } from './inquiry.dto';
+import { CreateInquiryDto, UpdateInquiryDto, CreateOfferDto, UpdateOfferDto, InquiryItemDto, UpdateInquiryItemDto } from './inquiry.dto';
 import { CurrentUser } from '../common/decorators/custom.decorators';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../common/guards/optional-jwt-auth.guard';
@@ -83,6 +83,31 @@ export class InquiryController {
     @ApiOperation({ summary: 'حذف کاتالوگ خرید (مالک)' })
     remove(@Param('id') id: string, @CurrentUser() user: any) {
         return this.inquiryService.remove(id, user.id);
+    }
+
+    // ─── مدیریت قلم‌به‌قلم (پنل) ───
+    @Post(':id/items')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'افزودن یک قلم به کاتالوگ خرید (مالک — هر بار یک کالا)' })
+    addItem(@Param('id') id: string, @CurrentUser() user: any, @Body() dto: InquiryItemDto) {
+        return this.inquiryService.addItem(id, user.id, dto);
+    }
+
+    @Patch(':id/items/:itemId')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'ویرایش یک قلم (مالک) — شامل تاگل اعلام خرید' })
+    updateItem(@Param('id') id: string, @Param('itemId') itemId: string, @CurrentUser() user: any, @Body() dto: UpdateInquiryItemDto) {
+        return this.inquiryService.updateItem(id, itemId, user.id, dto);
+    }
+
+    @Delete(':id/items/:itemId')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'حذف یک قلم (مالک)' })
+    removeItem(@Param('id') id: string, @Param('itemId') itemId: string, @CurrentUser() user: any) {
+        return this.inquiryService.removeItem(id, itemId, user.id);
     }
 
     // ─── پیشنهاد قیمت ───

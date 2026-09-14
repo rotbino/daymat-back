@@ -3,7 +3,7 @@
 // فلسفه: ساده به‌صورت پیش‌فرض (فقط عنوان + چند قلم)، پیشرفته اختیاری
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
-    IsNotEmpty, IsOptional, IsString, MaxLength, IsIn, IsNumber,
+    IsNotEmpty, IsOptional, IsString, MaxLength, IsIn, IsNumber, IsBoolean,
     IsArray, IsISO8601, ArrayMaxSize, ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -66,12 +66,35 @@ export class InquiryItemDto {
     @IsString()
     @MaxLength(500)
     note?: string;
+
+    @ApiPropertyOptional({ description: 'اعلام خرید فعال — قلم در «درخواست‌های خرید جاری» بالای کاتالوگ می‌نشیند', required: false })
+    @IsOptional()
+    @IsBoolean()
+    urgent?: boolean;
 }
 
 export class InquiryUnitDto {
     @ApiProperty({ description: 'شناسه واحد از مرجع واحد' })
     @IsString()
     unitId: string;
+}
+
+/** ویرایش قلم — همهٔ فیلدها اختیاری (merge)؛ تاگل اعلام خرید با همین کار می‌کند */
+export class UpdateInquiryItemDto {
+    @ApiPropertyOptional({ description: 'نام کالا/قطعه', required: false })
+    @IsOptional() @IsString() @MaxLength(160)
+    name?: string;
+
+    @IsOptional() @IsString() referenceItemId?: string;
+    @IsOptional() @IsString() unitId?: string;
+    @IsOptional() @IsNumber() quantity?: number;
+    @IsOptional() @IsString() @MaxLength(40) unit?: string;
+    @IsOptional() @IsString() @MaxLength(80) brand?: string;
+    @IsOptional() @IsArray() specs?: { key: string; value: string }[];
+    @IsOptional() @IsString() imageUrl?: string;
+    @IsOptional() @IsString() referenceUrl?: string;
+    @IsOptional() @IsString() @MaxLength(500) note?: string;
+    @IsOptional() @IsBoolean() urgent?: boolean;
 }
 
 export class CreateInquiryDto {
@@ -162,6 +185,11 @@ export class CreateInquiryDto {
     @ValidateNested({ each: true })
     @Type(() => InquiryUnitDto)
     units?: InquiryUnitDto[];
+
+    @ApiPropertyOptional({ description: 'امکان ارسال قیمت برای خریدهای غیر فوری (سایر کالاها)', required: false })
+    @IsOptional()
+    @IsBoolean()
+    allowNonUrgentOffers?: boolean;
 }
 
 export class UpdateInquiryDto {
@@ -185,6 +213,8 @@ export class UpdateInquiryDto {
     @ApiPropertyOptional({ type: [InquiryUnitDto], description: 'واحدهای اختصاصی (جایگزینی کامل)', required: false })
     @IsOptional() @IsArray() @ArrayMaxSize(50) @ValidateNested({ each: true }) @Type(() => InquiryUnitDto)
     units?: InquiryUnitDto[];
+    @ApiPropertyOptional({ description: 'امکان ارسال قیمت برای خریدهای غیر فوری (سایر کالاها)', required: false })
+    @IsOptional() @IsBoolean() allowNonUrgentOffers?: boolean;
 }
 
 export class CreateOfferDto {

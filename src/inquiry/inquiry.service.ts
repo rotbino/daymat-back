@@ -4,7 +4,8 @@ import {
     Injectable, NotFoundException, ForbiddenException, BadRequestException, OnModuleInit,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateInquiryDto, UpdateInquiryDto, CreateOfferDto, UpdateOfferDto, InquiryItemDto, InquiryUnitDto } from './inquiry.dto';
+import { NotificationService } from '../notification/notification.service';
+import { CreateInquiryDto, UpdateInquiryDto, CreateOfferDto, UpdateOfferDto, InquiryItemDto, UpdateInquiryItemDto, InquiryUnitDto } from './inquiry.dto';
 
 const RESERVED_SLUGS = [
     'admin', 'api', 'login', 'logout', 'register', 'my-catalogs', 'my-inquiries',
@@ -24,7 +25,10 @@ const PUBLIC_LIST_SELECT = {
 
 @Injectable()
 export class InquiryService implements OnModuleInit {
-    constructor(private prisma: PrismaService) {}
+    constructor(
+        private prisma: PrismaService,
+        private notification: NotificationService,
+    ) {}
 
     /**
      * مهاجرت داده‌های قدیمی (idempotent — در هر بوت اجرا می‌شود):
@@ -33,39 +37,71 @@ export class InquiryService implements OnModuleInit {
      * مالک چند-کسب‌وکاری دست‌نخورده می‌ماند (اتصال مبهم است — از فرم ویرایش انتخاب می‌شود).
      */
     async onModuleInit() {
+        // ─── مهاجرت ۱: کاتالوگ‌های بدون کسب‌وکار → اتصال به کسب‌وکار یگانهٔ مالک ───
         try {
             const orphans = await this.prisma.inquiry.findMany({
                 where: { businessId: null },
                 select: { id: true, ownerUserId: true },
             });
-            if (orphans.length === 0) return;
-            const ownerIds = [...new Set(orphans.map((i) => i.ownerUserId))];
-            const bizs = await this.prisma.business.findMany({
-                where: { ownerUserId: { in: ownerIds } },
-                select: { id: true, ownerUserId: true },
-            });
-            // فقط مالکانی که دقیقاً یک کسب‌وکار دارند → MULTI برای بقیه
-            const singleBizByOwner = new Map<string, string>();
-            for (const b of bizs) {
-                singleBizByOwner.set(
-                    b.ownerUserId,
-                    singleBizByOwner.has(b.ownerUserId) ? '__MULTI__' : b.id,
-                );
-            }
-            let attached = 0;
-            for (const o of orphans) {
-                const bizId = singleBizByOwner.get(o.ownerUserId);
-                if (!bizId || bizId === '__MULTI__') continue;
-                await this.prisma.inquiry
-                    .update({ where: { id: o.id }, data: { businessId: bizId } })
-                    .catch(() => { /* noop */ });
-                attached++;
-            }
-            if (attached > 0) {
-                console.log(`[inquiry] ${attached} کاتالوگ خریدِ بدون کسب‌وکار به کسب‌وکارِ یگانهٔ مالک وصل شد`);
+            if (orphans.length > 0) {
+                const ownerIds = [...new Set(orphans.map((i) => i.ownerUserId))];
+                const bizs = await this.prisma.business.findMany({
+                    // ✅ مالک = ثبت‌کنندهٔ اول (creatorUserId) یا مالکِ قدیمی (ownerUserId)
+                    where: { OR: [{ ownerUserId: { in: ownerIds } }, { creatorUserId: { in: ownerIds } }] },
+                    select: { id: true, ownerUserId: true, creatorUserId: true },
+                });
+                // فقط مالکانی که دقیقاً یک کسب‌وکار دارند → MULTI برای بقیه
+                const singleBizByOwner = new Map<string, string>();
+                for (const b of bizs) {
+                    const responsible = b.ownerUserId || b.creatorUserId;
+                    if (!responsible) continue;
+                    singleBizByOwner.set(
+                        responsible,
+                        singleBizByOwner.has(responsible) ? '__MULTI__' : b.id,
+                    );
+                }
+                let attached = 0;
+                for (const o of orphans) {
+                    const bizId = singleBizByOwner.get(o.ownerUserId);
+                    if (!bizId || bizId === '__MULTI__') continue;
+                    await this.prisma.inquiry
+                        .update({ where: { id: o.id }, data: { businessId: bizId } })
+                        .catch(() => { /* noop */ });
+                    attached++;
+                }
+                if (attached > 0) {
+                    console.log(`[inquiry] ${attached} کاتالوگ خریدِ بدون کسب‌وکار به کسب‌وکارِ یگانهٔ مالک وصل شد`);
+                }
             }
         } catch (e: any) {
             console.warn('[inquiry] مهاجرت اتصال کاتالوگ‌های خرید قدیمی انجام نشد:', e?.message);
+        }
+
+        // ─── مهاجرت «اعلام خرید» برای کاتالوگ‌های قدیمی ───
+        // در مدل قدیمی کل لیست یک درخواست بود → همهٔ اقلام کاتالوگ‌های نه-مهاجرت‌شده
+        // اعلام خرید فعال می‌گیرند (رفتار قبل حفظ می‌شود: همه‌چیز قیمت‌پذیر).
+        // کاتالوگ‌های جدید از بدوِ ساخت فلگ legacyUrgentMigrated=true دارند و لمس نمی‌شوند.
+        // ⚠️ نکتهٔ Prisma/Mongo: فیلتر { not: true } سندِ بدون-فیلد را نمی‌گیرد → واکشی کامل + فیلتر در کد
+        try {
+            const all = await this.prisma.inquiry.findMany({
+                select: { id: true, legacyUrgentMigrated: true },
+            });
+            const legacy = all.filter((i) => i.legacyUrgentMigrated !== true);
+            for (const ing of legacy) {
+                await this.prisma.inquiryItem.updateMany({
+                    where: { inquiryId: ing.id },
+                    data: { urgent: true, urgentAt: new Date() },
+                }).catch(() => { /* noop */ });
+                await this.prisma.inquiry.update({
+                    where: { id: ing.id },
+                    data: { legacyUrgentMigrated: true },
+                }).catch(() => { /* noop */ });
+            }
+            if (legacy.length > 0) {
+                console.log(`[inquiry] اقلام ${legacy.length} کاتالوگ خرید قدیمی «اعلام خرید فعال» گرفتند (رفتار قبل حفظ شد)`);
+            }
+        } catch (e: any) {
+            console.warn('[inquiry] مهاجرت اعلام خرید اقلام قدیمی انجام نشد:', e?.message);
         }
     }
 
@@ -109,6 +145,8 @@ export class InquiryService implements OnModuleInit {
                 imageUrl: i.imageUrl?.trim() || null,
                 referenceUrl: i.referenceUrl?.trim() || null,
                 note: i.note?.trim() || null,
+                // ✅ اعلام خرید — undefined یعنی تماس‌گیرنده تصمیم می‌گیرد (legacy: کل لیست درخواست بود)
+                urgent: typeof i.urgent === 'boolean' ? i.urgent : undefined,
                 order: idx,
             }));
     }
@@ -132,20 +170,20 @@ export class InquiryService implements OnModuleInit {
     }
 
     // ─── ساخت ───
+    // ✅ مدل جدید: کاتالوگ خالی هم مجاز است (اقلام بعداً قلم‌به‌قلم از پنل اضافه می‌شود)
     async create(userId: string, dto: CreateInquiryDto) {
         if (dto.businessId && !this.isValidObjectId(dto.businessId)) {
             throw new BadRequestException({ errorCode: 'INVALID_BUSINESS', message: 'شناسه کسب‌وکار نامعتبر است' });
         }
         if (dto.businessId) {
             const biz = await this.prisma.business.findFirst({
-                where: { id: dto.businessId, ownerUserId: userId }, select: { id: true },
+                // ✅ مالک = ثبت‌کنندهٔ اول یا مالکِ قدیمی (هماهنگ با canEdit سرویس کسب‌وکار)
+                where: { id: dto.businessId, OR: [{ creatorUserId: userId }, { ownerUserId: userId }] },
+                select: { id: true },
             });
             if (!biz) throw new ForbiddenException({ errorCode: 'NOT_YOUR_BUSINESS', message: 'این کسب‌وکار متعلق به شما نیست' });
         }
         const items = await this.filterExistingReferenceIds(this.cleanItems(dto.items));
-        if (items.length === 0) {
-            throw new BadRequestException({ errorCode: 'EMPTY_ITEMS', message: 'حداقل یک قلم خرید لازم است' });
-        }
         const units = await this.cleanUnits(dto.units);
         const slug = await this.buildUniqueSlug(dto.title, dto.slug);
         const { items: _drop, slug: _s, units: _u, ...data } = dto;
@@ -156,7 +194,16 @@ export class InquiryService implements OnModuleInit {
                 deadline: dto.deadline ? new Date(dto.deadline) : null,
                 ownerUserId: userId,
                 slug,
-                items: { create: items },
+                // ✅ کاتالوگ تازه‌ساخته از مهاجرت legacy معاف است (اقلامش urgent صریح دارند)
+                legacyUrgentMigrated: true,
+                items: {
+                    create: items.map((c) => ({
+                        ...c,
+                        // مسیر legacy (ساخت با آرایهٔ اقلام): بدون urgent صریح، کل لیست درخواست بود
+                        urgent: c.urgent ?? true,
+                        urgentAt: (c.urgent ?? true) ? new Date() : null,
+                    })),
+                },
             },
             include: { items: { orderBy: { order: 'asc' } } },
         });
@@ -273,7 +320,8 @@ export class InquiryService implements OnModuleInit {
                     throw new BadRequestException({ errorCode: 'INVALID_BUSINESS', message: 'شناسه کسب‌وکار نامعتبر است' });
                 }
                 const biz = await this.prisma.business.findFirst({
-                    where: { id: businessId, ownerUserId: userId }, select: { id: true },
+                    where: { id: businessId, OR: [{ creatorUserId: userId }, { ownerUserId: userId }] },
+                    select: { id: true },
                 });
                 if (!biz) throw new ForbiddenException({ errorCode: 'NOT_YOUR_BUSINESS', message: 'این کسب‌وکار متعلق به شما نیست' });
                 data.businessId = businessId;
@@ -283,14 +331,22 @@ export class InquiryService implements OnModuleInit {
         }
 
         return this.prisma.$transaction(async (tx) => {
-            // اگر اقلام ارسال شده → جایگزینی کامل (ساده و قطعی)
+            // اگر اقلام ارسال شده → جایگزینی کامل (ساده و قطعی) — مسیر legacy: بدون urgent صریح، همه اعلام خرید فعال
             if (Array.isArray(items)) {
                 const cleaned = await this.filterExistingReferenceIds(this.cleanItems(items));
-                if (cleaned.length === 0) {
-                    throw new BadRequestException({ errorCode: 'EMPTY_ITEMS', message: 'حداقل یک قلم خرید لازم است' });
-                }
                 await tx.inquiryItem.deleteMany({ where: { inquiryId: id } });
-                await tx.inquiryItem.createMany({ data: cleaned.map((c) => ({ ...c, inquiryId: id })) });
+                if (cleaned.length > 0) {
+                    await tx.inquiryItem.createMany({
+                        data: cleaned.map((c) => ({
+                            ...c,
+                            inquiryId: id,
+                            urgent: c.urgent ?? true,
+                            urgentAt: (c.urgent ?? true) ? new Date() : null,
+                        })),
+                    });
+                }
+                // اقلام صریح نوشته شدند → از مهاجرت legacy معاف
+                data.legacyUrgentMigrated = true;
             }
             return tx.inquiry.update({
                 where: { id },
@@ -311,6 +367,80 @@ export class InquiryService implements OnModuleInit {
         return { message: 'کاتالوگ خرید حذف شد' };
     }
 
+    // ═══ مدیریت قلم‌به‌قلم (پنل کاتالوگ خرید) ═══
+
+    private async assertOwner(id: string, userId: string) {
+        const inquiry = await this.prisma.inquiry.findUnique({ where: { id }, select: { id: true, ownerUserId: true } });
+        if (!inquiry) throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'کاتالوگ خرید پیدا نشد' });
+        if (inquiry.ownerUserId !== userId) {
+            throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'فقط صاحب کاتالوگ خرید می‌تواند اقلام را مدیریت کند' });
+        }
+    }
+
+    /** افزودن یک قلم — هر بار یک کالا (فرم سریع پنل) */
+    async addItem(inquiryId: string, userId: string, dto: InquiryItemDto) {
+        await this.assertOwner(inquiryId, userId);
+        const [cleaned] = await this.filterExistingReferenceIds(this.cleanItems([{ ...dto, name: (dto.name ?? '').trim() }]));
+        if (!cleaned) {
+            throw new BadRequestException({ errorCode: 'EMPTY_ITEM', message: 'نام قلم الزامی است' });
+        }
+        const last = await this.prisma.inquiryItem.findFirst({
+            where: { inquiryId }, orderBy: { order: 'desc' }, select: { order: true },
+        });
+        const urgent = dto.urgent === true;
+        return this.prisma.inquiryItem.create({
+            data: {
+                ...cleaned,
+                inquiryId,
+                order: (last?.order ?? -1) + 1,
+                urgent,
+                urgentAt: urgent ? new Date() : null,
+            },
+        });
+    }
+
+    /** ویرایش یک قلم — merge فیلدهای ارسال‌شده (تاگل اعلام خرید فقط urgent می‌فرستد) */
+    async updateItem(inquiryId: string, itemId: string, userId: string, dto: UpdateInquiryItemDto) {
+        await this.assertOwner(inquiryId, userId);
+        const item = await this.prisma.inquiryItem.findFirst({ where: { id: itemId, inquiryId } });
+        if (!item) throw new BadRequestException({ errorCode: 'INVALID_ITEM', message: 'قلم یافت نشد' });
+
+        const data: any = {};
+        if (dto.name !== undefined && dto.name.trim()) data.name = dto.name.trim();
+        if (dto.quantity !== undefined) data.quantity = typeof dto.quantity === 'number' ? dto.quantity : null;
+        if (dto.unit !== undefined) data.unit = dto.unit?.trim() || null;
+        if (dto.brand !== undefined) data.brand = dto.brand?.trim() || null;
+        if (dto.note !== undefined) data.note = dto.note?.trim() || null;
+        if (dto.referenceUrl !== undefined) data.referenceUrl = dto.referenceUrl?.trim() || null;
+        if (dto.imageUrl !== undefined) data.imageUrl = dto.imageUrl?.trim() || null;
+        if (dto.specs !== undefined) data.specs = Array.isArray(dto.specs) && dto.specs.length ? dto.specs : [];
+        if (dto.referenceItemId !== undefined) {
+            data.referenceItemId = this.isValidObjectId(dto.referenceItemId) ? dto.referenceItemId : null;
+            if (data.referenceItemId) {
+                const exists = await this.prisma.productReference.findFirst({ where: { id: data.referenceItemId }, select: { id: true } });
+                if (!exists) data.referenceItemId = null;
+            }
+        }
+        if (dto.unitId !== undefined) {
+            data.unitId = this.isValidObjectId(dto.unitId) ? dto.unitId : null;
+        }
+        if (typeof dto.urgent === 'boolean') {
+            data.urgent = dto.urgent;
+            data.urgentAt = dto.urgent ? (item.urgentAt ?? new Date()) : null;
+        }
+        if (Object.keys(data).length === 0) return item;
+        return this.prisma.inquiryItem.update({ where: { id: itemId }, data });
+    }
+
+    /** حذف یک قلم */
+    async removeItem(inquiryId: string, itemId: string, userId: string) {
+        await this.assertOwner(inquiryId, userId);
+        const item = await this.prisma.inquiryItem.findFirst({ where: { id: itemId, inquiryId }, select: { id: true } });
+        if (!item) throw new BadRequestException({ errorCode: 'INVALID_ITEM', message: 'قلم یافت نشد' });
+        await this.prisma.inquiryItem.delete({ where: { id: itemId } });
+        return { message: 'قلم حذف شد' };
+    }
+
     // ─── ثبت پیشنهاد قیمت (تامین‌کننده) ───
     async addOffer(inquiryId: string, userId: string, dto: CreateOfferDto) {
         const inquiry = await this.prisma.inquiry.findUnique({ where: { id: inquiryId } });
@@ -329,24 +459,56 @@ export class InquiryService implements OnModuleInit {
         if (dto.itemId && !this.isValidObjectId(dto.itemId)) {
             throw new BadRequestException({ errorCode: 'INVALID_ITEM', message: 'قلم نامعتبر است' });
         }
+        let itemName: string | null = null;
         if (dto.itemId) {
             const item = await this.prisma.inquiryItem.findFirst({ where: { id: dto.itemId, inquiryId } });
             if (!item) throw new BadRequestException({ errorCode: 'INVALID_ITEM', message: 'قلم یافت نشد' });
+            // ✅ گیت اعلام خرید: قلمِ بدون اعلام خرید فعال فقط وقتی باز است که خریدار
+            //    «امکان ارسال قیمت برای خریدهای غیر فوری» را در تنظیمات روشن کرده باشد
+            if (!item.urgent && inquiry.allowNonUrgentOffers !== true) {
+                throw new BadRequestException({
+                    errorCode: 'OFFERS_CLOSED_FOR_ITEM',
+                    message: 'خریدار فعلاً برای این قلم قیمت نمی‌گیرد',
+                });
+            }
+            itemName = item.name;
+        } else {
+            // پیشنهاد کل لیست — فقط وقتی باز است که همهٔ اقلام اعلام خرید فعال دارند
+            // یا خریدار قیمت‌گیری غیرفوری را باز گذاشته باشد
+            const its = await this.prisma.inquiryItem.findMany({ where: { inquiryId }, select: { urgent: true } });
+            if (its.some((i) => !i.urgent) && inquiry.allowNonUrgentOffers !== true) {
+                throw new BadRequestException({
+                    errorCode: 'OFFERS_CLOSED_FOR_ITEM',
+                    message: 'برای کل لیست نمی‌توانید قیمت بدهید — روی هر قلم جداگانه قیمت بدهید',
+                });
+            }
         }
         if (dto.businessId) {
             if (!this.isValidObjectId(dto.businessId)) {
                 throw new BadRequestException({ errorCode: 'INVALID_BUSINESS', message: 'شناسه کسب‌وکار نامعتبر است' });
             }
             const biz = await this.prisma.business.findFirst({
-                where: { id: dto.businessId, ownerUserId: userId }, select: { id: true },
+                where: { id: dto.businessId, OR: [{ creatorUserId: userId }, { ownerUserId: userId }] },
+                select: { id: true },
             });
             if (!biz) throw new ForbiddenException({ errorCode: 'NOT_YOUR_BUSINESS', message: 'این کسب‌وکار متعلق به شما نیست' });
         }
         const { itemId, ...rest } = dto;
         const offer = await this.prisma.inquiryOffer.create({
-            data: { ...rest, inquiryId, itemId: itemId || null, offererUserId: userId },
+            data: { ...rest, inquiryId, itemId: itemId || null, itemName: itemName || null, offererUserId: userId },
         });
         await this.prisma.inquiry.update({ where: { id: inquiryId }, data: { offerCount: { increment: 1 } } });
+        // 🔔 اعلان به خریدار — پیشنهاد جدید (بی‌صدا؛ هرگز جریان اصلی را نمی‌شکند)
+        const offerer = await this.prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } });
+        void this.notification.notify({
+            userIds: [inquiry.ownerUserId],
+            type: 'inquiry_offer',
+            title: 'پیشنهاد قیمت جدید',
+            body: `${offerer?.fullName || 'تامین‌کننده'} برای «${itemName || inquiry.title}» قیمت پیشنهاد داد`,
+            actorUserId: userId,
+            href: `/inquiries/${inquiry.slug || inquiry.id}`,
+            businessId: inquiry.businessId ?? null,
+        });
         return offer;
     }
 
@@ -388,6 +550,17 @@ export class InquiryService implements OnModuleInit {
         const updated = await this.prisma.inquiryOffer.update({ where: { id: offerId }, data: { status: dto.status } });
         if (dto.status === 'withdrawn') {
             await this.prisma.inquiry.update({ where: { id: offer.inquiryId }, data: { offerCount: { decrement: 1 } } });
+        } else if (inquiry) {
+            // 🔔 اعلان به تامین‌کننده — نتیجهٔ پیشنهادش
+            void this.notification.notify({
+                userIds: [offer.offererUserId],
+                type: 'inquiry_offer_status',
+                title: dto.status === 'accepted' ? 'پیشنهادت پذیرفته شد' : 'پیشنهادت رد شد',
+                body: inquiry.title ? `کاتالوگ خرید «${inquiry.title}»` : undefined,
+                actorUserId: userId,
+                href: `/inquiries/${inquiry.slug || offer.inquiryId}`,
+                businessId: inquiry.businessId ?? null,
+            });
         }
         return updated;
     }
