@@ -1,5 +1,5 @@
 // src/inquiry/inquiry.dto.ts
-// صفحه درخواست خرید (استعلام قیمت) — DTO ها
+// صفحه درخواست قیمت (استعلام قیمت) — DTO ها
 // فلسفه: ساده به‌صورت پیش‌فرض (فقط عنوان + چند قلم)، پیشرفته اختیاری
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
@@ -98,7 +98,7 @@ export class UpdateInquiryItemDto {
 }
 
 export class CreateInquiryDto {
-    @ApiProperty({ example: 'لیست خرید هفتگی سوپرمارکت', description: 'عنوان صفحه درخواست خرید' })
+    @ApiProperty({ example: 'لیست خرید هفتگی سوپرمارکت', description: 'عنوان صفحه درخواست قیمت' })
     @IsNotEmpty({ message: 'عنوان الزامی است' })
     @IsString()
     @MaxLength(140)
@@ -178,7 +178,7 @@ export class CreateInquiryDto {
     @IsString()
     businessId?: string;
 
-    @ApiPropertyOptional({ type: [InquiryUnitDto], description: 'واحدهای اختصاصی این صفحه درخواست خرید (از مرجع واحد)', required: false })
+    @ApiPropertyOptional({ type: [InquiryUnitDto], description: 'واحدهای اختصاصی این صفحه درخواست قیمت (از مرجع واحد)', required: false })
     @IsOptional()
     @IsArray()
     @ArrayMaxSize(50)
@@ -267,7 +267,7 @@ export class UpdateOfferDto {
     status: string;
 }
 
-// ═══ اعضای صفحه درخواست خرید — تامین‌کننده‌های تاییدشده (شبکهٔ خرید↔فروش) ═══
+// ═══ اعضای صفحه درخواست قیمت — تامین‌کننده‌های تاییدشده (شبکهٔ خرید↔فروش) ═══
 
 export class AddInquiryMemberDto {
     @ApiProperty({ description: 'کاتالوگ فروشِ تامین‌کننده (باید متعلق به تامین‌کننده باشد)' })
@@ -302,7 +302,7 @@ export class DecideInquiryMemberDto {
     status: 'active' | 'declined' | 'removed';
 }
 
-/** 🪪 ذخیره/حذف مشخصات کارت ویزیت صفحه درخواست خرید (JSON) — قرینهٔ کاتالوگ فروش */
+/** 🪪 ذخیره/حذف مشخصات کارت ویزیت صفحه درخواست قیمت (JSON) — قرینهٔ کاتالوگ فروش */
 export class SaveInquiryVisitCardDto {
     /** مشخصات کامل کارت ویزیت (JSON آزاد — فشرده‌سازی تصاویر سمت کلاینت) — null = حذف کارت ذخیره‌شده */
     @ApiPropertyOptional({ description: 'مشخصات کارت ویزیت (JSON) — null برای حذف', nullable: true, type: Object })

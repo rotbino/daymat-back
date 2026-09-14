@@ -1,5 +1,5 @@
 // src/inquiry/inquiry.module.ts
-// صفحه درخواست خرید (استعلام قیمت) — ماژول
+// صفحه درخواست قیمت (استعلام قیمت) — ماژول
 import { Module } from '@nestjs/common';
 import { InquiryController } from './inquiry.controller';
 import { InquiryService } from './inquiry.service';

@@ -38,7 +38,7 @@ export class ArmAppearanceConfigDto {
     @IsBoolean()
     showCompanyName: boolean;
 
-    @ApiProperty({ example: true, description: 'نمایش دکمه درخواست خرید' })
+    @ApiProperty({ example: true, description: 'نمایش دکمه درخواست قیمت' })
     @IsBoolean()
     showBuyLeadButton: boolean;
 
@@ -74,7 +74,7 @@ export class ArmFeaturesConfigDto {
     @IsBoolean()
     allowAnonymousPublishing: boolean;
 
-    @ApiProperty({ example: true, description: 'فعال بودن تابلوی درخواست خرید' })
+    @ApiProperty({ example: true, description: 'فعال بودن تابلوی درخواست قیمت' })
     @IsBoolean()
     enableBuyLead: boolean;
 
