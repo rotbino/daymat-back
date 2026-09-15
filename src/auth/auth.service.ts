@@ -166,9 +166,15 @@ export class AuthService {
     //    (jwt.strategy نسخهٔ توکن را با DB می‌سنجد)
     // ============================================================
     async logout(userId: string) {
+        // ⚠️ { increment: 1 } روی سندهای قدیمی (فیلدِ غایب) بی‌صدا no-op می‌شد
+        //    → خروجِ واقعی عملاً هیچ‌وقت کار نمی‌کرد؛ با مقدار صریح درست شد
+        const u = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: { tokenVersion: true },
+        });
         await this.prisma.user.update({
             where: { id: userId },
-            data: { tokenVersion: { increment: 1 } },
+            data: { tokenVersion: (u?.tokenVersion ?? 0) + 1 },
         });
         return { message: 'خروج با موفقیت انجام شد' };
     }
@@ -382,13 +388,18 @@ export class AuthService {
 
         const hashedPassword = await bcrypt.hash(dto.newPassword, 10);
 
+        // ⚠️ فیلدِ tokenVersion روی سندهای قدیمی مونگو غایب/null است و
+        //    { increment: 1 } در پرزما/مونگو بی‌صدا no-op می‌شود (تست شد: 0→0)
+        //    → مقدار صریح محاسبه‌شده از خوانشِ ابتدای متد
+        const newTokenVersion = (user.tokenVersion ?? 0) + 1;
+
         // ⚠️ امنیتی: با تغییر رمز، همهٔ نشست‌های فعال هم باطل شوند
         const updatedUser = await this.prisma.user.update({
             where: { id: userId },
             data: {
                 passwordHash: hashedPassword,
                 temporaryPassword: false,
-                tokenVersion: { increment: 1 },
+                tokenVersion: newTokenVersion,
             },
             select: {
                 id: true,
@@ -399,9 +410,24 @@ export class AuthService {
             },
         });
 
+        // ✅ فیکس باگ «بنر رمز موقت بعد از لاگین مجدد برمی‌گشت»:
+        //    کش پروفایل (۵ دقیقه‌ای) مقدار کهنهٔ temporaryPassword=true را نگه می‌داشت و
+        //    login/me بعدی همان پروفایلِ کهنه را برمی‌گرداند → بنر سر جایش می‌ماند
+        await this.bustProfileCache(userId);
+
         return {
             message: 'رمز عبور با موفقیت تغییر یافت',
             user: updatedUser,
+            // ✅ فیکس «اخراج بعد از تغییر رمز»: tokenVersion++ توکنِ فعلی را باطل می‌کند
+            //    (SESSION_REVOKED در درخواست بعدی) → توکن تازه با همان نسخهٔ جدید برمی‌گردد
+            //    تا کاربر لاگ‌این بماند؛ نشست‌های دستگاه‌های دیگر همچنان باطل می‌شوند
+            access_token: this.jwtService.sign({
+                sub: updatedUser.id,
+                phone: updatedUser.phone,
+                role: updatedUser.role,
+                locale: user.locale || 'fa',
+                tv: newTokenVersion, // همان که در update بالا ثبت شد
+            }),
         };
     }
 
@@ -474,6 +500,9 @@ export class AuthService {
 
         const hashedPassword = await bcrypt.hash(dto.newPassword, 10);
 
+        // ⚠️ { increment: 1 } روی سندهای قدیمی مونگو بی‌صدا no-op می‌شود → مقدار صریح
+        const newTokenVersion = (user.tokenVersion ?? 0) + 1;
+
         await this.prisma.$transaction([
             // ⚠️ امنیتی: با تغییر رمز، همهٔ نشست‌های فعال هم باطل شوند
             this.prisma.user.update({
@@ -481,7 +510,7 @@ export class AuthService {
                 data: {
                     passwordHash: hashedPassword,
                     temporaryPassword: false,
-                    tokenVersion: { increment: 1 },
+                    tokenVersion: newTokenVersion,
                 },
             }),
             this.prisma.verificationCode.update({
@@ -496,6 +525,9 @@ export class AuthService {
                 expiresAt: { lt: new Date() },
             },
         });
+
+        // ✅ جلوگیری از بنر کهنهٔ «رمز موقت» بعد از لاگین مجدد (کش ۵ دقیقه‌ای پروفایل)
+        await this.bustProfileCache(user.id);
 
         return {
             message: 'رمز عبور با موفقیت تغییر یافت. اکنون می‌توانید وارد شوید.',
