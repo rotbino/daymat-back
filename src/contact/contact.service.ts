@@ -142,14 +142,44 @@ export class ContactService {
                 skip: Math.max(Number(offset) || 0, 0),
                 select: {
                     id: true, name: true, phone: true, matchedUserId: true, createdAt: true,
-                    matchedUser: { select: { id: true, fullName: true, avatarUrl: true } },
+                    matchedUser: {
+                        select: {
+                            id: true, fullName: true, avatarUrl: true,
+                            // کسب‌وکارِ فعالِ عضو — مقصدِ «درخواست خریدار» در برگهٔ اعضای کاتالوگ
+                            teamMemberships: {
+                                where: { status: 'active' },
+                                select: { business: { select: { id: true, name: true, logoUrl: true, city: true } } },
+                                take: 1,
+                            },
+                            // کاتالوگِ فعالِ عضو — مقصدِ «درخواست تامین» در بازوی خرید
+                            catalogsOwned: {
+                                where: { status: 'active' },
+                                select: { id: true, name: true, slug: true, logoUrl: true, city: true, salesType: true },
+                                orderBy: { createdAt: 'desc' },
+                                take: 1,
+                            },
+                        },
+                    },
                 },
             }),
             this.prisma.userContact.count({ where }),
             this.countMatched(userId),
         ]);
 
-        return { items, total, matchedCount };
+        // تخت‌سازی: business و catalog مستقیم روی matchedUser می‌نشینند تا فرانت ساده بخواند
+        const flat = items.map((it) => {
+            if (it.matchedUser) {
+                const mu: any = { ...it.matchedUser };
+                mu.business = mu.teamMemberships?.[0]?.business ?? null;
+                mu.catalog = mu.catalogsOwned?.[0] ?? null;
+                delete mu.teamMemberships;
+                delete mu.catalogsOwned;
+                return { ...it, matchedUser: mu };
+            }
+            return it;
+        });
+
+        return { items: flat, total, matchedCount };
     }
 
     /** خلاصهٔ دفترچه — برای بج/هدر پنل مخاطبین */
