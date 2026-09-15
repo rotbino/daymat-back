@@ -495,6 +495,27 @@ export class InquiryService implements OnModuleInit {
             limitedView = !isMember;
         }
 
+        // ✅ آمار صفحهٔ عمومی — تامین‌کننده‌های فعال + ذخیره‌ها + وضعیت رابطهٔ من با این بازو
+        //    accessState برای دکمهٔ «ارسال درخواست تامین» سه‌حالته (خواستهٔ مالک — هم عمومی هم خصوصی)
+        const [memberRow, suppliersCount, savesCount] = await Promise.all([
+            userId
+                ? (this.prisma.inquiryMember as any).findFirst({
+                      where: { inquiryId: inquiry.id, userId },
+                      orderBy: { updatedAt: 'desc' },
+                  })
+                : Promise.resolve(null),
+            this.prisma.inquiryMember.count({ where: { inquiryId: inquiry.id, status: 'active' } }),
+            this.prisma.savedInquiry.count({ where: { inquiryId: inquiry.id } }),
+        ]);
+        const accessState: 'owner' | 'member' | 'pending' | 'none' =
+            isOwner
+                ? 'owner'
+                : memberRow?.status === 'active'
+                  ? 'member'
+                  : memberRow?.status === 'pending'
+                    ? 'pending'
+                    : 'none';
+
         // شمارش بازدید — fire & forget (بازدید مالک حساب نمی‌شود)
         if (!isOwner) {
             this.prisma.inquiry.update({ where: { id: inquiry.id }, data: { viewCount: { increment: 1 } } })
@@ -515,10 +536,70 @@ export class InquiryService implements OnModuleInit {
                 where: { id: { in: bizIds } }, select: { id: true, name: true, logoUrl: true },
             }) : [];
             const bizMap = Object.fromEntries(bizs.map((b) => [b.id, b]));
-            return { ...view, isOwner, offers: offers.map((o) => ({ ...o, business: o.businessId ? bizMap[o.businessId] ?? null : null })) };
+            return { ...view, isOwner, offers: offers.map((o) => ({ ...o, business: o.businessId ? bizMap[o.businessId] ?? null : null })), accessState, suppliersCount, savesCount };
         }
 
-        return { ...view, isOwner: false, isMember, limited: limitedView };
+        return { ...view, isOwner: false, isMember, limited: limitedView, accessState, suppliersCount, savesCount };
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // 💾 بازوی خرید ذخیره‌شده — قرینهٔ کاتالوگ؛ تامین‌کننده بازوهای چند خریدار
+    //    را ذخیره می‌کند و از سوییچر هدر صفحهٔ عمومی بینشان جابه‌جا می‌شود
+    // ═══════════════════════════════════════════════════════
+
+    /** ✅ ورودی این مسیرها می‌تواند slug هم باشد — اول به id واقعی resolve کن */
+    private async resolveInquiryId(idOrSlug: string): Promise<string | null> {
+        const isId = this.isValidObjectId(idOrSlug);
+        const row = await this.prisma.inquiry.findFirst({
+            where: isId ? { id: idOrSlug } : { slug: idOrSlug },
+            select: { id: true },
+        });
+        return row?.id ?? null;
+    }
+
+    async save(idOrSlug: string, userId: string) {
+        const id = await this.resolveInquiryId(idOrSlug);
+        if (!id) throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'بازوی خرید پیدا نشد' });
+        await (this.prisma.savedInquiry as any).upsert({
+            where: { inquiryId_userId: { inquiryId: id, userId } },
+            create: { inquiryId: id, userId },
+            update: {},
+        });
+        return { success: true, isSaved: true };
+    }
+
+    async unsave(idOrSlug: string, userId: string) {
+        const id = await this.resolveInquiryId(idOrSlug);
+        if (!id) return { success: true, isSaved: false };
+        await (this.prisma.savedInquiry as any).deleteMany({ where: { inquiryId: id, userId } });
+        return { success: true, isSaved: false };
+    }
+
+    async isSaved(idOrSlug: string, userId?: string) {
+        if (!userId) return { isSaved: false };
+        const id = await this.resolveInquiryId(idOrSlug);
+        if (!id) return { isSaved: false };
+        const row = await (this.prisma.savedInquiry as any).findUnique({
+            where: { inquiryId_userId: { inquiryId: id, userId } },
+        });
+        return { isSaved: !!row };
+    }
+
+    /** لیست بازوهای خرید ذخیره‌شدهٔ کاربر — دادهٔ سوییچر هدر صفحهٔ عمومی */
+    async getSavedList(userId: string) {
+        return (this.prisma.savedInquiry as any).findMany({
+            where: { userId },
+            orderBy: { createdAt: 'desc' },
+            select: {
+                id: true, createdAt: true,
+                inquiry: {
+                    select: {
+                        id: true, title: true, slug: true, city: true, status: true,
+                        business: { select: { id: true, name: true, logoUrl: true } },
+                    },
+                },
+            },
+        });
     }
 
     // ═══════════════════════════════════════════════════════

@@ -108,11 +108,45 @@ export class InquiryController {
         return this.inquiryService.resolvePublicSlug(slug ?? '');
     }
 
+    // ⚠️ قبل از :idOrSlug — وگرنه greedy می‌شود
+    // ✅ بازوهای خرید ذخیره‌شدهٔ کاربر — دادهٔ سوییچر هدر صفحهٔ عمومی
+    @Get('saved/list')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'بازوهای خرید ذخیره‌شدهٔ من — سوییچر هدر صفحهٔ عمومی' })
+    savedList(@CurrentUser() user: any) {
+        return this.inquiryService.getSavedList(user.id);
+    }
+
     @Get(':idOrSlug')
     @UseGuards(OptionalJwtAuthGuard)
     @ApiOperation({ summary: 'جزئیات بازوی خرید با شناسه یا اسلاگ (مالک: با پیشنهادها)' })
     findByIdOrSlug(@Param('idOrSlug') idOrSlug: string, @CurrentUser() user?: any) {
         return this.inquiryService.findByIdOrSlug(idOrSlug, user?.id);
+    }
+
+    // ─── 💾 ذخیرهٔ بازوی خرید — سوییچر تامین‌کننده بین بازوهای خریدارها ───
+    @Post(':id/save')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'ذخیرهٔ بازوی خرید (برای همه — حتی مالک)' })
+    save(@Param('id') id: string, @CurrentUser() user: any) {
+        return this.inquiryService.save(id, user.id);
+    }
+
+    @Delete(':id/save')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'حذف از ذخیره‌ها' })
+    unsave(@Param('id') id: string, @CurrentUser() user: any) {
+        return this.inquiryService.unsave(id, user.id);
+    }
+
+    @Get(':id/saved-status')
+    @UseGuards(OptionalJwtAuthGuard)
+    @ApiOperation({ summary: 'وضعیت ذخیرهٔ من روی این بازوی خرید' })
+    savedStatus(@Param('id') id: string, @CurrentUser() user?: any) {
+        return this.inquiryService.isSaved(id, user?.id);
     }
 
     @Patch(':id')

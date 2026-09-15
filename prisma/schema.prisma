@@ -124,6 +124,7 @@ model User {
   catalogMemberships       CatalogMember[]        @relation("CatMemberUser") // کاتالوگ‌هایی که عضوشان است (همکار فروش/خریدار/تامین‌کننده/مدیر)
   catalogAssignedCustomers CatalogMember[]        @relation("CatMemberAssignee") // خریدارهایی که به او به‌عنوان مسئول فروش منتسب شده‌اند
   inquiryMemberships       InquiryMember[]        @relation("InqMemberUser") // ✅ کاتالوگ‌های خریدی که (با کاتالوگ فروشش) تامین‌کنندهٔشان است
+  savedInquiries           SavedInquiry[]         @relation("SavedInquiryUser") // ✅ بازوهای خرید ذخیره‌شده — سوییچرِ تامین‌کننده بین خریدارها
   catalogTeamEvents        CatalogTeamEvent[]     @relation("CatTeamEventUser") // رویدادهای تیمیِ مربوط به کاربر
   phoneContacts            UserContact[]          @relation("ContactOwner")       // ✅ دفترچهٔ مخاطبینِ آپلودشدهٔ کاربر
   discoveredInContacts     UserContact[]          @relation("ContactMatchedUser") // ✅ در دفترچهٔ چه کسانی پیدا شده
@@ -973,6 +974,7 @@ model Inquiry {
   offers InquiryOffer[]
   members InquiryMember[] @relation("InqMemberInquiry") // ✅ تامین‌کننده‌های تاییدشدهٔ این اعلام خرید — شبکهٔ خرید↔فروش
   publications InquiryPublication[] @relation("InquiryPublications") // ✅ بازارهای منتشرشدهٔ این دفتر
+  savedBy SavedInquiry[] @relation("SavedInquiryRef") // ✅ کاربرانی که این بازو را ذخیره کرده‌اند
 
   @@index([status, createdAt])
   @@index([ownerUserId])
@@ -1058,6 +1060,24 @@ model InquiryMember {
   @@index([catalogId, status])
   @@index([inquiryId, status])
   @@index([userId, status])
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// ✅ بازوی خرید ذخیره‌شده — قرینهٔ CatalogInteraction(type=save)
+//    تامین‌کننده بازوهای خرید چند خریدار را ذخیره می‌کند و از سوییچرِ هدر
+//    بینشان جابه‌جا می‌شود؛ شمارندهٔ «ذخیره» صفحهٔ عمومی هم از همین می‌آید.
+// ────────────────────────────────────────────────────────────────────────────
+model SavedInquiry {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  inquiryId String   @db.ObjectId
+  inquiry   Inquiry  @relation("SavedInquiryRef", fields: [inquiryId], references: [id], onDelete: Cascade)
+  userId    String   @db.ObjectId
+  user      User     @relation("SavedInquiryUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([inquiryId, userId])
+  @@index([userId])
+  @@map("saved_inquiries")
 }
 
 model AdView {
