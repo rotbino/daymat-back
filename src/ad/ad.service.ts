@@ -2452,7 +2452,7 @@ export class AdService {
         }
 
         // ═══ ✅ NEW — راهنمای شبکهٔ خرید↔فروش: «هر دو کاتالوگ را داشته باش» ═══
-        //    کسب‌وکارِ فعال دارید ولی اعلام خرید/کاتالوگ فروش ندارید → یادآوری پایدار تا بسازد
+        //    کسب‌وکارِ فعال دارید ولی بازوی خرید/کاتالوگ قیمت ندارید → یادآوری پایدار تا بسازد
         //    (بدون آن عضوگیریِ کاتالوگ‌به‌کاتالوگ ممکن نیست — درخواست‌ها بی‌مقصد می‌مانند)
         try {
             const [hasBiz, salesCatalogCount, purchaseCatalogCount] = await Promise.all([
@@ -2465,9 +2465,9 @@ export class AdService {
                     id: 'network-no-purchase-catalog',
                     type: 'network-no-purchase-catalog',
                     severity: 'info',
-                    title: 'اعلام خرید نداری — شبکهٔ تامینت ناقص است',
-                    body: 'تامین‌کننده‌ها از روی اعلام خریدت بهت وصل می‌شن و اقلام فوریت رو می‌بینن',
-                    action: { label: 'ساخت اعلام خرید', href: '/inquiries/new' },
+                    title: 'بازوی خرید نداری — شبکهٔ تامینت ناقص است',
+                    body: 'تامین‌کننده‌ها از روی بازوی خریدت بهت وصل می‌شن و اقلام فوریت رو می‌بینن',
+                    action: { label: 'ساخت بازوی خرید', href: '/inquiries/new' },
                 });
             }
             if (hasBiz > 0 && salesCatalogCount === 0) {
@@ -2475,9 +2475,9 @@ export class AdService {
                     id: 'network-no-sales-catalog',
                     type: 'network-no-sales-catalog',
                     severity: 'info',
-                    title: 'کاتالوگ فروش نداری — دیده نمی‌شی',
-                    body: 'با کاتالوگ فروش، خریدارها از روی اعلام خریدشان بهت وصل می‌شن و سرنخ فروش می‌گیری',
-                    action: { label: 'ساخت کاتالوگ فروش', href: '/business/register' },
+                    title: 'کاتالوگ قیمت نداری — دیده نمی‌شی',
+                    body: 'با کاتالوگ قیمت، خریدارها از روی بازوی خریدشان بهت وصل می‌شن و سرنخ فروش می‌گیری',
+                    action: { label: 'ساخت کاتالوگ قیمت', href: '/business/register' },
                 });
             }
         } catch { /* راهنما هرگز جریان اصلی را نمی‌شکند */ }

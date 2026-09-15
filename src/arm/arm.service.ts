@@ -1221,7 +1221,7 @@ export class ArmService {
     }
 
     // ============================================================
-    // 16.5 تابلوی اعلام‌های خرید — انتشار دفتر خرید در بازار (قرینهٔ انتشار کاتالوگ)
+    // 16.5 تابلوی بازوهای خرید — انتشار دفتر خرید در بازار (قرینهٔ انتشار کاتالوگ)
     //   ذخیره در InquiryPublication (قرینهٔ AdPublication) — یک دفتر می‌تواند در چند بازار منتشر شود
     //   مجوز: مالک دفتر (سوئیچ دفتر خودش) یا مدیر بازار (افزودن دفترِ خریدار به بازار — پنل مالک)
     // ============================================================
@@ -1239,7 +1239,7 @@ export class ArmService {
             select: { id: true, ownerUserId: true, status: true },
         });
         if (!inquiry) {
-            throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'دفتر اعلام خرید یافت نشد' });
+            throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'دفتر بازوی خرید یافت نشد' });
         }
 
         const actorMembership = await this.prisma.armMembership.findUnique({
@@ -1255,7 +1255,7 @@ export class ArmService {
 
         if (published) {
             if (inquiry.status === 'archived') {
-                throw new BadRequestException({ errorCode: 'INQUIRY_ARCHIVED', message: 'این دفتر اعلام خرید بایگانی شده است' });
+                throw new BadRequestException({ errorCode: 'INQUIRY_ARCHIVED', message: 'این دفتر بازوی خرید بایگانی شده است' });
             }
             // عضویتِ مالک دفتر در این بازار باید فعال باشد (مدیر بازار هم از این گارد مستثنا نیست —
             // دفترِ خریدارِ مکث‌شده نباید روی تابلو برود؛ اول عضویت را فعال کن)
@@ -1285,7 +1285,7 @@ export class ArmService {
 
     // ============================================================
     // 16.6 تابلوهای خریدِ یک عضو — برای انتخابگر «تابلوی خرید» در پنل مالک
-    //   (قرینهٔ مدیریت کاتالوگ فروشندگان) — فقط مدیر بازار
+    //   (قرینهٔ مدیریت کاتالوگ قیمتندگان) — فقط مدیر بازار
     // ============================================================
     async listMemberInquiries(requesterId: string, slug: string, memberUserId: string) {
         const arm = await this.prisma.arm.findUnique({

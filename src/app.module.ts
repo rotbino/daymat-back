@@ -51,7 +51,7 @@ import {InquiryModule} from "./inquiry/inquiry.module";
     BusinessModule,
     BrandModule,
     ProductReferenceModule,
-    InquiryModule,   // ✅ اعلام خرید (استعلام قیمت)
+    InquiryModule,   // ✅ بازوی خرید (استعلام قیمت)
     ActivityModule,
     SettingsModule,
     ArmAdminModule,

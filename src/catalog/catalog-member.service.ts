@@ -97,7 +97,7 @@ export class CatalogMemberService {
     // ════════════════════════════════════════════════════════════
 
     private CONN_TYPE_LABEL: Record<string, string> = {
-        customer: 'اعلام خرید',
+        customer: 'بازوی خرید',
         supplier: 'درخواست تامین‌کنندگی',
         service: 'درخواست تامین خدمات',
         seller: 'دعوت به همکاری در فروش',
@@ -821,8 +821,8 @@ export class CatalogMemberService {
             return { ...c, sellerName: s ? (s.fullName || s.businessName) : null };
         });
 
-        // ✅ اعلام‌های خریدِ خریدارها — شبکهٔ خرید↔فروش:
-        //    خریدار از روی اعلام خریدش شناخته می‌شود، نه فقط کسب‌وکارش
+        // ✅ بازوهای خریدِ خریدارها — شبکهٔ خرید↔فروش:
+        //    خریدار از روی بازوی خریدش شناخته می‌شود، نه فقط کسب‌وکارش
         const buyerUserIds = Array.from(new Set(
             customers.filter((c) => c.customerStatus === 'active').map((c) => c.userId),
         ));
@@ -1140,7 +1140,7 @@ export class CatalogMemberService {
             if (!settings.multiSeller) {
                 throw new ForbiddenException({
                     errorCode: 'MULTI_SELLER_DISABLED',
-                    message: 'همکاری در فروش برای این کاتالوگ فعال نیست — فقط مالک کاتالوگ فروشنده است',
+                    message: 'همکاری در فروش برای این کاتالوگ فعال نیست — فقط مالک کاتالوگ قیمتنده است',
                 });
             }
             // کسب‌وکار اختیاری برای همکار فروش — اگر داد باید عضو/مسئولِ آن باشد (کسب‌وکار مرجع مشترک است)
@@ -2319,7 +2319,7 @@ export class CatalogMemberService {
             throw new BadRequestException({ errorCode: 'OWN_BUSINESS', message: 'نمی‌توانید کسب‌وکار خودتان را مشتری ثبت کنید' });
         }
         if (bizResponsible && bizResponsible === catalog.ownerUserId) {
-            throw new BadRequestException({ errorCode: 'CATALOG_OWNER_BUSINESS', message: 'کسب‌وکارِ مالِ کاتالوگ فروشنده است — مشتری نیست' });
+            throw new BadRequestException({ errorCode: 'CATALOG_OWNER_BUSINESS', message: 'کسب‌وکارِ مالِ کاتالوگ قیمتنده است — مشتری نیست' });
         }
 
         // انتساب: صریح → خود ثبت‌کننده (اگر فروشنده است) → مالکِ کاتالوگ

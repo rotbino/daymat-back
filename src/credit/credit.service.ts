@@ -959,7 +959,7 @@ export class CreditService {
         const finalCreditCount = creditCount || Math.floor(amount / finalCreditPrice);
         const finalCreditPriceValue = creditPrice || (creditCount ? amount / creditCount : finalCreditPrice);
 
-        // ۵. ایجاد اعلام خرید دستی (بدون واریز اعتبار)
+        // ۵. ایجاد بازوی خرید دستی (بدون واریز اعتبار)
         const request = await this.prisma.creditRequest.create({
             data: {
                 userId,

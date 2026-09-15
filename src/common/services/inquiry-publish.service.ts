@@ -80,7 +80,7 @@ export class InquiryPublishService {
     }
 
     /**
-     * دفترهای منتشرشدهٔ یک اعلام خرید و بازارهایشان — برای تب «انتشار» پنل اعلام خرید
+     * دفترهای منتشرشدهٔ یک بازوی خرید و بازارهایشان — برای تب «انتشار» پنل بازوی خرید
      * (قرینهٔ getCatalogPublications)
      */
     async getInquiryPublications(inquiryId: string) {

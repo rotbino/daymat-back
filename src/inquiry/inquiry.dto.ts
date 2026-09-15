@@ -1,5 +1,5 @@
 // src/inquiry/inquiry.dto.ts
-// اعلام خرید (استعلام قیمت) — DTO ها
+// بازوی خرید (استعلام قیمت) — DTO ها
 // فلسفه: ساده به‌صورت پیش‌فرض (فقط عنوان + چند قلم)، پیشرفته اختیاری
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
@@ -67,7 +67,7 @@ export class InquiryItemDto {
     @MaxLength(500)
     note?: string;
 
-    @ApiPropertyOptional({ description: 'اعلام خرید فعال — قلم در «درخواست‌های خرید جاری» بالای کاتالوگ می‌نشیند', required: false })
+    @ApiPropertyOptional({ description: 'بازوی خرید فعال — قلم در «درخواست‌های خرید جاری» بالای کاتالوگ می‌نشیند', required: false })
     @IsOptional()
     @IsBoolean()
     urgent?: boolean;
@@ -79,7 +79,7 @@ export class InquiryUnitDto {
     unitId: string;
 }
 
-/** ویرایش قلم — همهٔ فیلدها اختیاری (merge)؛ تاگل اعلام خرید با همین کار می‌کند */
+/** ویرایش قلم — همهٔ فیلدها اختیاری (merge)؛ تاگل بازوی خرید با همین کار می‌کند */
 export class UpdateInquiryItemDto {
     @ApiPropertyOptional({ description: 'نام کالا/قطعه', required: false })
     @IsOptional() @IsString() @MaxLength(160)
@@ -98,7 +98,7 @@ export class UpdateInquiryItemDto {
 }
 
 export class CreateInquiryDto {
-    @ApiProperty({ example: 'لیست خرید هفتگی سوپرمارکت', description: 'عنوان اعلام خرید' })
+    @ApiProperty({ example: 'لیست خرید هفتگی سوپرمارکت', description: 'عنوان بازوی خرید' })
     @IsNotEmpty({ message: 'عنوان الزامی است' })
     @IsString()
     @MaxLength(140)
@@ -178,7 +178,7 @@ export class CreateInquiryDto {
     @IsString()
     businessId?: string;
 
-    @ApiPropertyOptional({ type: [InquiryUnitDto], description: 'واحدهای اختصاصی این اعلام خرید (از مرجع واحد)', required: false })
+    @ApiPropertyOptional({ type: [InquiryUnitDto], description: 'واحدهای اختصاصی این بازوی خرید (از مرجع واحد)', required: false })
     @IsOptional()
     @IsArray()
     @ArrayMaxSize(50)
@@ -267,10 +267,10 @@ export class UpdateOfferDto {
     status: string;
 }
 
-// ═══ اعضای اعلام خرید — تامین‌کننده‌های تاییدشده (شبکهٔ خرید↔فروش) ═══
+// ═══ اعضای بازوی خرید — تامین‌کننده‌های تاییدشده (شبکهٔ خرید↔فروش) ═══
 
 export class AddInquiryMemberDto {
-    @ApiProperty({ description: 'کاتالوگ فروشِ تامین‌کننده (باید متعلق به تامین‌کننده باشد)' })
+    @ApiProperty({ description: 'کاتالوگ قیمتِ تامین‌کننده (باید متعلق به تامین‌کننده باشد)' })
     @IsNotEmpty({ message: 'کاتالوگ تامین‌کننده الزامی است' })
     @IsString()
     catalogId: string;
@@ -283,8 +283,8 @@ export class AddInquiryMemberDto {
 }
 
 export class RequestInquiryAccessDto {
-    @ApiProperty({ description: 'کاتالوگ فروش خودم که با آن درخواست عضویت می‌دهم' })
-    @IsNotEmpty({ message: 'کاتالوگ فروش الزامی است' })
+    @ApiProperty({ description: 'کاتالوگ قیمت خودم که با آن درخواست عضویت می‌دهم' })
+    @IsNotEmpty({ message: 'کاتالوگ قیمت الزامی است' })
     @IsString()
     catalogId: string;
 
@@ -302,7 +302,7 @@ export class DecideInquiryMemberDto {
     status: 'active' | 'declined' | 'removed';
 }
 
-/** 🪪 ذخیره/حذف مشخصات کارت ویزیت اعلام خرید (JSON) — قرینهٔ کاتالوگ فروش */
+/** 🪪 ذخیره/حذف مشخصات کارت ویزیت بازوی خرید (JSON) — قرینهٔ کاتالوگ قیمت */
 export class SaveInquiryVisitCardDto {
     /** مشخصات کامل کارت ویزیت (JSON آزاد — فشرده‌سازی تصاویر سمت کلاینت) — null = حذف کارت ذخیره‌شده */
     @ApiPropertyOptional({ description: 'مشخصات کارت ویزیت (JSON) — null برای حذف', nullable: true, type: Object })
