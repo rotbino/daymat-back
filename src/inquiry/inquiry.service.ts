@@ -104,6 +104,31 @@ export class InquiryService implements OnModuleInit {
         return !!id && /^[0-9a-fA-F]{24}$/.test(id);
     }
 
+    /** ✅ نرمال‌سازی نام قلم برای گارد تکراری — ی/ک عربی→فارسی + فاصله‌ها */
+    private normalizeItemName(name?: string | null): string {
+        return (name ?? '')
+            .replace(/ي/g, 'ی').replace(/ك/g, 'ک').replace(/[\u064E-\u065F\u0670]/g, '')
+            .replace(/\s+/g, ' ').trim()
+            .toLowerCase();
+    }
+
+    /** ✅ انقضای خودکار مهلت قیمت‌گیری (خواستهٔ مالک):
+     *  اگر deadline گروهی گذشته باشد → همهٔ اقلام در حال قیمت‌گیری خودکار خارج می‌شوند و مهلت پاک می‌شود.
+     *  lazy — روی هر fetch جزئیات/لیدها چک می‌شود؛ ارزان و idempotent. */
+    private async expireStaleDeadline(inquiry: { id: string; deadline: Date | null }): Promise<boolean> {
+        if (!inquiry?.deadline || !(inquiry.deadline instanceof Date) || inquiry.deadline.getTime() > Date.now()) return false;
+        try {
+            await this.prisma.$transaction([
+                this.prisma.inquiryItem.updateMany({
+                    where: { inquiryId: inquiry.id, urgent: true },
+                    data: { urgent: false, urgentAt: null },
+                }),
+                this.prisma.inquiry.update({ where: { id: inquiry.id }, data: { deadline: null } }),
+            ]);
+        } catch { /* رقابت نرم — دفعهٔ بعد تمیز می‌شود */ }
+        return true;
+    }
+
     /** آیا این کاربر (با یکی از کاتالوگ‌های قیمتش) تامین‌کنندهٔ تاییدشدهٔ این بازوی خرید است؟ */
     private async isActiveMember(inquiryId: string, userId: string): Promise<boolean> {
         if (!userId) return false;
@@ -239,13 +264,25 @@ export class InquiryService implements OnModuleInit {
             }));
     }
 
-    /** اعتبارسنجی واحدهای اختصاصی — فقط unitIdهای واقعاً موجود در مرجع واحد */
+    /** اعتبارسنجی واحدهای اختصاصی — فقط unitIdهای واقعاً موجود در مرجع واحد؛
+     *  ✅ عنوان سفارشی (ترکیبی مثل «کارتن ۲۴ عددی») حفظ می‌شود — کلید یکتا = unitId + title */
     private async cleanUnits(units?: InquiryUnitDto[]): Promise<any[] | undefined> {
         if (!Array.isArray(units)) return undefined;
         const ids = [...new Set(units.map((u) => u?.unitId).filter((id) => this.isValidObjectId(id)))];
         if (ids.length === 0) return [];
         const found = await this.prisma.unit.findMany({ where: { id: { in: ids } }, select: { id: true } });
-        return found.map((u) => ({ unitId: u.id }));
+        const ok = new Set(found.map((u) => u.id));
+        const out: { unitId: string; title?: string }[] = [];
+        const seen = new Set<string>();
+        for (const u of units) {
+            if (!u?.unitId || !ok.has(u.unitId)) continue;
+            const title = u.title?.trim() || undefined;
+            const key = `${u.unitId}::${title ?? ''}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push({ unitId: u.unitId, ...(title ? { title } : {}) });
+        }
+        return out;
     }
 
     /** بررسی وجود کالاهای مرجع ارسالی — حذفِ بی‌صدا موارد ناموجود */
@@ -399,7 +436,7 @@ export class InquiryService implements OnModuleInit {
 
     // ─── بازوهای خرید من ───
     async mine(userId: string) {
-        return this.prisma.inquiry.findMany({
+        const rows = await this.prisma.inquiry.findMany({
             where: { ownerUserId: userId, status: { not: 'archived' } },
             orderBy: { createdAt: 'desc' },
             select: {
@@ -408,6 +445,22 @@ export class InquiryService implements OnModuleInit {
                 _count: { select: { items: true } },
             },
         });
+        // ✅ شمارش تامین‌کننده‌های فعال هر بازو — برای یادآوری ماندگار «حداقل ۵ تامین‌کننده» (خواستهٔ مالک)
+        if (rows.length > 0) {
+            const ids = rows.map((r) => r.id);
+            let counts: any[] = [];
+            try {
+                // (cast تایپی — overload پیچیدهٔ groupBy در این نسخهٔ prisma با tuple گیر می‌دهد)
+                counts = await (this.prisma.inquiryMember as any).groupBy({
+                    by: ['inquiryId'],
+                    where: { inquiryId: { in: ids }, status: 'active' },
+                    _count: { _all: true },
+                });
+            } catch { /* گروه‌بای در دسترس نبود — صفر فرض می‌شود */ }
+            const map = new Map<string, number>(counts.map((c: any) => [c.inquiryId as string, c?._count?._all ?? 0]));
+            return rows.map((r) => ({ ...r, activeSuppliers: map.get(r.id) ?? 0 }));
+        }
+        return rows.map((r: any) => ({ ...r, activeSuppliers: 0 }));
     }
 
     // ─── جزئیات با شناسه یا اسلاگ (عمومی با لینک) ───
@@ -424,6 +477,12 @@ export class InquiryService implements OnModuleInit {
         if (!inquiry || inquiry.status === 'archived') {
             throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'بازوی خرید پیدا نشد' });
         }
+        // ✅ مهلت گروهی گذشته؟ → اقلام در حال قیمت‌گیری خودکار خارج + مهلت پاک (خواستهٔ مالک)
+        let expired = false;
+        if (inquiry.deadline) expired = await this.expireStaleDeadline({ id: inquiry.id, deadline: inquiry.deadline });
+        const view = expired
+            ? { ...inquiry, deadline: null, items: inquiry.items.map((i) => ({ ...i, urgent: false, urgentAt: null })) }
+            : inquiry;
         const isOwner = !!userId && userId === inquiry.ownerUserId;
 
         // ✅ گیت خصوصی نسخهٔ جدید (تصمیم مالک): لیست برای همه قابل دیدن است؛
@@ -456,10 +515,10 @@ export class InquiryService implements OnModuleInit {
                 where: { id: { in: bizIds } }, select: { id: true, name: true, logoUrl: true },
             }) : [];
             const bizMap = Object.fromEntries(bizs.map((b) => [b.id, b]));
-            return { ...inquiry, isOwner, offers: offers.map((o) => ({ ...o, business: o.businessId ? bizMap[o.businessId] ?? null : null })) };
+            return { ...view, isOwner, offers: offers.map((o) => ({ ...o, business: o.businessId ? bizMap[o.businessId] ?? null : null })) };
         }
 
-        return { ...inquiry, isOwner: false, isMember, limited: limitedView };
+        return { ...view, isOwner: false, isMember, limited: limitedView };
     }
 
     // ═══════════════════════════════════════════════════════
@@ -587,6 +646,17 @@ export class InquiryService implements OnModuleInit {
         const [cleaned] = await this.filterExistingReferenceIds(this.cleanItems([{ ...dto, name: (dto.name ?? '').trim() }]));
         if (!cleaned) {
             throw new BadRequestException({ errorCode: 'EMPTY_ITEM', message: 'نام قلم الزامی است' });
+        }
+        // ✅ گارد قلم تکراری — هر کالا فقط یک‌بار در لیست بازوی خرید (خواستهٔ مالک)
+        const existingItems = await this.prisma.inquiryItem.findMany({
+            where: { inquiryId }, select: { id: true, name: true },
+        });
+        const dup = existingItems.find((i) => this.normalizeItemName(i.name) === this.normalizeItemName(cleaned.name));
+        if (dup) {
+            throw new BadRequestException({
+                errorCode: 'DUPLICATE_ITEM',
+                message: `«${cleaned.name}» قبلا در لیست هست — از لیست ویرایشش کن`,
+            });
         }
         const last = await this.prisma.inquiryItem.findFirst({
             where: { inquiryId }, orderBy: { order: 'desc' }, select: { order: true },
@@ -1054,6 +1124,20 @@ export class InquiryService implements OnModuleInit {
                 user: { select: { id: true, fullName: true } },
             },
         });
+
+        // ✅ انقضای خودکار مهلت — بازوهای منقضی قبل از ساخت پاسخ تمیز می‌شوند (خواستهٔ مالک)
+        const staleBy = new Map<string, boolean>();
+        for (const m of memberships) {
+            if (!staleBy.has(m.inquiry.id)) {
+                staleBy.set(m.inquiry.id, await this.expireStaleDeadline({ id: m.inquiry.id, deadline: m.inquiry.deadline }));
+            }
+        }
+        for (const m of memberships) {
+            if (staleBy.get(m.inquiry.id)) {
+                m.inquiry.deadline = null;
+                m.inquiry.items = [];
+            }
+        }
 
         const invitations = memberships
             .filter((m) => m.status === 'pending' && m.via === 'buyer_add' && m.inquiry.status !== 'archived')

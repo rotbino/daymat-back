@@ -77,6 +77,13 @@ export class InquiryUnitDto {
     @ApiProperty({ description: 'شناسه واحد از مرجع واحد' })
     @IsString()
     unitId: string;
+
+    // ✅ عنوان سفارشی ترکیبی — مثل «کارتن ۲۴ عددی»؛ همان واحدِ مرجع با تعداد متفاوت
+    @ApiPropertyOptional({ example: 'کارتن ۲۴ عددی', description: 'عنوان سفارشی واحد (ترکیب واحد + تعداد)', required: false })
+    @IsOptional()
+    @IsString()
+    @MaxLength(40)
+    title?: string;
 }
 
 /** ویرایش قلم — همهٔ فیلدها اختیاری (merge)؛ تاگل بازوی خرید با همین کار می‌کند */
