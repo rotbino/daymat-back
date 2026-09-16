@@ -470,7 +470,9 @@ export class InquiryService implements OnModuleInit {
             where: isId ? { id: idOrSlug } : { slug: idOrSlug },
             include: {
                 items: { orderBy: { order: 'asc' } },
-                owner: { select: { id: true, fullName: true, avatarUrl: true } },
+                // ✅ referralCode مالک — لینک‌های ویروسی صفحهٔ عمومی بازو (فوتر/هدر)
+                //    با انتساب دعوتِ مالک کار می‌کنند، مثل فوتر کاتالوگ
+                owner: { select: { id: true, fullName: true, avatarUrl: true, referralCode: true } },
                 business: { select: { id: true, name: true, logoUrl: true, city: true, phone: true } },
             },
         });
