@@ -1184,6 +1184,11 @@ export class InquiryService implements OnModuleInit {
             : await this.prisma.inquiryMember.create({
                   data: { inquiryId, catalogId: catalog.id, userId, status: autoActivate ? 'active' : 'pending', via: 'supplier_request', note: dto.note ?? null },
               });
+        // ✅ عضویت متقابل کاتالوگ — اتصال فوری بازوی عمومی هم خریدار را در «اعضای کاتالوگ»
+        //    تامین‌کننده می‌گذارد (لِین خریدار — هم‌مسیر با تایید همکاری در decideMember)
+        if (autoActivate) {
+            await this.syncCatalogCustomerSide(catalog.id, inquiry);
+        }
         // 🔔 به خریدار — اتصال/درخواست تامین‌کنندگی
         void this.notification.notify({
             userIds: [inquiry.ownerUserId],
@@ -1205,7 +1210,7 @@ export class InquiryService implements OnModuleInit {
         if (!member) throw new NotFoundException({ errorCode: 'MEMBER_NOT_FOUND', message: 'عضو پیدا نشد' });
         const inquiry = await this.prisma.inquiry.findUnique({
             where: { id: inquiryId },
-            select: { id: true, title: true, slug: true, ownerUserId: true, businessId: true },
+            select: { id: true, title: true, slug: true, ownerUserId: true, businessId: true, city: true },
         });
         if (!inquiry) throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'بازوی خرید پیدا نشد' });
 
@@ -1234,6 +1239,9 @@ export class InquiryService implements OnModuleInit {
             where: { id: member.id },
             data: { status: 'active' },
         });
+        // ✅ عضویت متقابل کاتالوگ (خواستهٔ مالک): با تایید/پذیرش همکاری، خریدار هم باید
+        //    در «اعضای کاتالوگ» تامین‌کننده (لِین خریدار) ظاهر شود — نه فقط تامین‌کننده در اعضای بازو
+        await this.syncCatalogCustomerSide(member.catalogId, inquiry);
         // 🔔 به طرف مقابل
         if (member.via === 'supplier_request') {
             void this.notification.notify({
@@ -1257,6 +1265,54 @@ export class InquiryService implements OnModuleInit {
             });
         }
         return updated;
+    }
+
+    /**
+     * ✅ عضویت متقابل کاتالوگ (خواستهٔ مالک): وقتی همکاریِ تامین‌کننده با بازوی خرید فعال می‌شود
+     *    (تایید خریدار، پذیرش دعوتِ تامین‌کننده یا اتصال فوری بازوی عمومی)، خریدار باید در
+     *    تب «اعضا» کاتالوگ تامین‌کننده هم به‌عنوان خریدار دیده شود — عضویت یک‌طرفه نباشد.
+     *    پیاده‌سازی: upsert لِین خریدار (customerStatus=active) روی ردیف CatalogMember همان کاربر.
+     *    ⚠️ حیاتی نیست — خطای این تابع هرگز تایید همکاری را شکست نمی‌دهد.
+     */
+    private async syncCatalogCustomerSide(
+        catalogId: string,
+        inquiry: { ownerUserId: string; businessId: string | null; title?: string; city?: string | null },
+    ) {
+        try {
+            const catalog = await this.prisma.catalog.findUnique({
+                where: { id: catalogId },
+                select: { id: true, businessId: true },
+            });
+            if (!catalog || (inquiry.businessId && catalog.businessId === inquiry.businessId)) return;
+            const biz = inquiry.businessId
+                ? await this.prisma.business.findUnique({ where: { id: inquiry.businessId }, select: { id: true, city: true, province: true } })
+                : null;
+            const lane = {
+                status: 'active' as const,
+                leftAt: null as Date | null,
+                customerBusinessId: biz?.id ?? null,
+                customerStatus: 'active' as const,
+                // «self_request» = همان مسیر مجاز چرخهٔ فعلی لِین خریدار — تایید خریدار یعنی خودش خواستار همکاری با این کاتالوگ است
+                customerVia: 'self_request' as const,
+                customerJoinedAt: new Date(),
+                customerLeftAt: null as Date | null,
+                memberCity: biz?.city || inquiry.city || null,
+                memberProvince: biz?.province || null,
+                updatedAt: new Date(),
+            };
+            const existing = await this.prisma.catalogMember.findUnique({
+                where: { catalogId_userId: { catalogId, userId: inquiry.ownerUserId } },
+            });
+            if (existing) {
+                await this.prisma.catalogMember.update({ where: { id: existing.id }, data: lane });
+            } else {
+                await this.prisma.catalogMember.create({
+                    data: { ...lane, catalogId, userId: inquiry.ownerUserId },
+                });
+            }
+        } catch {
+            // عضویت متقابل جانبی است — ساکت رد شود
+        }
     }
 
     /**
