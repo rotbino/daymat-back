@@ -332,7 +332,7 @@ model CatalogMember {
   // ── لِین فروش ── مالک به‌طور پیش‌فرض فروشندهٔ فعال کاتالوگ خودش است
   sellerBusinessId String?   @db.ObjectId
   sellerBusiness   Business? @relation("CatMemberSellerBiz", fields: [sellerBusinessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  sellerStatus     String? // pending | active | removed — null = اصلاً در لِین فروش نیست
+  sellerStatus     String? // pending | active | declined | removed — null = اصلاً در لِین فروش نیست (declined = دعوت رد شده — دعوت‌کننده می‌بیند)
   sellerRole       String? @default("seller") // seller | visitor — نقش بیزینسی لِین فروش (فروشنده/بازاریاب-ویزیتور)
   sellerVia        String? // self_request | manager_invite | business_team — مسیر ورود (business_team = سینک خودکار از تیم کسب‌وکار)
   sellerJoinedAt   DateTime?
@@ -342,7 +342,7 @@ model CatalogMember {
   // ── لِین خریدار ── دو مسیر: ثبتِ توسط عضوِ فروش (تایید با صاحبِ کسب‌وکار) یا درخواست همکاریِ خودِ خریدار (تایید با مدیر)
   customerBusinessId String?   @db.ObjectId
   customerBusiness   Business? @relation("CatMemberCustomerBiz", fields: [customerBusinessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  customerStatus     String? // pending | active | removed — null = خریدار نیست
+  customerStatus     String? // pending | active | declined | removed — null = خریدار نیست (declined = ثبتِ خریدار رد شده — ثبت‌کننده می‌بیند)
   customerJoinedAt   DateTime?
   customerLeftAt     DateTime?
   customerAddedByUserId String? @db.ObjectId // چه کسی ثبتش کرده (عضوِ فروش/مدیر)
@@ -356,7 +356,7 @@ model CatalogMember {
   // ── لِین تامین‌کننده ── عضویت با کاتالوگِ خودِ تامین‌کننده (شبکه‌سازی بین کاتالوگ‌ها)
   supplierCatalogId String?  @db.ObjectId
   supplierCatalog   Catalog? @relation("CatMemberSupplierCatalog", fields: [supplierCatalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  supplierStatus    String? // pending | active | removed — null = تامین‌کننده نیست
+  supplierStatus    String? // pending | active | declined | removed — null = تامین‌کننده نیست (declined = دعوت رد شده)
   supplierVia       String? // self_request | manager_add — مسیر ورود به لِین (manager_add = تایید با صاحبِ کاتالوگِ تامین‌کننده)
   supplierJoinedAt  DateTime?
   supplierLeftAt    DateTime?
@@ -364,7 +364,7 @@ model CatalogMember {
   // ── لِین سرویس‌دهندهٔ خدمات ── عضویت با کاتالوگِ خدماتیِ خود (salesType=service) — چرخهٔ تجارت خدمات
   serviceCatalogId String?  @db.ObjectId
   serviceCatalog   Catalog? @relation("CatMemberServiceCatalog", fields: [serviceCatalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  serviceStatus    String? // pending | active | removed — null = سرویس‌دهنده نیست
+  serviceStatus    String? // pending | active | declined | removed — null = سرویس‌دهنده نیست (declined = دعوت رد شده)
   serviceVia       String? // self_request | manager_add
   serviceJoinedAt  DateTime?
   serviceLeftAt    DateTime?

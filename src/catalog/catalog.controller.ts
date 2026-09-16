@@ -461,6 +461,19 @@ export class CatalogController {
         return this.catalogMemberService.removeSupplier(catalogId, memberId, user.id, note);
     }
 
+    @Delete(':catalogId/team/services/:memberId')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'حذف سرویس‌دهندهٔ فعال از کاتالوگ (مالک/مدیر) — دعوتِ منتظر/ردشده هم قابل حذف' })
+    async removeService(
+        @Param('catalogId') catalogId: string,
+        @Param('memberId') memberId: string,
+        @CurrentUser() user: any,
+        @Query('note') note?: string,
+    ) {
+        return this.catalogMemberService.removeService(catalogId, memberId, user.id, note);
+    }
+
     @Delete(':catalogId/team/sellers/:memberId')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')

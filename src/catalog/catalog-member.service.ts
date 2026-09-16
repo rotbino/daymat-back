@@ -709,10 +709,10 @@ export class CatalogMemberService {
             where: {
                 catalogId: catalog.id,
                 OR: [
-                    { sellerStatus: { in: ['active', 'pending'] } },
-                    { customerStatus: { in: ['active', 'pending'] } },
-                    { supplierStatus: { in: ['active', 'pending'] } },
-                    { serviceStatus: { in: ['active', 'pending'] } },
+                    { sellerStatus: { in: ['active', 'pending', 'declined'] } },
+                    { customerStatus: { in: ['active', 'pending', 'declined'] } },
+                    { supplierStatus: { in: ['active', 'pending', 'declined'] } },
+                    { serviceStatus: { in: ['active', 'pending', 'declined'] } },
                     { role: 'catalog_admin', status: 'active' },
                 ],
             },
@@ -734,8 +734,14 @@ export class CatalogMemberService {
             }
         }
 
+        // ✅ لِین‌های «ما اضافه کردیم، طرف هنوز جواب نداده/رد کرده» — خواستهٔ مالک:
+        //    دعوت‌شده در لیست دیده شود با برچسب «در انتظار پذیرش»؛ ردشده با «درخواست رد شده» + امکان حذف
+        //    فقط ردیف‌هایی که مدیر خودش شروع کرده (manager_invite/manager_add) — درخواست‌های خودِ متقاضی در کارت جداگانه است
+        const invitedLaneStates = ['pending', 'declined'] as const;
         const sellers = rows
-            .filter((r) => r.sellerStatus === 'active')
+            .filter((r) =>
+                r.sellerStatus === 'active' ||
+                (canManage && r.sellerVia === 'manager_invite' && invitedLaneStates.includes(r.sellerStatus as any)))
             .map((r) => ({
                 ...this.memberCard(r, armSlugs),
                 isOwner: r.userId === ownerUserId,
@@ -744,7 +750,9 @@ export class CatalogMemberService {
             }));
 
         const suppliers = rows
-            .filter((r) => r.supplierStatus === 'active')
+            .filter((r) =>
+                r.supplierStatus === 'active' ||
+                (canManage && r.supplierVia === 'manager_add' && invitedLaneStates.includes(r.supplierStatus as any)))
             .map((r) => ({
                 ...this.memberCard(r, armSlugs),
                 isOwner: r.userId === ownerUserId,
@@ -752,7 +760,9 @@ export class CatalogMemberService {
             }));
 
         const services = rows
-            .filter((r) => r.serviceStatus === 'active')
+            .filter((r) =>
+                r.serviceStatus === 'active' ||
+                (canManage && r.serviceVia === 'manager_add' && invitedLaneStates.includes(r.serviceStatus as any)))
             .map((r) => ({
                 ...this.memberCard(r, armSlugs),
                 isOwner: r.userId === ownerUserId,
@@ -798,7 +808,9 @@ export class CatalogMemberService {
             });
 
         let customers = rows
-            .filter((r) => r.customerStatus === 'active' || r.customerStatus === 'pending')
+            .filter((r) =>
+                r.customerStatus === 'active' || r.customerStatus === 'pending' ||
+                (canManage && r.customerStatus === 'declined' && r.customerVia === 'owner_add'))
             .map((r) => ({
                 ...this.memberCard(r, armSlugs),
                 sellerName: null as string | null,
@@ -1584,7 +1596,7 @@ export class CatalogMemberService {
             href: '/my-catalogs?tab=team',
             catalogId: catalog.id,
         });
-        return { success: true, message: 'درخواست تامین‌کنندگی ارسال شد — در انتظار تایید صاحب کاتالوگ', quota: charge };
+        return { success: true, message: 'درخواست تامین‌کنندگی ارسال شد — در انتظار پذیرش تامین‌کننده', quota: charge };
     }
 
     /** دعوت کاتالوگِ خدماتی به‌عنوان سرویس‌دهنده — مالک/مدیر؛ تایید با صاحبِ کاتالوگِ خدماتی */
@@ -1639,7 +1651,7 @@ export class CatalogMemberService {
             href: '/my-catalogs?tab=team',
             catalogId: catalog.id,
         });
-        return { success: true, message: 'درخواست تامین خدمات ارسال شد — در انتظار تایید صاحب کاتالوگ', quota: charge };
+        return { success: true, message: 'درخواست تامین خدمات ارسال شد — در انتظار پذیرش سرویس‌دهنده', quota: charge };
     }
 
     /** دعوت یک کاربر به همکاری در فروش — مالک/مدیر؛ پذیرش با خودِ دعوت‌شده */
@@ -1687,7 +1699,7 @@ export class CatalogMemberService {
             href: `/my-catalogs?tab=team&cat=${catalog.id}`,
             catalogId: catalog.id,
         });
-        return { success: true, message: 'دعوت همکاری در فروش ارسال شد — در انتظار پاسخ کاربر', quota: charge };
+        return { success: true, message: 'دعوت همکاری در فروش ارسال شد — در انتظار پذیرش همکار', quota: charge };
     }
 
     /** پذیرش دعوت همکاری در فروش — فقط خودِ دعوت‌شده */
@@ -1707,7 +1719,8 @@ export class CatalogMemberService {
         return { success: true, message: 'دعوت پذیرفته شد — حالا همکار فروش این کاتالوگ هستید' };
     }
 
-    /** رد دعوت همکاری در فروش — فقط خودِ دعوت‌شده */
+    /** رد دعوت همکاری در فروش — فقط خودِ دعوت‌شده
+     *  ✅ وضعیت declined — دعوت‌کننده نتیجه را در لیست تیم می‌بیند («درخواست رد شده») و خودش حذف می‌کند */
     async declineSellerInvite(catalogId: string, userId: string) {
         const catalog = await this.getCatalogOrThrow(catalogId);
         const row = await this.getMemberRow(catalog.id, userId);
@@ -1716,7 +1729,7 @@ export class CatalogMemberService {
         }
         await this.prisma.catalogMember.update({
             where: { id: row.id },
-            data: { sellerStatus: 'removed', sellerLeftAt: new Date() },
+            data: { sellerStatus: 'declined', sellerLeftAt: new Date() },
         });
         await this.syncOverallStatus(catalog.id, userId);
         await this.event(catalog.id, userId, 'seller_invite_declined', userId);
@@ -1755,9 +1768,10 @@ export class CatalogMemberService {
         if ((row.supplierCatalog as any)?.ownerUserId !== actorId) {
             throw new ForbiddenException({ errorCode: 'NOT_SOURCE_OWNER', message: 'فقط صاحب کاتالوگ تامین‌کننده می‌تواند این دعوت را رد کند' });
         }
+        // ✅ وضعیت declined — دعوت‌کننده نتیجه را در لیست می‌بیند («درخواست رد شده») و خودش حذف می‌کند
         await this.prisma.catalogMember.update({
             where: { id: row.id },
-            data: { supplierStatus: 'removed', supplierLeftAt: new Date() },
+            data: { supplierStatus: 'declined', supplierLeftAt: new Date() },
         });
         await this.syncOverallStatus(catalog.id, row.userId);
         await this.event(catalog.id, row.userId, 'supplier_invite_declined', actorId, reason || null);
@@ -1796,9 +1810,10 @@ export class CatalogMemberService {
         if ((row.serviceCatalog as any)?.ownerUserId !== actorId) {
             throw new ForbiddenException({ errorCode: 'NOT_SOURCE_OWNER', message: 'فقط صاحب کاتالوگ خدماتی می‌تواند این دعوت را رد کند' });
         }
+        // ✅ وضعیت declined — دعوت‌کننده نتیجه را در لیست می‌بیند («درخواست رد شده») و خودش حذف می‌کند
         await this.prisma.catalogMember.update({
             where: { id: row.id },
-            data: { serviceStatus: 'removed', serviceLeftAt: new Date() },
+            data: { serviceStatus: 'declined', serviceLeftAt: new Date() },
         });
         await this.syncOverallStatus(catalog.id, row.userId);
         await this.event(catalog.id, row.userId, 'service_invite_declined', actorId, reason || null);
@@ -1807,7 +1822,8 @@ export class CatalogMemberService {
         return { success: true, message: 'دعوت رد شد' };
     }
 
-    /** حذف تامین‌کنندهٔ فعال — مالک/مدیر */
+    /** حذف تامین‌کنندهٔ فعال — مالک/مدیر
+     *  ✅ دعوتِ منتظر (pending/manager_add) و ردشده (declined) هم قابل حذف است */
     async removeSupplier(catalogId: string, memberId: string, actorId: string, note?: string) {
         const catalog = await this.getCatalogOrThrow(catalogId);
         await this.assertTeamManager(catalog, actorId);
@@ -1815,7 +1831,8 @@ export class CatalogMemberService {
         if (row.userId === catalog.ownerUserId) {
             throw new BadRequestException({ errorCode: 'CANNOT_REMOVE_OWNER', message: 'مالک کاتالوگ قابل حذف نیست' });
         }
-        if (row.supplierStatus !== 'active') {
+        const isInviteRow = row.supplierVia === 'manager_add' && (row.supplierStatus === 'pending' || row.supplierStatus === 'declined');
+        if (row.supplierStatus !== 'active' && !isInviteRow) {
             throw new ConflictException({ errorCode: 'NOT_ACTIVE_SUPPLIER', message: 'این عضو تامین‌کنندهٔ فعال نیست' });
         }
         await this.prisma.catalogMember.update({
@@ -1828,7 +1845,31 @@ export class CatalogMemberService {
         return { success: true, message: 'از اعضا حذف شد' };
     }
 
-    /** حذف عضوِ فروش — مالک/مدیر؛ مشتری‌هایش بی‌مسئول می‌شوند */
+    /** حذف سرویس‌دهندهٔ فعال — مالک/مدیر
+     *  ✅ دعوتِ منتظر (pending/manager_add) و ردشده (declined) هم قابل حذف است */
+    async removeService(catalogId: string, memberId: string, actorId: string, note?: string) {
+        const catalog = await this.getCatalogOrThrow(catalogId);
+        await this.assertTeamManager(catalog, actorId);
+        const row = await this.getMemberById(catalog.id, memberId);
+        if (row.userId === catalog.ownerUserId) {
+            throw new BadRequestException({ errorCode: 'CANNOT_REMOVE_OWNER', message: 'مالک کاتالوگ قابل حذف نیست' });
+        }
+        const isInviteRow = row.serviceVia === 'manager_add' && (row.serviceStatus === 'pending' || row.serviceStatus === 'declined');
+        if (row.serviceStatus !== 'active' && !isInviteRow) {
+            throw new ConflictException({ errorCode: 'NOT_ACTIVE_SERVICE', message: 'این عضو سرویس‌دهندهٔ فعال نیست' });
+        }
+        await this.prisma.catalogMember.update({
+            where: { id: row.id },
+            data: { serviceStatus: 'removed', serviceLeftAt: new Date() },
+        });
+        await this.syncOverallStatus(catalog.id, row.userId);
+        await this.event(catalog.id, row.userId, 'service_removed', actorId, note || null);
+        await this.bustUsersCache([row.userId, actorId]);
+        return { success: true, message: 'از اعضا حذف شد' };
+    }
+
+    /** حذف عضوِ فروش — مالک/مدیر؛ مشتری‌هایش بی‌مسئول می‌شوند
+     *  ✅ دعوتِ منتظر (pending) و ردشده (declined) هم قابل حذف است — پاک‌سازی لیست از دعوت‌های بی‌جواب/ردشده */
     async removeSeller(catalogId: string, memberId: string, actorId: string, note?: string) {
         const catalog = await this.getCatalogOrThrow(catalogId);
         await this.assertTeamManager(catalog, actorId);
@@ -1847,6 +1888,15 @@ export class CatalogMemberService {
             });
             await this.syncOverallStatus(catalog.id, row.userId);
             await this.event(catalog.id, row.userId, 'seller_removed', actorId, note || null);
+            await this.bustUsersCache([row.userId, actorId]);
+        } else if (row.sellerVia === 'manager_invite' && (row.sellerStatus === 'pending' || row.sellerStatus === 'declined')) {
+            // لغو دعوتِ بی‌پاسخ یا پاک‌کردن ردیفِ «درخواست رد شده» — فقط از لیستِ دعوت‌کننده پاک می‌شود
+            await this.prisma.catalogMember.update({
+                where: { id: row.id },
+                data: { sellerStatus: 'removed', sellerLeftAt: new Date() },
+            });
+            await this.syncOverallStatus(catalog.id, row.userId);
+            await this.event(catalog.id, row.userId, 'seller_removed', actorId, note || 'حذف دعوت');
             await this.bustUsersCache([row.userId, actorId]);
         }
         return { success: true, message: 'از اعضا حذف شد' };
@@ -2406,7 +2456,7 @@ export class CatalogMemberService {
         return {
             success: true,
             memberId,
-            message: 'مشتری ثبت شد — تا وقتی صاحب کسب‌وکار تایید کند، تماسش مسیریابی نمی‌شود',
+            message: 'درخواست ثبت خریدار ارسال شد — در انتظار پذیرش خریدار؛ تا پیش از پذیرش، تماسش مسیریابی نمی‌شود',
             quota: charge,
         };
     }
@@ -2452,9 +2502,11 @@ export class CatalogMemberService {
         if (this.responsibleUserId(row.customerBusiness as any) !== actorId) {
             throw new ForbiddenException({ errorCode: 'NOT_BUSINESS_OWNER', message: 'فقط مسئول کسب‌وکار می‌تواند این ثبت را رد کند' });
         }
+        // ✅ وضعیت declined — ثبت‌کننده نتیجه را در تب «خریداران» می‌بیند («درخواست رد شده») و خودش حذف می‌کند
+        //    انتساب حفظ می‌شود تا ثبت‌کنندهٔ غیرمدیر هم ردیف را ببیند — مسیریابی تماس فقط روی active کار می‌کند
         await this.prisma.catalogMember.update({
             where: { id: row.id },
-            data: { customerStatus: 'removed', customerLeftAt: new Date(), assignedSellerUserId: null, assignedAt: null },
+            data: { customerStatus: 'declined', customerLeftAt: new Date() },
         });
         await this.syncOverallStatus(catalog.id, row.userId);
         await this.event(catalog.id, row.userId, 'customer_declined', actorId, reason || null);

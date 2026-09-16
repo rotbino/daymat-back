@@ -1101,7 +1101,8 @@ export class InquiryService implements OnModuleInit {
             orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
             include: {
                 catalog: { select: { id: true, name: true, slug: true, logoUrl: true, city: true } },
-                user: { select: { id: true, fullName: true, avatarUrl: true } },
+                // ✅ phone = موبایل ثبت‌نام تامین‌کننده — دکمهٔ تماس مدیر (قاعده: شمارهٔ شخص، نه بیزینس)
+                user: { select: { id: true, fullName: true, avatarUrl: true, phone: true } },
             },
         });
     }
