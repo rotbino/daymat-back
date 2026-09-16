@@ -246,11 +246,28 @@ export class CreateOfferDto {
     @IsString()
     currency?: string;
 
-    @ApiPropertyOptional({ example: 'جمع کل', description: 'مبنا: جمع کل / هر کیلو / هر عدد' })
+    @ApiPropertyOptional({ example: 'جمع کل', description: '⛔️ منسوخ — جای خود را به unit داد (فقط سازگاری کلاینت‌های قدیمی)', required: false })
     @IsOptional()
     @IsString()
     @MaxLength(40)
     priceBasis?: string;
+
+    @ApiPropertyOptional({ description: 'شناسهٔ واحد پیشنهاد از مرجع واحد — قیمت برای «هر» این واحد است', required: false })
+    @IsOptional()
+    @IsString()
+    unitId?: string;
+
+    @ApiPropertyOptional({ example: 'کارتن ۲۴ عددی', description: 'عنوان نمایشی واحد — «کل لیست» برای پیشنهاد کل سفارش', required: false })
+    @IsOptional()
+    @IsString()
+    @MaxLength(60)
+    unit?: string;
+
+    @ApiPropertyOptional({ example: 'ارسال رایگان به تهران', description: 'مزیت خرید از شما — مزیت رقابتی', required: false })
+    @IsOptional()
+    @IsString()
+    @MaxLength(500)
+    advantages?: string;
 
     @ApiPropertyOptional({ example: 3, description: 'زمان تحویل تخمینی (روز)' })
     @IsOptional()
@@ -276,9 +293,50 @@ export class CreateOfferDto {
 }
 
 export class UpdateOfferDto {
-    @ApiProperty({ enum: ['accepted', 'rejected', 'withdrawn'], description: 'پذیرش/رد توسط مالک، انصراف توسط پیشنهاددهنده' })
+    // ⚠️ همهٔ فیلدها اختیاری‌اند — هر ترکیبی: مالک وضعیت را عوض می‌کند،
+    //    پیشنهاددهنده محتوا را ویرایش می‌کند (فقط وقتی pending) یا نتیجهٔ فروش را ثبت می‌کند (فقط وقتی accepted)
+    @ApiPropertyOptional({ enum: ['accepted', 'rejected', 'withdrawn'], description: 'پذیرش/رد توسط مالک، انصراف توسط پیشنهاددهنده', required: false })
+    @IsOptional()
     @IsIn(['accepted', 'rejected', 'withdrawn'])
-    status: string;
+    status?: string;
+
+    @ApiPropertyOptional({ description: 'مبلغ جدید (ویرایش پیشنهاددهنده)', required: false })
+    @IsOptional()
+    @IsNumber()
+    price?: number;
+
+    @ApiPropertyOptional({ description: 'واحد جدید — شناسهٔ مرجع', required: false })
+    @IsOptional()
+    @IsString()
+    unitId?: string;
+
+    @ApiPropertyOptional({ description: 'واحد جدید — عنوان نمایشی', required: false })
+    @IsOptional()
+    @IsString()
+    @MaxLength(60)
+    unit?: string;
+
+    @ApiPropertyOptional({ description: 'مزیت خرید از شما', required: false })
+    @IsOptional()
+    @IsString()
+    @MaxLength(500)
+    advantages?: string;
+
+    @ApiPropertyOptional({ description: 'زمان تحویل تخمینی (روز)', required: false })
+    @IsOptional()
+    @IsNumber()
+    deliveryDays?: number;
+
+    @ApiPropertyOptional({ description: 'پیام تامین‌کننده', required: false })
+    @IsOptional()
+    @IsString()
+    @MaxLength(800)
+    message?: string;
+
+    @ApiPropertyOptional({ enum: ['sold', 'not_sold'], description: 'ثبت نتیجهٔ معامله توسط پیشنهاددهنده — فقط پیشنهاد پذیرفته‌شده', required: false })
+    @IsOptional()
+    @IsIn(['sold', 'not_sold'])
+    saleStatus?: string;
 }
 
 // ═══ اعضای بازوی خرید — تامین‌کننده‌های تاییدشده (شبکهٔ خرید↔فروش) ═══

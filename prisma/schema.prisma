@@ -1029,15 +1029,24 @@ model InquiryOffer {
 
   price        Float?      // مبلغ پیشنهادی
   currency     String  @default("IRT") // تومان
-  priceBasis   String?     // مبنا: «جمع کل» / «هر کیلو» / «هر عدد»
+  priceBasis   String?     // ⛔️ منسوخ — جای خود را به unit داد (فقط برای پیشنهادهای قدیمی)
+  unitId       String?  @db.ObjectId // ✅ واحد پیشنهاد از مرجع واحد — قیمت برای «هر» این واحد است
+  unit         String?             // ✅ عنوان نمایشی واحد («کارتن ۲۴ عددی» / «کیلوگرم» / «کل لیست»)
+  advantages   String?             // ✅ مزیت خرید از شما — مزیت رقابتی فروشنده برای این خریدار
   deliveryDays Int?        // زمان تحویل تخمینی
   message      String?
   contactPhone String?
   status       String  @default("pending") // pending | accepted | rejected | withdrawn
+  // ✅ نتیجهٔ معامله — بعد از پذیرش، فروشنده تماس می‌گیرد و نتیجه را ثبت می‌کند
+  //    (مبنای گزارش فروش‌های نهایی پنل مالک/ادمین در آینده)
+  saleStatus   String?     // sold | not_sold
+  saleStatusAt DateTime?
   createdAt    DateTime @default(now())
+  updatedAt    DateTime? @updatedAt
 
   @@index([inquiryId, status])
-  @@index([offererUserId])
+  @@index([offererUserId, status])
+  @@index([itemId])
 }
 
 // ────────────────────────────────────────────────────────────────────────────

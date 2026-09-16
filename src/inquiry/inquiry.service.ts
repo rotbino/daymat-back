@@ -882,6 +882,10 @@ export class InquiryService implements OnModuleInit {
         if (dto.itemId && !this.isValidObjectId(dto.itemId)) {
             throw new BadRequestException({ errorCode: 'INVALID_ITEM', message: 'قلم نامعتبر است' });
         }
+        // ✅ واحد پیشنهاد — از مرجع واحد (قیمت برای «هر» این واحد)
+        if (dto.unitId && !this.isValidObjectId(dto.unitId)) {
+            throw new BadRequestException({ errorCode: 'INVALID_UNIT', message: 'واحد نامعتبر است' });
+        }
         let itemName: string | null = null;
         if (dto.itemId) {
             const item = await this.prisma.inquiryItem.findFirst({ where: { id: dto.itemId, inquiryId } });
@@ -963,21 +967,93 @@ export class InquiryService implements OnModuleInit {
         return offers.map((o) => ({ ...o, business: o.businessId ? bizMap[o.businessId] ?? null : null }));
     }
 
-    // ─── تغییر وضعیت پیشنهاد: مالک → accepted/rejected؛ پیشنهاددهنده → withdrawn ───
+    // ─── تغییر پیشنهاد — سه مسیر (خواستهٔ مالک: چرخهٔ کامل وضعیت پیشنهاد) ───
+    //    ۱) مالک بازو: accepted/rejected
+    //    ۲) پیشنهاددهنده: withdrawn (انصراف) یا ویرایش محتوا — فقط تا وقتی مالک تصمیم نگرفته (pending)
+    //    ۳) پیشنهاددهنده: ثبت نتیجهٔ معامله (sold/not_sold) — فقط روی پیشنهاد پذیرفته‌شده
     async updateOffer(offerId: string, userId: string, dto: UpdateOfferDto) {
         const offer = await this.prisma.inquiryOffer.findUnique({ where: { id: offerId } });
         if (!offer) throw new NotFoundException({ errorCode: 'OFFER_NOT_FOUND', message: 'پیشنهاد پیدا نشد' });
         const inquiry = await this.prisma.inquiry.findUnique({ where: { id: offer.inquiryId } });
 
+        // ۳) نتیجهٔ معامله — فقط پیشنهاددهنده، فقط روی پیشنهاد پذیرفته‌شده
+        if (dto.saleStatus) {
+            if (offer.offererUserId !== userId) {
+                throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'فقط پیشنهاددهنده نتیجهٔ فروش را ثبت می‌کند' });
+            }
+            if (offer.status !== 'accepted') {
+                throw new BadRequestException({ errorCode: 'OFFER_NOT_ACCEPTED', message: 'ثبت نتیجهٔ فروش فقط برای پیشنهاد پذیرفته‌شده است' });
+            }
+            const updated = await this.prisma.inquiryOffer.update({
+                where: { id: offerId },
+                data: { saleStatus: dto.saleStatus, saleStatusAt: new Date() },
+            });
+            if (inquiry) {
+                // 🔔 به خریدار — نتیجهٔ معامله (بی‌صدا)
+                void this.notification.notify({
+                    userIds: [inquiry.ownerUserId],
+                    type: 'inquiry_offer_status',
+                    title: dto.saleStatus === 'sold' ? 'فروش نهایی شد 🎉' : 'فروش نهایی نشد',
+                    body: `پیشنهاد «${offer.itemName || inquiry.title}» — معامله ${dto.saleStatus === 'sold' ? 'با فروش به پایان رسید' : 'به فروش نرسید'}`,
+                    actorUserId: userId,
+                    href: `/${inquiry.slug || inquiry.id}`,
+                    businessId: inquiry.businessId ?? null,
+                });
+            }
+            return updated;
+        }
+
         if (dto.status === 'withdrawn') {
             if (offer.offererUserId !== userId) {
                 throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'فقط پیشنهاددهنده می‌تواند انصراف بدهد' });
             }
-        } else {
+        } else if (dto.status) {
             if (!inquiry || inquiry.ownerUserId !== userId) {
                 throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'فقط صاحب بازوی خرید می‌تواند تصمیم بگیرد' });
             }
+        } else {
+            // ۲) ویرایش محتوا — فقط پیشنهاددهنده و فقط تا وقتی مالک تصمیم نگرفته
+            if (offer.offererUserId !== userId) {
+                throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'فقط پیشنهاددهنده می‌تواند پیشنهادش را ویرایش کند' });
+            }
+            if (offer.status !== 'pending') {
+                throw new BadRequestException({
+                    errorCode: 'OFFER_LOCKED',
+                    message: offer.status === 'accepted'
+                        ? 'پیشنهادت پذیرفته شده — دیگر قابل ویرایش نیست'
+                        : 'پیشنهاد رد شده — دیگر قابل ویرایش نیست',
+                });
+            }
+            if (inquiry && (inquiry.status === 'archived' || inquiry.status === 'closed')) {
+                throw new BadRequestException({ errorCode: 'INQUIRY_CLOSED', message: 'این بازوی خرید بسته شده است' });
+            }
+            if (dto.unitId && !this.isValidObjectId(dto.unitId)) {
+                throw new BadRequestException({ errorCode: 'INVALID_UNIT', message: 'واحد نامعتبر است' });
+            }
+            const { status: _status, saleStatus: _sale, ...content } = dto;
+            const patch: Record<string, any> = {};
+            for (const [k, v] of Object.entries(content)) {
+                if (v !== undefined) patch[k] = v;
+            }
+            if (Object.keys(patch).length === 0) {
+                throw new BadRequestException({ errorCode: 'NOTHING_TO_UPDATE', message: 'چیزی برای تغییر نفرستادی' });
+            }
+            const updated = await this.prisma.inquiryOffer.update({ where: { id: offerId }, data: patch });
+            if (inquiry) {
+                // 🔔 به خریدار — پیشنهاد ویرایش شد (بی‌صدا)
+                void this.notification.notify({
+                    userIds: [inquiry.ownerUserId],
+                    type: 'inquiry_offer',
+                    title: 'پیشنهاد قیمت ویرایش شد',
+                    body: `${offer.itemName || inquiry.title} — پیشنهاد تامین‌کننده به‌روز شد`,
+                    actorUserId: userId,
+                    href: `/${inquiry.slug || inquiry.id}`,
+                    businessId: inquiry.businessId ?? null,
+                });
+            }
+            return updated;
         }
+
         const updated = await this.prisma.inquiryOffer.update({ where: { id: offerId }, data: { status: dto.status } });
         if (dto.status === 'withdrawn') {
             await this.prisma.inquiry.update({ where: { id: offer.inquiryId }, data: { offerCount: { decrement: 1 } } });
@@ -1348,6 +1424,7 @@ export class InquiryService implements OnModuleInit {
                     select: {
                         id: true, title: true, slug: true, visibility: true, status: true,
                         city: true, deliveryNote: true, paymentTerms: true, deadline: true,
+                        units: true, // ✅ واحدهای منتخب بازو — پیش‌فرض سلکت واحد در فرم پیشنهاد
                         business: { select: { id: true, name: true, logoUrl: true, city: true } },
                         items: { where: { urgent: true }, orderBy: { urgentAt: 'desc' } },
                     },
@@ -1392,7 +1469,7 @@ export class InquiryService implements OnModuleInit {
                 createdAt: m.createdAt,
             }));
 
-        const leads = memberships
+        const leads: any[] = memberships
             .filter((m) => m.status === 'active' && m.inquiry.status !== 'archived' && m.inquiry.items.length > 0)
             .map((m) => ({
                 memberId: m.id,
@@ -1400,11 +1477,79 @@ export class InquiryService implements OnModuleInit {
                     id: m.inquiry.id, title: m.inquiry.title, slug: m.inquiry.slug, city: m.inquiry.city,
                     deliveryNote: m.inquiry.deliveryNote, paymentTerms: m.inquiry.paymentTerms,
                     deadline: m.inquiry.deadline,
+                    units: m.inquiry.units,
                 },
                 buyer: m.inquiry.business,
                 items: m.inquiry.items,
             }));
 
-        return { catalogs: myCatalogs, invitations, requests, leads };
+        // ✅ پیشنهادهای خودِ تامین‌کننده روی هر قلم — دکمهٔ «پیشنهاد قیمت» تبدیل به لیبل وضعیت می‌شود:
+        //    ارسال شده (قابل ویرایش تا تصمیم خریدار) / تایید شده / رد شده (خواستهٔ مالک)
+        const leadIds = leads.map((l) => l.inquiry.id);
+        const myOfferRows = leadIds.length ? await this.prisma.inquiryOffer.findMany({
+            where: { offererUserId: userId, inquiryId: { in: leadIds }, status: { not: 'withdrawn' } },
+            orderBy: { createdAt: 'desc' },
+            select: {
+                id: true, inquiryId: true, itemId: true, price: true, currency: true,
+                unitId: true, unit: true, priceBasis: true, deliveryDays: true, message: true,
+                advantages: true, status: true, createdAt: true,
+            },
+        }) : [];
+        const myOfferByItem = new Map<string, any>();   // «inquiryId:itemId» → جدیدترین پیشنهاد
+        const myWholeList = new Map<string, any>();     // «inquiryId» → پیشنهاد کل لیست
+        for (const o of myOfferRows) {
+            if (o.itemId) {
+                const key = `${o.inquiryId}:${o.itemId}`;
+                if (!myOfferByItem.has(key)) myOfferByItem.set(key, o);
+            } else if (!myWholeList.has(o.inquiryId)) {
+                myWholeList.set(o.inquiryId, o);
+            }
+        }
+        for (const l of leads) {
+            for (const it of l.items as any[]) {
+                it.myOffer = myOfferByItem.get(`${l.inquiry.id}:${it.id}`) ?? null;
+            }
+            l.wholeListOffer = myWholeList.get(l.inquiry.id) ?? null;
+        }
+
+        // ✅ پیشنهادهای پذیرفته‌شدهٔ من — «روند معامله شروع می‌شود»: تماس با خریدار + ثبت فروش نهایی
+        //    (شمارهٔ ثبت‌نام خریدار اینجا باز می‌شود — پذیرش پیشنهاد یعنی خریدار معامله را قبول کرده)
+        const acceptedRows = await this.prisma.inquiryOffer.findMany({
+            where: { offererUserId: userId, status: 'accepted' },
+            orderBy: { createdAt: 'desc' },
+            take: 50,
+            include: {
+                inquiry: {
+                    select: {
+                        id: true, title: true, slug: true, city: true,
+                        business: { select: { id: true, name: true, logoUrl: true, city: true } },
+                        owner: { select: { id: true, fullName: true, phone: true } },
+                    },
+                },
+            },
+        });
+        const accepted = acceptedRows.map((o) => ({
+            id: o.id,
+            inquiryId: o.inquiryId,
+            inquiryTitle: o.inquiry.title,
+            inquirySlug: o.inquiry.slug,
+            city: o.inquiry.city,
+            itemId: o.itemId,
+            itemName: o.itemName,
+            price: o.price,
+            currency: o.currency,
+            unit: o.unit || o.priceBasis || null,
+            deliveryDays: o.deliveryDays,
+            advantages: o.advantages,
+            message: o.message,
+            saleStatus: o.saleStatus,
+            saleStatusAt: o.saleStatusAt,
+            createdAt: o.createdAt,
+            buyer: o.inquiry.business,
+            buyerName: o.inquiry.owner?.fullName || null,
+            buyerPhone: o.inquiry.owner?.phone || null,
+        }));
+
+        return { catalogs: myCatalogs, invitations, requests, leads, accepted };
     }
 }

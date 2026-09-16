@@ -219,7 +219,7 @@ export class InquiryController {
     @Patch('offers/:offerId')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'تغییر وضعیت پیشنهاد — پذیرش/رد (مالک) یا انصراف (پیشنهاددهنده)' })
+    @ApiOperation({ summary: 'پذیرش/رد (مالک) · ویرایش پیشنهاد تا تصمیم خریدار (پیشنهاددهنده) · ثبت فروش نهایی' })
     updateOffer(@Param('offerId') offerId: string, @CurrentUser() user: any, @Body() dto: UpdateOfferDto) {
         return this.inquiryService.updateOffer(offerId, user.id, dto);
     }
