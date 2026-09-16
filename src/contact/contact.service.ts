@@ -145,11 +145,16 @@ export class ContactService {
                     matchedUser: {
                         select: {
                             id: true, fullName: true, avatarUrl: true,
-                            // کسب‌وکارِ فعالِ عضو — مقصدِ «درخواست خریدار» در برگهٔ اعضای کاتالوگ
+                            // ✅ همهٔ کسب‌وکارهای فعالِ عضو — مخاطب ممکن است عضو چند کسب‌وکار باشد
+                            //    (مالک ده تا کسب‌وکار بی‌ربط می‌تواند داشته باشد — هر کدام خریدار جداگانه‌اند)
                             teamMemberships: {
                                 where: { status: 'active' },
-                                select: { business: { select: { id: true, name: true, logoUrl: true, city: true } } },
-                                take: 1,
+                                select: {
+                                    position: true,
+                                    business: {
+                                        select: { id: true, name: true, logoUrl: true, city: true, ownerUserId: true, creatorUserId: true },
+                                    },
+                                },
                             },
                             // کاتالوگِ فعالِ عضو — مقصدِ «درخواست تامین» در بازوی خرید
                             catalogsOwned: {
@@ -166,11 +171,43 @@ export class ContactService {
             this.countMatched(userId),
         ]);
 
-        // تخت‌سازی: business و catalog مستقیم روی matchedUser می‌نشینند تا فرانت ساده بخواند
+        // ✅ بازوهای خریدِ کسب‌وکارها (Inquiry.businessId) — یک کوئری دسته‌ای برای همهٔ مخاطبین
+        const bizIds = Array.from(new Set(items.flatMap((it) =>
+            (it.matchedUser?.teamMemberships || []).map((m: any) => m.business?.id).filter(Boolean),
+        ))) as string[];
+        const armsByBiz = new Map<string, { id: string; title: string; status: string }[]>();
+        if (bizIds.length) {
+            const arms = await this.prisma.inquiry.findMany({
+                where: { businessId: { in: bizIds }, status: { not: 'archived' } },
+                select: { id: true, title: true, businessId: true, status: true },
+                orderBy: { createdAt: 'desc' },
+            });
+            for (const a of arms) {
+                if (!a.businessId) continue;
+                const list = armsByBiz.get(a.businessId) ?? [];
+                list.push({ id: a.id, title: a.title, status: a.status });
+                armsByBiz.set(a.businessId, list);
+            }
+        }
+
+        // تخت‌سازی: business/businesses/catalog مستقیم روی matchedUser می‌نشینند تا فرانت ساده بخواند
         const flat = items.map((it) => {
             if (it.matchedUser) {
                 const mu: any = { ...it.matchedUser };
-                mu.business = mu.teamMemberships?.[0]?.business ?? null;
+                const memberships = (mu.teamMemberships || []) as any[];
+                mu.businesses = memberships
+                    .filter((m) => m.business)
+                    .map((m) => ({
+                        id: m.business.id,
+                        name: m.business.name,
+                        logoUrl: m.business.logoUrl || null,
+                        city: m.business.city || null,
+                        // نقشِ مخاطب در این کسب‌وکار — مالک (سازنده/دارنده) یا عضو با پستِ نمایشی
+                        isOwner: m.business.ownerUserId === mu.id || m.business.creatorUserId === mu.id,
+                        position: m.position || null,
+                        arms: armsByBiz.get(m.business.id) || [],
+                    }));
+                mu.business = mu.businesses[0] ?? null;
                 mu.catalog = mu.catalogsOwned?.[0] ?? null;
                 delete mu.teamMemberships;
                 delete mu.catalogsOwned;

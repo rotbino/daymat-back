@@ -484,6 +484,14 @@ export class CatalogMemberService {
         }
     }
 
+    /**
+     * ✅ لِین خریدارِ «خودِ متقاضی» — سازگار با ردیف‌های قدیمی (customerVia=null که قبل از معرفیِ فیلد ثبت شده‌اند)
+     *    درخواستِ خودِ متقاضی (self_request) را مدیر تایید می‌کند؛ owner_add را صاحبِ کسب‌وکار
+     */
+    private selfCustomer(row: any): boolean {
+        return row.customerVia === 'self_request' || !row.customerVia;
+    }
+
     private memberCard(row: any, armSlugByBiz?: Map<string, string>) {
         const slugFor = (id?: string | null) => (id && armSlugByBiz?.get(id)) || null;
         return {
@@ -508,6 +516,8 @@ export class CatalogMemberService {
                 : null,
             sellerJoinedAt: row.sellerJoinedAt || null,
             customerStatus: row.customerStatus || null,
+            // ✅ customerVia باید برگردد — فرانت با آن «درخواستِ متقاضی» را از «ثبتِ مدیر» تفکیک می‌کند
+            customerVia: row.customerVia || null,
             customerBusiness: row.customerBusiness
                 ? { id: row.customerBusiness.id, name: row.customerBusiness.name, phone: row.customerBusiness.phone, city: row.customerBusiness.city || null, slug: slugFor(row.customerBusiness.id) }
                 : null,
@@ -769,6 +779,75 @@ export class CatalogMemberService {
                 isAdmin: r.role === 'catalog_admin',
             }));
 
+        // ✅ غنی‌سازی خریدارها (خواستهٔ مالک): خریدار خودِ کسب‌وکار/بازوی خرید است، نه مدیرش
+        //    • نام صاحب کسب‌وکار + نقشِ عضو در آن کسب‌وکار
+        //    • بازوی خریدِ کسب‌وکار — ترجیحاً بازویی که با همین کاتالوگ در ارتباط است (InquiryMember)
+        const customerBizIds = Array.from(new Set(rows.map((r) => r.customerBusinessId).filter(Boolean))) as string[];
+        const customerExtras = new Map<string, {
+            customerBusinessOwner: string | null;
+            customerMemberIsOwner: boolean;
+            customerMemberPosition: string | null;
+            customerArm: { id: string; title: string; slug: string | null } | null;
+            customerArmCount: number;
+        }>();
+        if (customerBizIds.length) {
+            const laneUserIds = Array.from(new Set(rows.filter((r) => r.customerBusinessId).map((r) => r.userId)));
+            const [bizRows, laneMemberRows, armRows, connectedMembers] = await Promise.all([
+                this.prisma.business.findMany({
+                    where: { id: { in: customerBizIds } },
+                    select: { id: true, ownerUserId: true, creatorUserId: true },
+                }),
+                laneUserIds.length
+                    ? this.prisma.businessMember.findMany({
+                          where: { businessId: { in: customerBizIds }, userId: { in: laneUserIds }, status: 'active' },
+                          select: { businessId: true, userId: true, position: true },
+                      })
+                    : Promise.resolve([] as any[]),
+                this.prisma.inquiry.findMany({
+                    where: { businessId: { in: customerBizIds }, status: { not: 'archived' } },
+                    select: { id: true, title: true, slug: true, businessId: true },
+                    orderBy: { createdAt: 'desc' },
+                }),
+                this.prisma.inquiryMember.findMany({
+                    where: { catalogId: catalog.id, status: { in: ['active', 'pending'] } },
+                    select: { inquiryId: true },
+                }),
+            ]);
+            const bizMap = new Map(bizRows.map((b) => [b.id, b]));
+            const positionMap = new Map(laneMemberRows.map((m) => [`${m.businessId}:${m.userId}`, m.position || null]));
+            const armsByBiz = new Map<string, { id: string; title: string; slug: string | null }[]>();
+            for (const q of armRows) {
+                if (!q.businessId) continue;
+                const list = armsByBiz.get(q.businessId) ?? [];
+                list.push({ id: q.id, title: q.title, slug: q.slug });
+                armsByBiz.set(q.businessId, list);
+            }
+            const connectedInqIds = new Set(connectedMembers.map((m) => m.inquiryId));
+            const responsibleIds = Array.from(new Set(
+                bizRows.map((b) => b.ownerUserId || b.creatorUserId).filter(Boolean) as string[],
+            ));
+            const ownerUsers = responsibleIds.length
+                ? await this.prisma.user.findMany({ where: { id: { in: responsibleIds } }, select: { id: true, fullName: true } })
+                : [];
+            const ownerNameMap = new Map(ownerUsers.map((u) => [u.id, u.fullName || null]));
+
+            for (const r of rows) {
+                if (!r.customerBusinessId) continue;
+                const biz = bizMap.get(r.customerBusinessId);
+                if (!biz) continue;
+                const responsible = biz.ownerUserId || biz.creatorUserId || null;
+                const arms = armsByBiz.get(r.customerBusinessId) || [];
+                const arm = arms.find((a) => connectedInqIds.has(a.id)) || arms[0] || null;
+                customerExtras.set(r.id, {
+                    customerBusinessOwner: responsible ? ownerNameMap.get(responsible) || null : null,
+                    customerMemberIsOwner: !!responsible && r.userId === responsible,
+                    customerMemberPosition: positionMap.get(`${r.customerBusinessId}:${r.userId}`) || null,
+                    customerArm: arm,
+                    customerArmCount: arms.length,
+                });
+            }
+        }
+
         // درخواست‌های در انتظار — با تعیین «چه کسی باید تایید کند»:
         //   manager        → مالک/مدیر کاتالوگ (درخواستِ خودِ متقاضی یا سینکِ تیم کسب‌وکار)
         //   business_owner → صاحب کسب‌وکارِ خریدار (ثبتِ Push)
@@ -783,7 +862,8 @@ export class CatalogMemberService {
             if (r.sellerStatus === 'pending') return r.sellerVia === 'manager_invite' ? 'seller_self' : 'manager';
             if (r.supplierStatus === 'pending') return r.supplierVia === 'manager_add' ? 'supplier_owner' : 'manager';
             if (r.serviceStatus === 'pending') return r.serviceVia === 'manager_add' ? 'service_owner' : 'manager';
-            return r.customerVia === 'self_request' ? 'manager' : 'business_owner';
+            // ✅ ردیف‌های قدیمی (via=null) هم درخواستِ خودِ متقاضی‌اند — وگرنه هیچ‌جا به مدیر نشان داده نمی‌شدند
+            return this.selfCustomer(r) ? 'manager' : 'business_owner';
         };
         const pendingRequests = (canManage ? allPending : allPending.filter((r) => r.userId === actorId))
             .filter((r) => {
@@ -804,7 +884,7 @@ export class CatalogMemberService {
                 if (r.serviceStatus === 'pending') {
                     return { ...card, requestType: 'service' as const, pendingGate: gate, note: null };
                 }
-                return { ...card, requestType: 'buyer' as const, pendingGate: gate, note: null };
+                return { ...card, ...(customerExtras.get(r.id) || {}), requestType: 'buyer' as const, pendingGate: gate, note: null };
             });
 
         let customers = rows
@@ -855,6 +935,7 @@ export class CatalogMemberService {
         }
         customers = customers.map((c) => ({
             ...c,
+            ...(customerExtras.get(c.id) || {}),
             purchaseCatalogs: purchaseCatalogsByUser.get(c.userId) ?? [],
         }));
 
@@ -1081,7 +1162,8 @@ export class CatalogMemberService {
                 catalogId: { in: catalogIds },
                 OR: [
                     { sellerStatus: 'pending', sellerVia: { not: 'manager_invite' } },
-                    { customerStatus: 'pending', customerVia: 'self_request' },
+                    // ✅ ردیف‌های قدیمیِ via=null هم درخواستِ خریدارند — در بج قرمز هم بشمار
+                    { customerStatus: 'pending', OR: [{ customerVia: 'self_request' }, { customerVia: null }] },
                     { supplierStatus: 'pending', supplierVia: { not: 'manager_add' } },
                     { serviceStatus: 'pending', serviceVia: { not: 'manager_add' } },
                 ],
@@ -1363,7 +1445,7 @@ export class CatalogMemberService {
         const catalog = await this.getCatalogOrThrow(catalogId);
         await this.assertTeamManager(catalog, actorId);
         const row = await this.getMemberById(catalog.id, memberId, { customerBusiness: { select: { id: true, name: true } } });
-        if (row.customerStatus !== 'pending' || row.customerVia !== 'self_request') {
+        if (row.customerStatus !== 'pending' || !this.selfCustomer(row)) {
             throw new ConflictException({ errorCode: 'NOT_PENDING', message: 'این درخواست در انتظار تایید مدیر نیست' });
         }
         let assignedSellerUserId = row.assignedSellerUserId || null;
@@ -1406,7 +1488,7 @@ export class CatalogMemberService {
         const catalog = await this.getCatalogOrThrow(catalogId);
         await this.assertTeamManager(catalog, actorId);
         const row = await this.getMemberById(catalog.id, memberId);
-        if (row.customerStatus !== 'pending' || row.customerVia !== 'self_request') {
+        if (row.customerStatus !== 'pending' || !this.selfCustomer(row)) {
             throw new ConflictException({ errorCode: 'NOT_PENDING', message: 'این درخواست در انتظار تایید مدیر نیست' });
         }
         await this.prisma.catalogMember.update({
