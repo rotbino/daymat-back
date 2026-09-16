@@ -471,7 +471,8 @@ export class InquiryService implements OnModuleInit {
             include: {
                 items: { orderBy: { order: 'asc' } },
                 // ✅ referralCode مالک — لینک‌های ویروسی صفحهٔ عمومی بازو (فوتر/هدر)
-                //    با انتساب دعوتِ مالک کار می‌کنند، مثل فوتر کاتالوگ
+                //    (شمارهٔ شخصی مالک اینجا select نمی‌شود — حریم خصوصی؛ فال‌بک تماس با contactPhone
+                //    در پایین به‌صورت کنترل‌شده برمی‌گردد)
                 owner: { select: { id: true, fullName: true, avatarUrl: true, referralCode: true } },
                 business: { select: { id: true, name: true, logoUrl: true, city: true, phone: true, ownerUserId: true } },
             },
@@ -533,6 +534,16 @@ export class InquiryService implements OnModuleInit {
             ownerMemberRow?.position?.trim() ||
             (inquiry.business?.ownerUserId === inquiry.ownerUserId ? 'مالک کسب‌وکار' : null);
 
+        // ☎️ شمارهٔ تماس عمومی صفحه — اول شمارهٔ کسب‌وکار؛ نبود؟ شمارهٔ خود مالک (کنترل‌شده —
+        //    خواستهٔ مالک: «تامین‌کننده اگر خواست همان لحظه بتواند تماس بگیرد» — دکمهٔ تماس هرگز حذف نشود)
+        let contactPhone: string | null = inquiry.business?.phone?.trim() || null;
+        if (!contactPhone) {
+            const ownerPhoneRow = await this.prisma.user
+                .findUnique({ where: { id: inquiry.ownerUserId }, select: { phone: true } })
+                .catch(() => null);
+            contactPhone = ownerPhoneRow?.phone?.trim() || null;
+        }
+
         // شمارش بازدید — fire & forget (بازدید مالک حساب نمی‌شود)
         if (!isOwner) {
             this.prisma.inquiry.update({ where: { id: inquiry.id }, data: { viewCount: { increment: 1 } } })
@@ -553,10 +564,10 @@ export class InquiryService implements OnModuleInit {
                 where: { id: { in: bizIds } }, select: { id: true, name: true, logoUrl: true },
             }) : [];
             const bizMap = Object.fromEntries(bizs.map((b) => [b.id, b]));
-            return { ...view, isOwner, offers: offers.map((o) => ({ ...o, business: o.businessId ? bizMap[o.businessId] ?? null : null })), accessState, suppliersCount, savesCount, ownerPosition };
+            return { ...view, isOwner, offers: offers.map((o) => ({ ...o, business: o.businessId ? bizMap[o.businessId] ?? null : null })), accessState, suppliersCount, savesCount, ownerPosition, contactPhone };
         }
 
-        return { ...view, isOwner: false, isMember, limited: limitedView, accessState, suppliersCount, savesCount, ownerPosition };
+        return { ...view, isOwner: false, isMember, limited: limitedView, accessState, suppliersCount, savesCount, ownerPosition, contactPhone };
     }
 
     // ═══════════════════════════════════════════════════════
