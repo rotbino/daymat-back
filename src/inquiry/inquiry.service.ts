@@ -1066,7 +1066,8 @@ export class InquiryService implements OnModuleInit {
         return member;
     }
 
-    /** درخواست عضویت تامین‌کننده (از گیت صفحهٔ عمومی کاتالوگ خصوصی) — تایید با خریدار */
+    /** اتصال تامین‌کننده با کاتالوگش (مدال دکمهٔ پیشنهاد/درخواست تامین) —
+     *  عمومی: اتصال فوری و فعال (خریدار برای همه قیمت می‌گیرد)؛ خصوصی: درخواست pending با تایید خریدار */
     async requestAccess(inquiryId: string, userId: string, dto: RequestInquiryAccessDto) {
         const inquiry = await this.prisma.inquiry.findUnique({ where: { id: inquiryId } });
         if (!inquiry || inquiry.status === 'archived') {
@@ -1091,23 +1092,29 @@ export class InquiryService implements OnModuleInit {
         const existing = await this.prisma.inquiryMember.findUnique({
             where: { inquiryId_catalogId: { inquiryId, catalogId: catalog.id } },
         });
-        if (existing && (existing.status === 'active' || existing.status === 'pending')) {
-            return existing; // عضو یا در انتظار — همان را برگردان
+        if (existing && existing.status === 'active') {
+            return existing; // از قبل متصل — همان را برگردان
         }
+        // ✅ سناریوی مالک: بازوی «عمومی» یعنی خریدار برای همه قیمت می‌گیرد →
+        //    انتخاب کاتالوگ، تامین‌کننده را همان لحظه متصل می‌کند (بدون انتظار تایید)؛
+        //    فقط بازوی «خصوصی» تایید خریدار می‌خواهد (pending).
+        const autoActivate = inquiry.visibility !== 'private';
         const member = existing
             ? await this.prisma.inquiryMember.update({
                   where: { id: existing.id },
-                  data: { status: 'pending', via: 'supplier_request', userId, note: dto.note ?? null },
+                  data: { status: autoActivate ? 'active' : 'pending', via: 'supplier_request', userId, note: dto.note ?? null },
               })
             : await this.prisma.inquiryMember.create({
-                  data: { inquiryId, catalogId: catalog.id, userId, status: 'pending', via: 'supplier_request', note: dto.note ?? null },
+                  data: { inquiryId, catalogId: catalog.id, userId, status: autoActivate ? 'active' : 'pending', via: 'supplier_request', note: dto.note ?? null },
               });
-        // 🔔 به خریدار — درخواست تامین‌کنندگی
+        // 🔔 به خریدار — اتصال/درخواست تامین‌کنندگی
         void this.notification.notify({
             userIds: [inquiry.ownerUserId],
             type: 'inquiry_member_request',
-            title: 'درخواست تامین‌کنندگی',
-            body: `«${catalog.name}» درخواست عضویت در بازوی خرید «${inquiry.title}» را دارد`,
+            title: autoActivate ? 'تامین‌کنندهٔ جدید' : 'درخواست تامین‌کنندگی',
+            body: autoActivate
+                ? `«${catalog.name}» با کاتالوگش به بازوی خرید «${inquiry.title}» متصل شد`
+                : `«${catalog.name}» درخواست عضویت در بازوی خرید «${inquiry.title}» را دارد`,
             actorUserId: userId,
             href: '/my-inquiries?tab=members',
             businessId: inquiry.businessId ?? null,
