@@ -859,6 +859,9 @@ export class InquiryService implements OnModuleInit {
 
     // ─── ثبت پیشنهاد قیمت (تامین‌کننده) ───
     async addOffer(inquiryId: string, userId: string, dto: CreateOfferDto) {
+        // 🛡️ ضد ۵۰۰ (P2023) — شناسهٔ خالی/فضادار ObjectId خراب است؛ بی‌صدا حذف شود
+        if (typeof dto.itemId === 'string') dto.itemId = dto.itemId.trim() || (undefined as any);
+        if (typeof dto.unitId === 'string') dto.unitId = dto.unitId.trim() || (undefined as any);
         const inquiry = await this.prisma.inquiry.findUnique({ where: { id: inquiryId } });
         if (!inquiry || inquiry.status === 'archived') {
             throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'بازوی خرید پیدا نشد' });
@@ -1031,6 +1034,8 @@ export class InquiryService implements OnModuleInit {
                 throw new BadRequestException({ errorCode: 'INVALID_UNIT', message: 'واحد نامعتبر است' });
             }
             const { status: _status, saleStatus: _sale, ...content } = dto;
+            // 🛡️ ضد ۵۰۰ (P2023) — شناسهٔ خالی/فضادار ObjectId خراب است؛ بی‌صدا حذف شود
+            if (typeof content.unitId === 'string') content.unitId = content.unitId.trim() || (undefined as any);
             const patch: Record<string, any> = {};
             for (const [k, v] of Object.entries(content)) {
                 if (v !== undefined) patch[k] = v;
