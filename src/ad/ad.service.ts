@@ -2445,7 +2445,7 @@ export class AdService {
                     type: `catalog-team-${e.eventType}`,
                     severity: t.severity,
                     title: t.title,
-                    action: { label: 'تیم کاتالوگ', href: `/my-catalogs?catalog=${e.catalogId}&tab=team` },
+                    action: { label: 'خریدارها', href: `/my-catalogs?catalog=${e.catalogId}&tab=customers` },
                     catalogId: e.catalogId,
                 });
             }

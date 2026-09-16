@@ -450,19 +450,21 @@ export class CatalogMemberService {
         return u?.fullName?.trim() || u?.phone || 'کاربر';
     }
 
-    /** اعلان به همهٔ مدیران کاتالوگ (مالک + مدیرهای فعال) — بدون خودِ عامل */
+    /** اعلان به همهٔ مدیران کاتالوگ (مالک + مدیرهای فعال) — بدون خودِ عامل
+     *  ✅ tabHint — تب مقصد لینک اعلان: team (تیم فروش) | customers (خریداران — تفکیک تب اعضا) */
     private async notifyManagers(
         catalog: { id: string; ownerUserId: string; slug: string | null; name: string },
         actorId: string | null | undefined,
         type: string,
         title: string,
         body?: string,
+        tabHint: 'team' | 'customers' = 'team',
     ) {
         const admins = await this.prisma.catalogMember.findMany({
             where: { catalogId: catalog.id, role: 'catalog_admin', status: 'active' },
             select: { userId: true },
         });
-        const href = `/my-catalogs?tab=team&cat=${catalog.id}`;
+        const href = `/my-catalogs?catalog=${catalog.id}&tab=${tabHint}`;
         await this.notifier.notify({
             userIds: [catalog.ownerUserId, ...admins.map((a) => a.userId)].filter((u) => u && u !== actorId),
             type,
@@ -1271,6 +1273,7 @@ export class CatalogMemberService {
             : type === 'service' ? 'تامین خدمات'
             : 'تامین‌کنندگی';
         // ✅ اطلاع‌رسانی به مدیران کاتالوگ — اعلان + پایهٔ شمارندهٔ قرمز
+        //    درخواست خریدار → تب «خریداران»؛ بقیه → تب «تیم فروش»
         const requesterName = await this.userName(userId);
         await this.notifyManagers(
             catalog,
@@ -1278,6 +1281,7 @@ export class CatalogMemberService {
             'catalog_coop_request',
             `درخواست ${label} جدید از ${requesterName}`,
             dto?.note || undefined,
+            type === 'buyer' ? 'customers' : 'team',
         );
         return { success: true, requestType: type, message: `درخواست ${label} ثبت شد — در انتظار تایید مدیر کاتالوگ` };
     }
