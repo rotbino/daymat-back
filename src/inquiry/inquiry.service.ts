@@ -473,7 +473,7 @@ export class InquiryService implements OnModuleInit {
                 // ✅ referralCode مالک — لینک‌های ویروسی صفحهٔ عمومی بازو (فوتر/هدر)
                 //    با انتساب دعوتِ مالک کار می‌کنند، مثل فوتر کاتالوگ
                 owner: { select: { id: true, fullName: true, avatarUrl: true, referralCode: true } },
-                business: { select: { id: true, name: true, logoUrl: true, city: true, phone: true } },
+                business: { select: { id: true, name: true, logoUrl: true, city: true, phone: true, ownerUserId: true } },
             },
         });
         if (!inquiry || inquiry.status === 'archived') {
@@ -518,6 +518,21 @@ export class InquiryService implements OnModuleInit {
                     ? 'pending'
                     : 'none';
 
+        // ✅ سمت مالک بازو در کسب‌وکار — زیر اسم در «باکس خریدار» صفحهٔ عمومی نمایش داده می‌شود
+        //    (خواستهٔ مالک: بازدیدکننده بفهمد با چه نقشی طرف است — هر نقشی ممکن است بازوی خودش را بسازد)
+        //    ملاک: BusinessMember.position (برچسب شرکتی مثل «مدیر خرید»)؛ فال‌بک: مالکِ ثبت‌کنندهٔ کسب‌وکار
+        const ownerMemberRow = inquiry.businessId
+            ? await this.prisma.businessMember
+                  .findFirst({
+                      where: { businessId: inquiry.businessId, userId: inquiry.ownerUserId, status: 'active' },
+                      select: { position: true },
+                  })
+                  .catch(() => null)
+            : null;
+        const ownerPosition =
+            ownerMemberRow?.position?.trim() ||
+            (inquiry.business?.ownerUserId === inquiry.ownerUserId ? 'مالک کسب‌وکار' : null);
+
         // شمارش بازدید — fire & forget (بازدید مالک حساب نمی‌شود)
         if (!isOwner) {
             this.prisma.inquiry.update({ where: { id: inquiry.id }, data: { viewCount: { increment: 1 } } })
@@ -538,10 +553,10 @@ export class InquiryService implements OnModuleInit {
                 where: { id: { in: bizIds } }, select: { id: true, name: true, logoUrl: true },
             }) : [];
             const bizMap = Object.fromEntries(bizs.map((b) => [b.id, b]));
-            return { ...view, isOwner, offers: offers.map((o) => ({ ...o, business: o.businessId ? bizMap[o.businessId] ?? null : null })), accessState, suppliersCount, savesCount };
+            return { ...view, isOwner, offers: offers.map((o) => ({ ...o, business: o.businessId ? bizMap[o.businessId] ?? null : null })), accessState, suppliersCount, savesCount, ownerPosition };
         }
 
-        return { ...view, isOwner: false, isMember, limited: limitedView, accessState, suppliersCount, savesCount };
+        return { ...view, isOwner: false, isMember, limited: limitedView, accessState, suppliersCount, savesCount, ownerPosition };
     }
 
     // ═══════════════════════════════════════════════════════
