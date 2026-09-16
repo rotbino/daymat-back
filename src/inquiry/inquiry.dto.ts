@@ -263,7 +263,7 @@ export class CreateOfferDto {
     @MaxLength(800)
     message?: string;
 
-    @ApiPropertyOptional({ description: 'تلفن تماس (اختیاری — از پروفایل)' })
+    @ApiPropertyOptional({ description: 'نادیده گرفته می‌شود — شمارهٔ تماس خودکار از موبایل ثبت‌نام پیشنهاددهنده (فال‌بک: شمارهٔ کسب‌وکار) پر می‌شود' })
     @IsOptional()
     @IsString()
     @MaxLength(20)

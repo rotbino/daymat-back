@@ -916,13 +916,21 @@ export class InquiryService implements OnModuleInit {
             });
             if (!biz) throw new ForbiddenException({ errorCode: 'NOT_YOUR_BUSINESS', message: 'این کسب‌وکار متعلق به شما نیست' });
         }
-        const { itemId, ...rest } = dto;
+        // ✅ شمارهٔ تماس پیشنهاد = موبایل ثبت‌نام پیشنهاددهنده (ملاک — قاعدهٔ مالک).
+        //    ورودی کلاینت نادیده گرفته می‌شود؛ موبایل نبود → شمارهٔ کسب‌وکار پیشنهاددهنده (گزینهٔ دوم).
+        //    تامین‌کننده دیگر شماره را در فرم وارد نمی‌کند — خریدار دکمهٔ تماس را می‌بیند.
+        const { itemId, contactPhone: _clientPhone, ...rest } = dto;
+        const offerer = await this.prisma.user.findUnique({ where: { id: userId }, select: { fullName: true, phone: true } });
+        let autoContactPhone: string | null = offerer?.phone?.trim() || null;
+        if (!autoContactPhone && dto.businessId) {
+            const bizRow = await this.prisma.business.findUnique({ where: { id: dto.businessId }, select: { phone: true } });
+            autoContactPhone = bizRow?.phone?.trim() || null;
+        }
         const offer = await this.prisma.inquiryOffer.create({
-            data: { ...rest, inquiryId, itemId: itemId || null, itemName: itemName || null, offererUserId: userId },
+            data: { ...rest, contactPhone: autoContactPhone, inquiryId, itemId: itemId || null, itemName: itemName || null, offererUserId: userId },
         });
         await this.prisma.inquiry.update({ where: { id: inquiryId }, data: { offerCount: { increment: 1 } } });
         // 🔔 اعلان به خریدار — پیشنهاد جدید (بی‌صدا؛ هرگز جریان اصلی را نمی‌شکند)
-        const offerer = await this.prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } });
         void this.notification.notify({
             userIds: [inquiry.ownerUserId],
             type: 'inquiry_offer',
