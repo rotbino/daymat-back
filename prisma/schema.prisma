@@ -970,7 +970,8 @@ model Inquiry {
   //    (خواستهٔ مالک: «فرمان رو بدیم دست خودشون» — اگر اجازه دهد، تامین‌کننده همان لحظه تماس می‌گیرد
   //    یا شماره را ذخیره می‌کند؛ اگر نگران مزاحمت است، خاموش می‌کند)
   //    بازوهای قدیمی (بدون این فیلد) اجازه‌دار فرض می‌شوند تا دکمهٔ تماس‌شان سر جایش بماند
-  showContactPhone Boolean @default(true)
+  //    ✅ Optional — خواندن امن داکیومنت‌های قدیمیِ MongoDB که این فیلد را ندارند (null = اجازه‌دار)
+  showContactPhone Boolean? @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

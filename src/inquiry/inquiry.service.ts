@@ -534,20 +534,30 @@ export class InquiryService implements OnModuleInit {
             ownerMemberRow?.position?.trim() ||
             (inquiry.business?.ownerUserId === inquiry.ownerUserId ? 'مالک کسب‌وکار' : null);
 
-        // ☎️ شمارهٔ تماس عمومی صفحه — فقط با اجازهٔ خریدار (showContactPhone در «تنظیمات بازوی خرید» —
+        // ☎️ شماره‌های تماس عمومی صفحه — فقط با اجازهٔ خریدار (showContactPhone در «تنظیمات بازوی خرید» —
         //    خواستهٔ مالک: «فرمان رو بدیم دست خودشون»؛ نگران مزاحمت؟ خاموش می‌کند).
-        //    اجازه دارد؟ اول شمارهٔ کسب‌وکار؛ نبود؟ شمارهٔ خود مالک (کنترل‌شده).
+        //    ✅ قاعدهٔ مالک: «ملاک شمارهٔ موبایلی است که کاربر با آن ثبت‌نام کرده؛ اگر کسب‌وکار شمارهٔ
+        //    جداگانه داشت از آن هم می‌توان استفاده کرد — اما شمارهٔ ثبت‌نام کاربر همیشه هست»:
+        //      → contactPhone (اصلی/ملاک) = موبایل ثبت‌نام مالک؛ اگر نبود، شمارهٔ کسب‌وکار تنها گزینه
+        //      → businessPhone (ثانویه) = شمارهٔ جداگانهٔ کسب‌وکار — جداگانه برمی‌گردد تا فرانت دکمهٔ
+        //        دوم «تلفن کسب‌وکار» را کنار دکمهٔ اصلی بسازد
         //    بازوهای قدیمی (بدون فیلد) اجازه‌دار فرض می‌شوند تا دکمهٔ تماس‌شان سر جایش بماند.
         let contactPhone: string | null = null;
+        let businessPhone: string | null = null;
         if (inquiry.showContactPhone !== false) {
-            contactPhone = inquiry.business?.phone?.trim() || null;
-            if (!contactPhone) {
-                const ownerPhoneRow = await this.prisma.user
-                    .findUnique({ where: { id: inquiry.ownerUserId }, select: { phone: true } })
-                    .catch(() => null);
-                contactPhone = ownerPhoneRow?.phone?.trim() || null;
-            }
+            const ownerPhoneRow = await this.prisma.user
+                .findUnique({ where: { id: inquiry.ownerUserId }, select: { phone: true } })
+                .catch(() => null);
+            contactPhone = ownerPhoneRow?.phone?.trim() || null;
+            businessPhone = inquiry.business?.phone?.trim() || null;
+            if (!contactPhone && businessPhone) contactPhone = businessPhone;
         }
+        // 🔒 نشت شماره بسته شود — phone خامِ کسب‌وکار از پاسخ حذف می‌شود تا تنها مسیرِ دیدن شماره،
+        //    همان گیت showContactPhone باشد (قبلاً داخل view.business به همه لو می‌رفت)
+        const rawView = view as any;
+        const safeView = rawView.business
+            ? { ...rawView, business: { ...rawView.business, phone: undefined } }
+            : rawView;
 
         // شمارش بازدید — fire & forget (بازدید مالک حساب نمی‌شود)
         if (!isOwner) {
@@ -569,10 +579,10 @@ export class InquiryService implements OnModuleInit {
                 where: { id: { in: bizIds } }, select: { id: true, name: true, logoUrl: true },
             }) : [];
             const bizMap = Object.fromEntries(bizs.map((b) => [b.id, b]));
-            return { ...view, isOwner, offers: offers.map((o) => ({ ...o, business: o.businessId ? bizMap[o.businessId] ?? null : null })), accessState, suppliersCount, savesCount, ownerPosition, contactPhone, showContactPhone: inquiry.showContactPhone !== false };
+            return { ...safeView, isOwner, offers: offers.map((o) => ({ ...o, business: o.businessId ? bizMap[o.businessId] ?? null : null })), accessState, suppliersCount, savesCount, ownerPosition, contactPhone, businessPhone, showContactPhone: inquiry.showContactPhone !== false };
         }
 
-        return { ...view, isOwner: false, isMember, limited: limitedView, accessState, suppliersCount, savesCount, ownerPosition, contactPhone, showContactPhone: inquiry.showContactPhone !== false };
+        return { ...safeView, isOwner: false, isMember, limited: limitedView, accessState, suppliersCount, savesCount, ownerPosition, contactPhone, businessPhone, showContactPhone: inquiry.showContactPhone !== false };
     }
 
     // ═══════════════════════════════════════════════════════
