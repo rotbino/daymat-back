@@ -197,6 +197,11 @@ export class CreateInquiryDto {
     @IsOptional()
     @IsBoolean()
     allowNonUrgentOffers?: boolean;
+
+    @ApiPropertyOptional({ description: 'نمایش شمارهٔ تماس خریدار به بازدیدکنندگان (دکمهٔ تماس و ذخیرهٔ مخاطب)', required: false })
+    @IsOptional()
+    @IsBoolean()
+    showContactPhone?: boolean;
 }
 
 export class UpdateInquiryDto {
@@ -222,6 +227,8 @@ export class UpdateInquiryDto {
     units?: InquiryUnitDto[];
     @ApiPropertyOptional({ description: 'امکان ارسال قیمت برای خریدهای غیر فوری (سایر کالاها)', required: false })
     @IsOptional() @IsBoolean() allowNonUrgentOffers?: boolean;
+    @ApiPropertyOptional({ description: 'نمایش شمارهٔ تماس خریدار به بازدیدکنندگان (دکمهٔ تماس و ذخیرهٔ مخاطب)', required: false })
+    @IsOptional() @IsBoolean() showContactPhone?: boolean;
 }
 
 export class CreateOfferDto {
