@@ -940,6 +940,10 @@ model Inquiry {
   visibility  String    @default("public") // public | unlisted | private
   status      String    @default("open")   // open | closed | archived
   deadline    DateTime?                   // مهلت پاسخ (اختیاری)
+  // ✅ بستن پرونده (فاز پایانی سناریوی بازوی خرید): نتیجهٔ نهایی معامله از نگاه خریدار
+  //    succeeded = معامله انجام شد | failed = به نتیجه نرسید — با archived ثبت می‌شود
+  outcome     String?                     // succeeded | failed
+  finalizedAt DateTime?                   // لحظهٔ بستن پرونده
 
   countryCode  String?  @default("98")
   province     String?

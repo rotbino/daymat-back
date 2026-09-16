@@ -435,9 +435,10 @@ export class InquiryService implements OnModuleInit {
     }
 
     // ─── بازوهای خرید من ───
-    async mine(userId: string) {
+    async mine(userId: string, archived = false) {
         const rows = await this.prisma.inquiry.findMany({
-            where: { ownerUserId: userId, status: { not: 'archived' } },
+            // ✅ پیش‌فرض: بازوهای در جریان (open/closed) — با ?archived=1: «پرونده‌های بسته‌شده» (فاز ۶ سناریو)
+            where: { ownerUserId: userId, status: archived ? 'archived' : { not: 'archived' } },
             orderBy: { createdAt: 'desc' },
             select: {
                 ...PUBLIC_LIST_SELECT,
@@ -477,7 +478,8 @@ export class InquiryService implements OnModuleInit {
                 business: { select: { id: true, name: true, logoUrl: true, city: true, phone: true, ownerUserId: true } },
             },
         });
-        if (!inquiry || inquiry.status === 'archived') {
+        if (!inquiry || (inquiry.status === 'archived' && userId !== inquiry.ownerUserId)) {
+            // ✅ بازوی بسته‌شدهٔ پرونده (فاز ۶ سناریو): از دید عمومی/بازار حذف است — فقط مالک از پنل می‌بیند
             throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'بازوی خرید پیدا نشد' });
         }
         // ✅ مهلت گروهی گذشته؟ → اقلام در حال قیمت‌گیری خودکار خارج + مهلت پاک (خواستهٔ مالک)
@@ -683,6 +685,21 @@ export class InquiryService implements OnModuleInit {
         if (inquiry.ownerUserId !== userId) {
             throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'اجازهٔ ویرایش ندارید' });
         }
+        // ✅ چرخهٔ وضعیت (فاز ۶ سناریو): «بستن پرونده» فقط از اندپوینت finalize با نتیجهٔ معامله
+        //    رخ می‌دهد؛ مستقیم status=archived ممنوع. بازگشت از archived = «بازکردن دوبارهٔ پرونده».
+        if (dto.status === 'archived') {
+            throw new BadRequestException({
+                errorCode: 'USE_FINALIZE',
+                message: 'برای بستن پرونده، از دکمهٔ «بستن پروندهٔ بازوی خرید» با ثبت نتیجهٔ معامله استفاده کن',
+            });
+        }
+        if (dto.status === 'open' && inquiry.status === 'archived') {
+            // بازکردن دوبارهٔ پروندهٔ بسته‌شده — نتیجهٔ قبلی پاک می‌شود
+            await this.prisma.inquiry.update({
+                where: { id },
+                data: { status: 'open', outcome: null, finalizedAt: null },
+            });
+        }
         if (dto.slug && dto.slug !== inquiry.slug) {
             const normalized = this.normalizeSlug(dto.slug);
             if (!normalized || normalized.length < 3 || RESERVED_SLUGS.includes(normalized.toLowerCase())) {
@@ -752,6 +769,54 @@ export class InquiryService implements OnModuleInit {
         }
         await this.prisma.inquiry.delete({ where: { id } });
         return { message: 'بازوی خرید حذف شد' };
+    }
+
+    // ═══ بستن پروندهٔ بازوی خرید (فاز ۶ سناریوی جامع) ═══
+    //    مذاکرهٔ نهایی بیرون از دیمت تمام شده؛ خریدار تکلیف را روشن می‌کند:
+    //    succeeded = معامله انجام شد | failed = به نتیجه نرسید
+    //    → بازو archived می‌شود (از لیست عمومی/بازار/سرنخ‌های فروش خارج)،
+    //      پیشنهادهای بدون تصمیم «رد شده» می‌شوند و همهٔ طرفین اعلان می‌گیرند.
+    async finalize(id: string, userId: string, outcome: 'succeeded' | 'failed') {
+        const inquiry = await this.prisma.inquiry.findUnique({ where: { id } });
+        if (!inquiry) throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'بازوی خرید پیدا نشد' });
+        if (inquiry.ownerUserId !== userId) {
+            throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'فقط صاحب بازوی خرید پرونده را می‌بندد' });
+        }
+        if (inquiry.status === 'archived') {
+            throw new BadRequestException({ errorCode: 'ALREADY_FINALIZED', message: 'پروندهٔ این بازوی خرید قبلاً بسته شده' });
+        }
+        const finalized = await this.prisma.inquiry.update({
+            where: { id },
+            data: { status: 'archived', outcome, finalizedAt: new Date() },
+        });
+        // ✅ تکلیف پیشنهادهای بدون تصمیم روشن شود — «رد شده» (خریدار به نتیجه رسیده؛ پنجرهٔ قیمت‌گیری بسته است)
+        const pendingOffers = await this.prisma.inquiryOffer.findMany({
+            where: { inquiryId: id, status: 'pending' },
+            select: { offererUserId: true },
+        });
+        await this.prisma.inquiryOffer.updateMany({
+            where: { inquiryId: id, status: 'pending' },
+            data: { status: 'rejected' },
+        });
+        // 🔔 اعلان به طرفین — اعضای فعال + پیشنهاددهنده‌های بدون تصمیم (بی‌صدا؛ هرگز جریان اصلی نمی‌شکند)
+        const memberRows = await this.prisma.inquiryMember.findMany({
+            where: { inquiryId: id, status: 'active' },
+            select: { userId: true },
+        });
+        const audience = Array.from(new Set([...memberRows.map((m) => m.userId), ...pendingOffers.map((o) => o.offererUserId)]))
+            .filter((uid) => uid !== userId);
+        if (audience.length > 0) {
+            void this.notification.notify({
+                userIds: audience,
+                type: 'inquiry_finalized',
+                title: outcome === 'succeeded' ? 'این خرید نتیجه گرفت ✅' : 'این خرید بسته شد',
+                body: `پروندهٔ بازوی خرید «${inquiry.title}» بسته شد — ${outcome === 'succeeded' ? 'معامله انجام شد' : 'خریدار به نتیجه نرسید'}`,
+                actorUserId: userId,
+                href: '/my-catalogs?tab=leads',
+                businessId: inquiry.businessId ?? null,
+            });
+        }
+        return finalized;
     }
 
     // ═══ مدیریت قلم‌به‌قلم (پنل بازوی خرید) ═══
@@ -1467,14 +1532,20 @@ export class InquiryService implements OnModuleInit {
                 createdAt: m.createdAt,
             }));
 
+        // ✅ درخواست‌های خودِ تامین‌کننده — هم در انتظار تایید خریدار، هم «درخواست رد شده»
+        //    (فاز ۳ سناریو: ردشده هم باید دیده شود تا طرف با یک دکمهٔ حذف، تکلیفش را روشن کند)
         const requests = memberships
-            .filter((m) => m.status === 'pending' && m.via === 'supplier_request')
+            .filter((m) => m.via === 'supplier_request' && (m.status === 'pending' || m.status === 'declined'))
             .map((m) => ({
                 memberId: m.id,
                 inquiry: { id: m.inquiry.id, title: m.inquiry.title, slug: m.inquiry.slug },
+                status: m.status,
                 createdAt: m.createdAt,
             }));
 
+        // ✅ سرنخ‌های فروش — بازوهای بسته‌شدهٔ پرونده (archived) کلاً خارج؛ بازوی متوقف (closed)
+        //    با فلگ paused می‌آید تا تامین‌کننده ببیند و پیشنهادهای قبلی‌اش را ویرایش کند،
+        //    ولی پیشنهادِ جدید نمی‌تواند بدهد (گیت در UI + گیت اصلی در addOffer)
         const leads: any[] = memberships
             .filter((m) => m.status === 'active' && m.inquiry.status !== 'archived' && m.inquiry.items.length > 0)
             .map((m) => ({
@@ -1484,6 +1555,8 @@ export class InquiryService implements OnModuleInit {
                     deliveryNote: m.inquiry.deliveryNote, paymentTerms: m.inquiry.paymentTerms,
                     deadline: m.inquiry.deadline,
                     units: m.inquiry.units,
+                    status: m.inquiry.status,
+                    paused: m.inquiry.status === 'closed',
                 },
                 buyer: m.inquiry.business,
                 items: m.inquiry.items,
@@ -1527,7 +1600,7 @@ export class InquiryService implements OnModuleInit {
             include: {
                 inquiry: {
                     select: {
-                        id: true, title: true, slug: true, city: true,
+                        id: true, title: true, slug: true, city: true, status: true, outcome: true,
                         business: { select: { id: true, name: true, logoUrl: true, city: true } },
                         owner: { select: { id: true, fullName: true, phone: true } },
                     },
@@ -1551,6 +1624,9 @@ export class InquiryService implements OnModuleInit {
             saleStatus: o.saleStatus,
             saleStatusAt: o.saleStatusAt,
             createdAt: o.createdAt,
+            inquiryStatus: o.inquiry.status,
+            // ✅ نتیجهٔ نهایی بازو از نگاه خریدار — تامین‌کننده هم بفهمد پرونده کجا رسید (فاز ۶ سناریو)
+            outcome: (o.inquiry as any).outcome ?? null,
             buyer: o.inquiry.business,
             buyerName: o.inquiry.owner?.fullName || null,
             buyerPhone: o.inquiry.owner?.phone || null,

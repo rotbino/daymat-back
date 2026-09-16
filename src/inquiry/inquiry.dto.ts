@@ -382,3 +382,10 @@ export class SaveInquiryVisitCardDto {
     @IsObject()
     spec?: Record<string, any> | null;
 }
+
+/** ✅ بستن پروندهٔ بازوی خرید (فاز ۶ سناریوی جامع) — نتیجهٔ نهایی معامله از نگاه خریدار */
+export class FinalizeInquiryDto {
+    @ApiProperty({ enum: ['succeeded', 'failed'], description: 'معامله انجام شد (succeeded) | به نتیجه نرسید (failed)' })
+    @IsIn(['succeeded', 'failed'])
+    outcome: 'succeeded' | 'failed';
+}

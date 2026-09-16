@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { InquiryService } from './inquiry.service';
-import { CreateInquiryDto, UpdateInquiryDto, CreateOfferDto, UpdateOfferDto, InquiryItemDto, UpdateInquiryItemDto, AddInquiryMemberDto, RequestInquiryAccessDto, DecideInquiryMemberDto, SaveInquiryVisitCardDto } from './inquiry.dto';
+import { CreateInquiryDto, UpdateInquiryDto, CreateOfferDto, UpdateOfferDto, InquiryItemDto, UpdateInquiryItemDto, AddInquiryMemberDto, RequestInquiryAccessDto, DecideInquiryMemberDto, SaveInquiryVisitCardDto, FinalizeInquiryDto } from './inquiry.dto';
 import { CurrentUser } from '../common/decorators/custom.decorators';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../common/guards/optional-jwt-auth.guard';
@@ -67,9 +67,9 @@ export class InquiryController {
     @Get('mine')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'بازوهای خرید من' })
-    mine(@CurrentUser() user: any) {
-        return this.inquiryService.mine(user.id);
+    @ApiOperation({ summary: 'بازوهای خرید من — ?archived=1 برای «پرونده‌های بسته‌شده»' })
+    mine(@CurrentUser() user: any, @Query('archived') archived?: string) {
+        return this.inquiryService.mine(user.id, archived === '1' || archived === 'true');
     }
 
     @Get('my-offers')
@@ -152,9 +152,18 @@ export class InquiryController {
     @Patch(':id')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'ویرایش بازوی خرید (مالک)' })
+    @ApiOperation({ summary: 'ویرایش بازوی خرید (مالک) — بستن پرونده با POST :id/finalize' })
     update(@Param('id') id: string, @CurrentUser() user: any, @Body() dto: UpdateInquiryDto) {
         return this.inquiryService.update(id, user.id, dto);
+    }
+
+    // ✅ بستن پروندهٔ بازوی خرید (فاز ۶ سناریوی جامع) — بازو archived + نتیجهٔ معامله + ردِ خودکارِ بی‌تصمیم‌ها
+    @Post(':id/finalize')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'بستن پروندهٔ بازوی خرید با ثبت نتیجهٔ معامله (موفق/ناموفق) — مالک' })
+    finalize(@Param('id') id: string, @CurrentUser() user: any, @Body() dto: FinalizeInquiryDto) {
+        return this.inquiryService.finalize(id, user.id, dto.outcome);
     }
 
     // 🪪 کارت ویزیت بازوی خرید — قرینهٔ کاتالوگ قیمت (ذخیره/حذف JSON در metadata)
