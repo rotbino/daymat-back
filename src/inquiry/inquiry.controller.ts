@@ -237,9 +237,16 @@ export class InquiryController {
     @Get(':id/supplier-candidates')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'جست‌وجوی کاتالوگ قیمت برای دعوت تامین‌کننده (مالک)' })
-    supplierCandidates(@Param('id') id: string, @CurrentUser() user: any, @Query('q') q?: string) {
-        return this.inquiryService.supplierCandidates(id, user.id, q);
+    @ApiOperation({ summary: 'جست‌وجوی کاتالوگ قیمت برای درخواست همکاری تامین‌کننده (مالک) — با فیلتر استان/شهر/صنف' })
+    supplierCandidates(
+        @Param('id') id: string,
+        @CurrentUser() user: any,
+        @Query('q') q?: string,
+        @Query('provinceCode') provinceCode?: string,
+        @Query('cityCode') cityCode?: string,
+        @Query('industry') industry?: string,
+    ) {
+        return this.inquiryService.supplierCandidates(id, user.id, { q, provinceCode, cityCode, industry });
     }
 
     @Post(':id/members')

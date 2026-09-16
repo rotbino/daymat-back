@@ -1012,22 +1012,58 @@ export class InquiryService implements OnModuleInit {
         });
     }
 
-    /** جست‌وجوی کاتالوگ قیمت برای دعوت — فعال‌ها، بدون عضویت قبلی */
-    async supplierCandidates(inquiryId: string, userId: string, q?: string) {
+    /**
+     * جست‌وجوی کاتالوگ قیمت برای «درخواست همکاری» تامین‌کننده (مالک بازو)
+     * ✅ فیلتر استان/شهر/صنف (خواستهٔ مالک: خریدار اکثراً می‌خواهد از شهر خودش تامین کند)
+     *    + اطلاعات تصمیم‌گیری زیر هر کاتالوگ: نام بیزینس، صنف، شهر
+     * ✅ همکارهای فعال (active) هرگز برنمی‌گردند؛ درخواست‌های در انتظار (pending) با فلگ pending
+     *    برمی‌گردند تا مودال به‌جای دکمه، لیبل «در انتظار تایید» بگذارد
+     */
+    async supplierCandidates(
+        inquiryId: string,
+        userId: string,
+        opts: { q?: string; provinceCode?: string; cityCode?: string; industry?: string } = {},
+    ) {
         await this.assertOwner(inquiryId, userId);
         const members = await this.prisma.inquiryMember.findMany({
             where: { inquiryId },
-            select: { catalogId: true },
+            select: { catalogId: true, status: true },
         });
-        const where: any = { status: 'active', id: { notIn: members.map((m) => m.catalogId) } };
-        if (q?.trim()) where.name = { contains: q.trim() };
+        const activeIds = members.filter((m) => m.status === 'active').map((m) => m.catalogId);
+        const pendingIds = new Set(members.filter((m) => m.status === 'pending').map((m) => m.catalogId));
+        const where: any = { status: 'active', id: { notIn: activeIds } };
+        const q = opts.q?.trim();
+        if (q) where.name = { contains: q };
+        const provinceCode = opts.provinceCode?.trim();
+        if (provinceCode) where.provinceCode = provinceCode;
+        const cityCode = opts.cityCode?.trim();
+        if (cityCode) where.cityCode = cityCode;
+        const industry = opts.industry?.trim();
+        if (industry) {
+            // صنف: متن آزاد روی کاتالوگ یا بیزینسِ آن (industryName backward-compat)
+            where.OR = [
+                { industryName: { contains: industry } },
+                { business: { industryName: { contains: industry } } },
+            ];
+        }
         const items = await this.prisma.catalog.findMany({
             where,
-            select: { id: true, name: true, slug: true, logoUrl: true, city: true },
+            select: {
+                id: true, name: true, slug: true, logoUrl: true,
+                city: true, province: true, industryName: true,
+                business: { select: { name: true, industryName: true } },
+            },
             orderBy: { createdAt: 'desc' },
-            take: 20,
+            take: 30,
         });
-        return { items };
+        return {
+            items: items.map(({ business, ...c }: any) => ({
+                ...c,
+                industryName: c.industryName || business?.industryName || null,
+                businessName: business?.name ?? null,
+                pending: pendingIds.has(c.id),
+            })),
+        };
     }
 
     /** دعوت تامین‌کننده توسط خریدار (buyer_add) — تایید نهایی با تامین‌کننده */
@@ -1084,12 +1120,12 @@ export class InquiryService implements OnModuleInit {
                 },
             });
         }
-        // 🔔 به تامین‌کننده — دعوت به تامین‌کنندگی
+        // 🔔 به تامین‌کننده — درخواست همکاری خریدار
         void this.notification.notify({
             userIds: [member.userId],
             type: 'inquiry_member_invite',
-            title: 'دعوت به تامین‌کنندگی',
-            body: `بازوی خرید «${inquiry.title}» تو را به‌عنوان تامین‌کننده دعوت کرده`,
+            title: 'درخواست همکاری خریدار',
+            body: `خریدارِ بازوی خرید «${inquiry.title}» به تو درخواست همکاری داده`,
             actorUserId: userId,
             href: '/my-catalogs?tab=leads',
             businessId: inquiry.businessId ?? null,
@@ -1142,10 +1178,10 @@ export class InquiryService implements OnModuleInit {
         void this.notification.notify({
             userIds: [inquiry.ownerUserId],
             type: 'inquiry_member_request',
-            title: autoActivate ? 'تامین‌کنندهٔ جدید' : 'درخواست تامین‌کنندگی',
+            title: autoActivate ? 'تامین‌کنندهٔ جدید' : 'درخواست همکاری تامین‌کننده',
             body: autoActivate
                 ? `«${catalog.name}» با کاتالوگش به بازوی خرید «${inquiry.title}» متصل شد`
-                : `«${catalog.name}» درخواست عضویت در بازوی خرید «${inquiry.title}» را دارد`,
+                : `«${catalog.name}» درخواست همکاری در بازوی خرید «${inquiry.title}» را دارد`,
             actorUserId: userId,
             href: '/my-inquiries?tab=members',
             businessId: inquiry.businessId ?? null,
@@ -1193,8 +1229,8 @@ export class InquiryService implements OnModuleInit {
             void this.notification.notify({
                 userIds: [member.userId],
                 type: 'inquiry_member_approved',
-                title: 'تامین‌کنندهٔ تایید شدید',
-                body: `در بازوی خرید «${inquiry.title}» تایید شدید — اقلامش را می‌بینید`,
+                title: 'درخواست همکاری‌ات تایید شد',
+                body: `در بازوی خرید «${inquiry.title}» همکار تامین‌کننده شدی — اقلامش را می‌بینی`,
                 actorUserId: userId,
                 href: '/my-catalogs?tab=leads',
                 businessId: inquiry.businessId ?? null,
@@ -1204,7 +1240,7 @@ export class InquiryService implements OnModuleInit {
                 userIds: [inquiry.ownerUserId],
                 type: 'inquiry_member_confirmed',
                 title: 'تامین‌کنندهٔ جدید',
-                body: `تامین‌کننده دعوت شما را برای «${inquiry.title}» پذیرفت`,
+                body: `تامین‌کننده درخواست همکاری شما را برای «${inquiry.title}» پذیرفت`,
                 actorUserId: userId,
                 href: '/my-inquiries?tab=members',
                 businessId: inquiry.businessId ?? null,
