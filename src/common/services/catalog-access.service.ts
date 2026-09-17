@@ -3,19 +3,19 @@ import { Injectable, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
 /**
- * گیتِ واحدِ «چه کسی می‌تواند کارِ کاتالوگ را انجام دهد؟»
+ * گیتِ واحدِ «چه کسی می‌تواند کارِ بازوی فروش را انجام دهد؟»
  *
- *  ۱) مالکِ کاتالوگ (catalog.ownerUserId — کاربری که کاتالوگ را ساخته) — همیشه
- *  ۲) ادمینِ کاتالوگ (CatalogMember با نقش catalog_admin) — از برگهٔ اعضا منصوب می‌شود
+ *  ۱) مالکِ بازوی فروش (catalog.ownerUserId — کاربری که بازوی فروش را ساخته) — همیشه
+ *  ۲) ادمینِ بازوی فروش (CatalogMember با نقش catalog_admin) — از برگهٔ اعضا منصوب می‌شود
  *
- * این سرویس جای پراکندگیِ چکِ مالکیت کاتالوگ در سرویس‌ها را می‌گیرد
- * تا مدیریتِ کاتالوگ (محصول‌ها و قیمت‌ها) بدون استثنا در همه‌جا کار کند.
+ * این سرویس جای پراکندگیِ چکِ مالکیت بازوی فروش در سرویس‌ها را می‌گیرد
+ * تا مدیریتِ بازوی فروش (محصول‌ها و قیمت‌ها) بدون استثنا در همه‌جا کار کند.
  */
 @Injectable()
 export class CatalogAccessService {
     constructor(private prisma: PrismaService) {}
 
-    /** آیا کاربر می‌تواند کارِ این کاتالوگ را انجام دهد؟ (مدیریت محصول‌ها/قیمت‌ها/انتشار) */
+    /** آیا کاربر می‌تواند کارِ این بازوی فروش را انجام دهد؟ (مدیریت محصول‌ها/قیمت‌ها/انتشار) */
     async canManageCatalog(catalogId: string, userId: string): Promise<boolean> {
         if (!catalogId || !userId) return false;
 
@@ -26,7 +26,7 @@ export class CatalogAccessService {
         if (!catalog) return false;
         if (catalog.ownerUserId === userId) return true;
 
-        // ✅ ادمین کاتالوگ — توسط مالک منصوب شده و در مدیریت کاتالوگ سهیم است (برگهٔ اعضا)
+        // ✅ ادمین بازوی فروش — توسط مالک منصوب شده و در مدیریت بازوی فروش سهیم است (برگهٔ اعضا)
         const adminMember = await this.prisma.catalogMember.findFirst({
             where: { catalogId, userId, role: 'catalog_admin', status: 'active' },
             select: { id: true },
@@ -49,7 +49,7 @@ export class CatalogAccessService {
         }
     }
 
-    /** شناسهٔ کاتالوگ‌هایی که مالکشان هستم یا ادمین‌شان — برای چک‌های گروهی */
+    /** شناسهٔ بازوی فروش‌هایی که مالکشان هستم یا ادمین‌شان — برای چک‌های گروهی */
     async manageableCatalogIds(userId: string): Promise<string[]> {
         const ownCatalogIds = (
             await this.prisma.catalog.findMany({
@@ -58,7 +58,7 @@ export class CatalogAccessService {
             })
         ).map((c) => c.id);
 
-        // ✅ کاتالوگ‌هایی که ادمین‌شان هستم (برگهٔ اعضا)
+        // ✅ بازوی فروش‌هایی که ادمین‌شان هستم (برگهٔ اعضا)
         const adminCatalogIds = (
             await this.prisma.catalogMember.findMany({
                 where: { userId, role: 'catalog_admin', status: 'active' },

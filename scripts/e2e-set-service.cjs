@@ -1,4 +1,4 @@
-// ابزار E2E — ست کردن salesType=service روی کاتالوگ تستی (چون فرم کاتالوگ خدماتی هنوز نیست)
+// ابزار E2E — ست کردن salesType=service روی بازوی فروش تستی (چون فرم بازوی فروش خدماتی هنوز نیست)
 const { PrismaClient } = require('@prisma/client');
 const slug = process.argv[2];
 if (!slug) { console.error('usage: node e2e-set-service.cjs <slug-prefix>'); process.exit(1); }

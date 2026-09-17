@@ -70,7 +70,7 @@ export class BusinessController {
     @Get(':id')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'جزئیات کسب‌وکار (با کاتالوگ‌ها و تیمش) — فقط ثبت‌کننده/مالک' })
+    @ApiOperation({ summary: 'جزئیات کسب‌وکار (با بازوی فروش‌ها و تیمش) — فقط ثبت‌کننده/مالک' })
     findOne(@Param('id') id: string, @CurrentUser() user: any) {
         return this.businessService.findOne(id, user.id);
     }
@@ -80,7 +80,7 @@ export class BusinessController {
     @Get(':id/my-membership')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'عضویت من در این کسب‌وکار — نقش شرکتی/سیستمی + canManageTeam (فرم کاتالوگ)' })
+    @ApiOperation({ summary: 'عضویت من در این کسب‌وکار — نقش شرکتی/سیستمی + canManageTeam (فرم بازوی فروش)' })
     getMyMembership(@Param('id') id: string, @CurrentUser() user: any) {
         return this.businessService.getMyMembership(id, user.id);
     }
@@ -145,7 +145,7 @@ export class BusinessController {
     @Delete(':id')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'حذف کسب‌وکار (فقط بدون کاتالوگ)' })
+    @ApiOperation({ summary: 'حذف کسب‌وکار (فقط بدون بازوی فروش)' })
     remove(@Param('id') id: string, @CurrentUser() user: any) {
         return this.businessService.remove(id, user.id);
     }

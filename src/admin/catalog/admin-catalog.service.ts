@@ -7,7 +7,7 @@ import { PrismaService } from '../../prisma/prisma.service';
  *
  * بعد از تفکیک نهاد/ویترین:
  *   - مدیریتِ «کسب‌وکارها» (تیک اعتماد، مدارک، صنف، فعالیت‌ها) روی مدل Business است
- *   - کاتالوگ = ویترینِ یک نهاد (slug، درخت دسته، واحدها، کالاها)
+ *   - بازوی فروش = ویترینِ یک نهاد (slug، درخت دسته، واحدها، کالاها)
  *
  * این سرویس مستقیم روی Business کار می‌کند و فقط نامِ متدها/مسیرهای قدیمی را
  * حفظ کرده تا فرانت ادمین بدون تغییر کار کند.
@@ -83,7 +83,7 @@ export class AdminCatalogService {
             where.activities = { some: { activityId } };
         }
 
-        // ✅ فیلتر بازار — از مسیر کاتالوگ‌های نهاد و عضویت آن‌ها
+        // ✅ فیلتر بازار — از مسیر بازوی فروش‌های نهاد و عضویت آن‌ها
         if (armSlug && armSlug !== 'all') {
             const arm = await this.prisma.arm.findUnique({
                 where: { slug: armSlug },
@@ -166,8 +166,8 @@ export class AdminCatalogService {
     }
 
     // ============================================================
-    // جزئیات — نهاد + کاتالوگ‌های متصل + مدارک تیک + آمار تجمیعی
-    // (ads/files/armMemberships روی Business نیستند — از مسیر کاتالوگ‌ها)
+    // جزئیات — نهاد + بازوی فروش‌های متصل + مدارک تیک + آمار تجمیعی
+    // (ads/files/armMemberships روی Business نیستند — از مسیر بازوی فروش‌ها)
     // ============================================================
     async getCatalogDetail(catalogId: string) {
         const business = await this.prisma.business.findUnique({
@@ -208,7 +208,7 @@ export class AdminCatalogService {
 
         const catalogIds = business.catalogs.map((c) => c.id);
 
-        // ─── آگهی‌ها — تجمیعی از کاتالوگ‌های نهاد ───
+        // ─── آگهی‌ها — تجمیعی از بازوی فروش‌های نهاد ───
         const ads = catalogIds.length
             ? await this.prisma.ad.findMany({
                 where: { catalogId: { in: catalogIds } },
@@ -228,7 +228,7 @@ export class AdminCatalogService {
             })
             : [];
 
-        // ─── عضویت‌های بازار — از مسیر کاتالوگ‌ها ───
+        // ─── عضویت‌های بازار — از مسیر بازوی فروش‌ها ───
         const armMemberships = catalogIds.length
             ? await this.prisma.armMembership.findMany({
                 where: { catalogId: { in: catalogIds } },
@@ -239,7 +239,7 @@ export class AdminCatalogService {
             })
             : [];
 
-        // ─── اعتبارها — از مسیر کاتالوگ‌ها ───
+        // ─── اعتبارها — از مسیر بازوی فروش‌ها ───
         const credits = catalogIds.length
             ? await this.prisma.credit.findMany({
                 where: { catalogId: { in: catalogIds } },

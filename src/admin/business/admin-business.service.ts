@@ -73,7 +73,7 @@ export class AdminBusinessService {
             where.activities = { some: { activityId } };
         }
 
-        // ✅ فیلتر بازار — از مسیر کاتالوگ‌های نهاد و عضویت آن‌ها
+        // ✅ فیلتر بازار — از مسیر بازوی فروش‌های نهاد و عضویت آن‌ها
         if (armSlug && armSlug !== 'all') {
             const arm = await this.prisma.arm.findUnique({
                 where: { slug: armSlug },
@@ -157,8 +157,8 @@ export class AdminBusinessService {
     }
 
     // ============================================================
-    // جزئیات کسب‌وکار — نهاد + کاتالوگ‌های متصل + مدارک تیک + آمار تجمیعی
-    // (ads/files/armMemberships روی Business نیستند — از مسیر کاتالوگ‌ها)
+    // جزئیات کسب‌وکار — نهاد + بازوی فروش‌های متصل + مدارک تیک + آمار تجمیعی
+    // (ads/files/armMemberships روی Business نیستند — از مسیر بازوی فروش‌ها)
     // ============================================================
     async getBusinessDetail(businessId: string) {
         const business = await this.prisma.business.findUnique({
@@ -199,7 +199,7 @@ export class AdminBusinessService {
 
         const catalogIds = business.catalogs.map((c) => c.id);
 
-        // ─── آگهی‌ها — تجمیعی از کاتالوگ‌های نهاد ───
+        // ─── آگهی‌ها — تجمیعی از بازوی فروش‌های نهاد ───
         const ads = catalogIds.length
             ? await this.prisma.ad.findMany({
                 where: { catalogId: { in: catalogIds } },
@@ -219,7 +219,7 @@ export class AdminBusinessService {
             })
             : [];
 
-        // ─── عضویت‌های بازار — از مسیر کاتالوگ‌ها ───
+        // ─── عضویت‌های بازار — از مسیر بازوی فروش‌ها ───
         const armMemberships = catalogIds.length
             ? await this.prisma.armMembership.findMany({
                 where: { catalogId: { in: catalogIds } },
@@ -230,7 +230,7 @@ export class AdminBusinessService {
             })
             : [];
 
-        // ─── اعتبارها — از مسیر کاتالوگ‌ها ───
+        // ─── اعتبارها — از مسیر بازوی فروش‌ها ───
         const credits = catalogIds.length
             ? await this.prisma.credit.findMany({
                 where: { catalogId: { in: catalogIds } },

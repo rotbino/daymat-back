@@ -14,7 +14,7 @@ export class AdminCatalogController {
     constructor(private adminCatalogService: AdminCatalogService) {}
 
     @Get()
-    @ApiOperation({ summary: 'لیست کاتالوگها با فیلتر و آمار' })
+    @ApiOperation({ summary: 'لیست بازوی فروشها با فیلتر و آمار' })
     @ApiQuery({ name: 'page', required: false })
     @ApiQuery({ name: 'limit', required: false })
     @ApiQuery({ name: 'search', required: false })
@@ -34,7 +34,7 @@ export class AdminCatalogController {
     }
 
     @Get(':id')
-    @ApiOperation({ summary: 'جزئیات کاتالوگ (شامل مدارک تیک)' })
+    @ApiOperation({ summary: 'جزئیات بازوی فروش (شامل مدارک تیک)' })
     async getCatalogDetail(@Param('id') id: string) {
         return this.adminCatalogService.getCatalogDetail(id);
     }

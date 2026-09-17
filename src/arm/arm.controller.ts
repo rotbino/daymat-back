@@ -320,7 +320,7 @@ export class ArmController {
     @Patch(':slug/catalog-publish')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'روشن/خاموش کردن انتشار کاتالوگ در بازار (بدون حذف عضویت)' })
+    @ApiOperation({ summary: 'روشن/خاموش کردن انتشار بازوی فروش در بازار (بدون حذف عضویت)' })
     async toggleCatalogPublish(
         @Param('slug') slug: string,
         @CurrentUser() user: any,
@@ -359,7 +359,7 @@ export class ArmController {
     // ═══════════════════════════════════════════════════════════
     @Get('suggested')
     @UseGuards(OptionalJwtAuthGuard)   // مهمان هم استفاده می‌کند؛ لاگین یعنی userId برای استثنای عضوها
-    @ApiOperation({ summary: 'بازارهای فعال عمومی — برای لندینگ و پیشنهاد پیوستن به کاتالوگ' })
+    @ApiOperation({ summary: 'بازارهای فعال عمومی — برای لندینگ و پیشنهاد پیوستن به بازوی فروش' })
     @ApiQuery({ name: 'catalogId', required: false })
     @ApiQuery({ name: 'limit', required: false })
     async suggested(

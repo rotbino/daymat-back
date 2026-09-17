@@ -20,7 +20,7 @@ export class ArmAdminCatalogsController {
     // ═══ فروشندگان ═══
 
     @Get('sellers')
-    @ApiOperation({ summary: 'فروشندگان بازار (کاتالوگ‌های عضو) — با جستجو/فیلتر/سورت' })
+    @ApiOperation({ summary: 'فروشندگان بازار (بازوی فروش‌های عضو) — با جستجو/فیلتر/سورت' })
     @ApiQuery({ name: 'search', required: false })
     @ApiQuery({ name: 'ownerStatus', required: false, enum: ['all', 'active', 'paused'] })
     @ApiQuery({ name: 'sortBy', required: false, enum: ['joinedAt', 'updated', 'table', 'needs', 'name'] })
@@ -50,7 +50,7 @@ export class ArmAdminCatalogsController {
     }
 
     @Get('sellers/candidates')
-    @ApiOperation({ summary: 'کاتالوگ‌های کاندید فروشنده' })
+    @ApiOperation({ summary: 'بازوی فروش‌های کاندید فروشنده' })
     @ApiQuery({ name: 'q', required: false })
     @ApiQuery({ name: 'myReferrals', required: false })
     @ApiQuery({ name: 'industry', required: false })
@@ -75,7 +75,7 @@ export class ArmAdminCatalogsController {
     }
 
     @Post('sellers')
-    @ApiOperation({ summary: 'افزودن فروشنده (کاتالوگ) به بازار + مهر انتشار — اددِ مجددِ خروج‌اختیاری نیاز به confirmSelfRemoved دارد' })
+    @ApiOperation({ summary: 'افزودن فروشنده (بازوی فروش) به بازار + مهر انتشار — اددِ مجددِ خروج‌اختیاری نیاز به confirmSelfRemoved دارد' })
     async addSeller(
         @Param('slug') slug: string,
         @CurrentUser() user: any,
@@ -99,7 +99,7 @@ export class ArmAdminCatalogsController {
     }
 
     @Get('sellers/:catalogId/settings')
-    @ApiOperation({ summary: 'تنظیمات اختصاصی کاتالوگ در این بازار (ارث‌بری + اورایت)' })
+    @ApiOperation({ summary: 'تنظیمات اختصاصی بازوی فروش در این بازار (ارث‌بری + اورایت)' })
     async getCatalogSettings(
         @Param('slug') slug: string,
         @Param('catalogId') catalogId: string,
@@ -108,7 +108,7 @@ export class ArmAdminCatalogsController {
     }
 
     @Patch('sellers/:catalogId/settings')
-    @ApiOperation({ summary: 'اورایت چندفروشندگی برای یک کاتالوگ خاص (فقط مالک بازار)' })
+    @ApiOperation({ summary: 'اورایت چندفروشندگی برای یک بازوی فروش خاص (فقط مالک بازار)' })
     async setCatalogSettings(
         @Param('slug') slug: string,
         @Param('catalogId') catalogId: string,

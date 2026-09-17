@@ -1,7 +1,7 @@
 // src/catalog/catalog-member.dto.ts
 import { IsOptional, IsString, MaxLength, Matches, IsIn } from 'class-validator';
 
-/** درخواست ارتباط تجاری با کاتالوگ — یک در برای هر چهار نقش بیزینسی */
+/** درخواست ارتباط تجاری با بازوی فروش — یک در برای هر چهار نقش بیزینسی */
 export class CoopJoinDto {
     @IsIn(['seller', 'buyer', 'supplier', 'service'])
     type!: 'seller' | 'buyer' | 'supplier' | 'service'; // همکار فروش | خریدار | تامین‌کننده | سرویس‌دهندهٔ خدمات
@@ -15,12 +15,12 @@ export class CoopJoinDto {
     businessId?: string; // type=buyer الزامی؛ type=seller اختیاری
 
     @IsOptional()
-    @Matches(/^[a-f\d]{24}$/i, { message: 'شناسه کاتالوگ نامعتبر است' })
-    supplierCatalogId?: string; // فقط type=supplier — کاتالوگِ خودِ تامین‌کننده
+    @Matches(/^[a-f\d]{24}$/i, { message: 'شناسه بازوی فروش نامعتبر است' })
+    supplierCatalogId?: string; // فقط type=supplier — بازوی فروشِ خودِ تامین‌کننده
 
     @IsOptional()
-    @Matches(/^[a-f\d]{24}$/i, { message: 'شناسه کاتالوگ نامعتبر است' })
-    serviceCatalogId?: string; // فقط type=service — کاتالوگِ خدماتیِ خود (salesType=service)
+    @Matches(/^[a-f\d]{24}$/i, { message: 'شناسه بازوی فروش نامعتبر است' })
+    serviceCatalogId?: string; // فقط type=service — بازوی فروشِ خدماتیِ خود (salesType=service)
 
     @IsOptional()
     @IsString()
@@ -28,9 +28,9 @@ export class CoopJoinDto {
     note?: string;
 }
 
-/** دعوت کاتالوگِ دیگر به‌عنوان تامین‌کننده — تایید نهایی با صاحبِ کاتالوگ */
+/** دعوت بازوی فروشِ دیگر به‌عنوان تامین‌کننده — تایید نهایی با صاحبِ بازوی فروش */
 export class InviteSupplierDto {
-    @Matches(/^[a-f\d]{24}$/i, { message: 'شناسه کاتالوگ نامعتبر است' })
+    @Matches(/^[a-f\d]{24}$/i, { message: 'شناسه بازوی فروش نامعتبر است' })
     supplierCatalogId!: string;
 
     @IsOptional()
@@ -39,9 +39,9 @@ export class InviteSupplierDto {
     note?: string;
 }
 
-/** دعوت کاتالوگِ خدماتی به‌عنوان سرویس‌دهنده — تایید نهایی با صاحبِ کاتالوگ */
+/** دعوت بازوی فروشِ خدماتی به‌عنوان سرویس‌دهنده — تایید نهایی با صاحبِ بازوی فروش */
 export class InviteServiceDto {
-    @Matches(/^[a-f\d]{24}$/i, { message: 'شناسه کاتالوگ نامعتبر است' })
+    @Matches(/^[a-f\d]{24}$/i, { message: 'شناسه بازوی فروش نامعتبر است' })
     serviceCatalogId!: string;
 
     @IsOptional()

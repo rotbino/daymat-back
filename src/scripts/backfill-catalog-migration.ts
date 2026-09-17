@@ -1,5 +1,5 @@
 /**
- * بک‌فیل مهاجرت کاتالوگ→بازار — فاز ۲
+ * بک‌فیل مهاجرت بازوی فروش→بازار — فاز ۲
  * پیش‌نیاز: `npx prisma db push` با اسکیمای جدید انجام شده باشد
  * اجرا:     npx ts-node scripts/backfill-catalog-migration.ts
  * Idempotent است — اجرای مکرر بی‌خطر (شرط‌ها روی null فیلتر می‌کنند)
@@ -41,7 +41,7 @@ async function backfillReferralCodes() {
     console.log(`[referral] ${done} کد ساخته شد`);
 }
 
-// ۲) کپی categoryId → catalogCategoryId برای آگهی‌های فقط-کاتالوگی (armId=null)
+// ۲) کپی categoryId → catalogCategoryId برای آگهی‌های فقط-بازوی فروشی (armId=null)
 async function backfillCatalogCategory() {
     const where = {
         armId: null as any,
@@ -67,7 +67,7 @@ async function backfillCatalogCategory() {
     console.log('');
 }
 
-// ۳) اعضای فعالِ دارای کاتالوگ → published
+// ۳) اعضای فعالِ دارای بازوی فروش → published
 async function backfillPublishState() {
     const res = await prisma.armMembership.updateMany({
         where: { status: 'active', publishState: null, catalogId: { not: null } },
@@ -77,7 +77,7 @@ async function backfillPublishState() {
 }
 
 async function main() {
-    console.log('── شروع بک‌فیل مهاجرت کاتالوگ ──');
+    console.log('── شروع بک‌فیل مهاجرت بازوی فروش ──');
     await backfillReferralCodes();
     await backfillCatalogCategory();
     await backfillPublishState();

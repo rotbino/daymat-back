@@ -17,7 +17,7 @@ import { NotificationService } from '../notification/notification.service';
 /**
  * نهاد تجاری — کسب‌وکارِ «مرجع» و مشترک:
  *  - مالکِ شخصی ندارد؛ ثبت‌کنندهٔ اول در creatorUserId ذخیره می‌شود (نه لزوماً مالک)
- *  - هر فروشنده/کارمندی که کاتالوگش را به این کسب‌وکار وصل کند، عضو تیمش می‌شود (BusinessMember)
+ *  - هر فروشنده/کارمندی که بازوی فروشش را به این کسب‌وکار وصل کند، عضو تیمش می‌شود (BusinessMember)
  *  - ویرایش: ثبت‌کنندهٔ اول یا مالکِ قدیمی (legacy) — دیتای مشترک باید تمیز بماند
  *  - salesType اینجا ممنوع (صفت ویترین است) | slug ندارد | تیک اعتماد: مرجع واقعی
  */
@@ -104,7 +104,7 @@ export class BusinessService {
 
     // ============================================================
     // جستجوی کسب‌وکارها — برای «اول جستجو کن، تکراری ثبت نکن»
-    // عمومی (لاگین اختیاری) — فلوی انتخاب کسب‌وکار هنگام ساخت کاتالوگ
+    // عمومی (لاگین اختیاری) — فلوی انتخاب کسب‌وکار هنگام ساخت بازوی فروش
     // ============================================================
     async search(q: string, provinceCode?: string, cityCode?: string, limit = 12, offset = 0, ids?: string[]) {
         const where: any = { status: 'active' };
@@ -374,7 +374,7 @@ export class BusinessService {
         });
 
         // ⚠️ دیتای Business در لیست my-catalogs (include business) و صفحات عمومی
-        //    کاتالوگ‌هایش کش می‌شود → تغییر مالک = باطل‌سازی فوری
+        //    بازوی فروش‌هایش کش می‌شود → تغییر مالک = باطل‌سازی فوری
         await this.cache.bust(`my-catalogs:${userId}`);
         const ownedCatalogs = await this.prisma.catalog.findMany({
             where: { businessId: id },
@@ -423,7 +423,7 @@ export class BusinessService {
             }
         });
 
-        // باطل‌سازی کش — همان الگوی update (کاتالوگ‌های عمومی دیتای کسب‌وکار را کش می‌کنند)
+        // باطل‌سازی کش — همان الگوی update (بازوی فروش‌های عمومی دیتای کسب‌وکار را کش می‌کنند)
         await this.cache.bust(`my-catalogs:${userId}`);
         const ownedCatalogs = await this.prisma.catalog.findMany({
             where: { businessId: id },
@@ -453,7 +453,7 @@ export class BusinessService {
         if (biz._count.catalogs > 0) {
             throw new BadRequestException({
                 errorCode: 'BUSINESS_HAS_CATALOGS',
-                message: 'این کسب‌وکار کاتالوگ دارد — اول کاتالوگ‌هایش را حذف یا جابه‌جا کنید',
+                message: 'این کسب‌وکار بازوی فروش دارد — اول بازوی فروش‌هایش را حذف یا جابه‌جا کنید',
             });
         }
         await this.prisma.business.update({
@@ -469,10 +469,10 @@ export class BusinessService {
     //     - سازندهٔ کسب‌وکار (creatorUserId/ownerUserId) همیشه ادمین است
     //     - ادمین می‌تواند نقش سیستمی خودش را با واگذاری به عضو دیگر اداره کند
     //   • نقش شرکتی (position): مالک، مدیرعامل، مدیر فروش، بازاریاب… (USER_POSITIONS)
-    //     - اینکه چه کسی در کاتالوگ قیمتنده/ویزیتور/ادمین شود، در کاتالوگ قیمت تعیین می‌شود
+    //     - اینکه چه کسی در بازوی فروش قیمتنده/ویزیتور/ادمین شود، در بازوی فروش قیمت تعیین می‌شود
     // ============================================================
 
-    /** نقش عضویت کاربر جاری در کسب‌وکار — فرم کاتالوگ و UI تیم */
+    /** نقش عضویت کاربر جاری در کسب‌وکار — فرم بازوی فروش و UI تیم */
     async getMyMembership(businessId: string, userId: string) {
         const biz = await this.prisma.business.findUnique({
             where: { id: businessId },
@@ -633,7 +633,7 @@ export class BusinessService {
         });
 
         await this.cache.bust(`profile:${targetUserId}`);
-        // ✅ سینک مستقیم تیم → کاتالوگ‌ها: عضو تازهٔ تیم در صف تاییدِ کاتالوگ‌های همین کسب‌وکار می‌نشیند
+        // ✅ سینک مستقیم تیم → بازوی فروش‌ها: عضو تازهٔ تیم در صف تاییدِ بازوی فروش‌های همین کسب‌وکار می‌نشیند
         await this.syncTeamMemberToCatalogs(businessId, targetUserId, 'add', userId);
         return { success: true, member };
     }
@@ -716,7 +716,7 @@ export class BusinessService {
             data: { status: 'removed' },
         });
 
-        // ✅ سینک معکوس — لِین فروشِ عضو در کاتالوگ‌های همین کسب‌وکار هم برداشته می‌شود
+        // ✅ سینک معکوس — لِین فروشِ عضو در بازوی فروش‌های همین کسب‌وکار هم برداشته می‌شود
         await this.syncTeamMemberToCatalogs(businessId, target.userId, 'remove', userId);
 
         await this.cache.bust(`profile:${target.userId}`);
@@ -724,10 +724,10 @@ export class BusinessService {
     }
 
     // ════════════════════════════════════════════════════════════
-    //  سینک تیم کسب‌وکار ↔ اعضای کاتالوگ‌ها
-    //  عضو جدید تیم → درخواست همکاری در فروش (pending) در همهٔ کاتالوگ‌های فعال کسب‌وکار
-    //  حذف عضو → برداشتن لِین فروش او از همان کاتالوگ‌ها
-    //  ساخت کاتالوگ جدید → سینک همهٔ اعضای فعال تیم (از catalog.service.create فراخوانی می‌شود)
+    //  سینک تیم کسب‌وکار ↔ اعضای بازوی فروش‌ها
+    //  عضو جدید تیم → درخواست همکاری در فروش (pending) در همهٔ بازوی فروش‌های فعال کسب‌وکار
+    //  حذف عضو → برداشتن لِین فروش او از همان بازوی فروش‌ها
+    //  ساخت بازوی فروش جدید → سینک همهٔ اعضای فعال تیم (از catalog.service.create فراخوانی می‌شود)
     // ════════════════════════════════════════════════════════════
     async syncTeamMemberToCatalogs(
         businessId: string,
@@ -741,7 +741,7 @@ export class BusinessService {
         });
         const actor = actorId || null;
         for (const cat of catalogs) {
-            if (cat.ownerUserId === targetUserId) continue; // مالک کاتالوگ — سینک معنا ندارد
+            if (cat.ownerUserId === targetUserId) continue; // مالک بازوی فروش — سینک معنا ندارد
             const row = await this.prisma.catalogMember.findUnique({
                 where: { catalogId_userId: { catalogId: cat.id, userId: targetUserId } },
             });
@@ -771,7 +771,7 @@ export class BusinessService {
                     userIds: [cat.ownerUserId].filter((u) => u && u !== actor),
                     type: 'catalog_business_team_sync',
                     title: `${memberName?.fullName || memberName?.phone || 'عضو جدید'} از تیم کسب‌وکار به صف تایید اضافه شد`,
-                    body: `برای همکاری در فروش کاتالوگ «${cat.name}» — تایید یا رد کن`,
+                    body: `برای همکاری در فروش بازوی فروش «${cat.name}» — تایید یا رد کن`,
                     actorUserId: actor,
                     href: `/my-catalogs?tab=team&cat=${cat.id}`,
                     catalogId: cat.id,

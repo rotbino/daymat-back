@@ -903,7 +903,7 @@ export class CreditService {
         creditPrice?: number,
         currency?: string,
     ) {
-        // ۱. بررسی کاتالوگ — مالکیت مستقیم روی کاتالوگ
+        // ۱. بررسی بازوی فروش — مالکیت مستقیم روی بازوی فروش
         const catalog = await this.prisma.catalog.findUnique({
             where: { id: catalogId },
             select: { id: true, ownerUserId: true },
@@ -911,13 +911,13 @@ export class CreditService {
         if (!catalog) {
             throw new NotFoundException({
                 errorCode: 'CATALOG_NOT_FOUND',
-                message: 'کاتالوگ یافت نشد',
+                message: 'بازوی فروش یافت نشد',
             });
         }
         if (catalog.ownerUserId !== userId) {
             throw new ForbiddenException({
                 errorCode: 'FORBIDDEN',
-                message: 'شما به این کاتالوگ دسترسی ندارید',
+                message: 'شما به این بازوی فروش دسترسی ندارید',
             });
         }
 

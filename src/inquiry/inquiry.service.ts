@@ -32,7 +32,7 @@ export class InquiryService implements OnModuleInit {
      * مالک چند-کسب‌وکاری دست‌نخورده می‌ماند (اتصال مبهم است — از فرم ویرایش انتخاب می‌شود).
      */
     async onModuleInit() {
-        // ─── مهاجرت ۱: کاتالوگ‌های بدون کسب‌وکار → اتصال به کسب‌وکار یگانهٔ مالک ───
+        // ─── مهاجرت ۱: بازوی فروش‌های بدون کسب‌وکار → اتصال به کسب‌وکار یگانهٔ مالک ───
         try {
             const orphans = await this.prisma.inquiry.findMany({
                 where: { businessId: null },
@@ -72,10 +72,10 @@ export class InquiryService implements OnModuleInit {
             console.warn('[inquiry] مهاجرت اتصال بازوهای خرید قدیمی انجام نشد:', e?.message);
         }
 
-        // ─── مهاجرت «بازوی خرید» برای کاتالوگ‌های قدیمی ───
-        // در مدل قدیمی کل لیست یک درخواست بود → همهٔ اقلام کاتالوگ‌های نه-مهاجرت‌شده
+        // ─── مهاجرت «بازوی خرید» برای بازوی فروش‌های قدیمی ───
+        // در مدل قدیمی کل لیست یک درخواست بود → همهٔ اقلام بازوی فروش‌های نه-مهاجرت‌شده
         // بازوی خرید فعال می‌گیرند (رفتار قبل حفظ می‌شود: همه‌چیز قیمت‌پذیر).
-        // کاتالوگ‌های جدید از بدوِ ساخت فلگ legacyUrgentMigrated=true دارند و لمس نمی‌شوند.
+        // بازوی فروش‌های جدید از بدوِ ساخت فلگ legacyUrgentMigrated=true دارند و لمس نمی‌شوند.
         // ⚠️ نکتهٔ Prisma/Mongo: فیلتر { not: true } سندِ بدون-فیلد را نمی‌گیرد → واکشی کامل + فیلتر در کد
         try {
             const all = await this.prisma.inquiry.findMany({
@@ -129,7 +129,7 @@ export class InquiryService implements OnModuleInit {
         return true;
     }
 
-    /** آیا این کاربر (با یکی از کاتالوگ‌های قیمتش) تامین‌کنندهٔ تاییدشدهٔ این بازوی خرید است؟ */
+    /** آیا این کاربر (با یکی از بازوی فروش‌های قیمتش) تامین‌کنندهٔ تاییدشدهٔ این بازوی خرید است؟ */
     private async isActiveMember(inquiryId: string, userId: string): Promise<boolean> {
         if (!userId) return false;
         const cnt = await this.prisma.inquiryMember.count({
@@ -171,7 +171,7 @@ export class InquiryService implements OnModuleInit {
     }
 
     /** اسلاگ خودکار از عنوان + پسوند کوتاه رندم (چون عنوان فارسی ممکن است نرمال‌سازی شود)
-     *  ✅ فضای اسلاگ سراسری است: کاتالوگ قیمت + بازار + صفحهٔ اعلان خرید همه روی ریشه بالا می‌آیند.
+     *  ✅ فضای اسلاگ سراسری است: بازوی فروش قیمت + بازار + صفحهٔ اعلان خرید همه روی ریشه بالا می‌آیند.
      *  اسلاگ دلخواهِ رد شده (تکراری/رزرو/کوتاه) استثنا می‌دهد؛ خودکار پسوند می‌گیرد. */
     private async buildUniqueSlug(title: string, custom?: string): Promise<string> {
         const customNormalized = this.normalizeSlug(custom ?? '');
@@ -197,7 +197,7 @@ export class InquiryService implements OnModuleInit {
         return `${base}-${Date.now().toString(36)}`;
     }
 
-    /** آیا این اسلاگ در هر سه جدول (کاتالوگ/بازار/بازوی خرید) گرفته شده؟ */
+    /** آیا این اسلاگ در هر سه جدول (بازوی فروش/بازار/بازوی خرید) گرفته شده؟ */
     private async slugTakenAnywhere(slug: string, excludeInquiryId?: string): Promise<boolean> {
         const [cat, arm, inq] = await Promise.all([
             this.prisma.catalog.findFirst({ where: { slug }, select: { id: true } }),
@@ -295,7 +295,7 @@ export class InquiryService implements OnModuleInit {
     }
 
     // ─── ساخت ───
-    // ✅ مدل جدید: کاتالوگ خالی هم مجاز است (اقلام بعداً قلم‌به‌قلم از پنل اضافه می‌شود)
+    // ✅ مدل جدید: بازوی فروش خالی هم مجاز است (اقلام بعداً قلم‌به‌قلم از پنل اضافه می‌شود)
     async create(userId: string, dto: CreateInquiryDto) {
         if (dto.businessId && !this.isValidObjectId(dto.businessId)) {
             throw new BadRequestException({ errorCode: 'INVALID_BUSINESS', message: 'شناسه کسب‌وکار نامعتبر است' });
@@ -319,7 +319,7 @@ export class InquiryService implements OnModuleInit {
                 deadline: dto.deadline ? new Date(dto.deadline) : null,
                 ownerUserId: userId,
                 slug,
-                // ✅ کاتالوگ تازه‌ساخته از مهاجرت legacy معاف است (اقلامش urgent صریح دارند)
+                // ✅ بازوی فروش تازه‌ساخته از مهاجرت legacy معاف است (اقلامش urgent صریح دارند)
                 legacyUrgentMigrated: true,
                 items: {
                     create: items.map((c) => ({
@@ -588,7 +588,7 @@ export class InquiryService implements OnModuleInit {
     }
 
     // ═══════════════════════════════════════════════════════
-    // 💾 بازوی خرید ذخیره‌شده — قرینهٔ کاتالوگ؛ تامین‌کننده بازوهای چند خریدار
+    // 💾 بازوی خرید ذخیره‌شده — قرینهٔ بازوی فروش؛ تامین‌کننده بازوهای چند خریدار
     //    را ذخیره می‌کند و از سوییچر هدر صفحهٔ عمومی بینشان جابه‌جا می‌شود
     // ═══════════════════════════════════════════════════════
 
@@ -649,7 +649,7 @@ export class InquiryService implements OnModuleInit {
 
     // ═══════════════════════════════════════════════════════
     // 🪪 کارت ویزیت بازوی خرید — ذخیرهٔ مشخصات (JSON) در metadata
-    // قرینهٔ کاتالوگ قیمت؛ کاربر طرح کارت را یک‌بار می‌سازد و زحمتش از بین نمی‌رود
+    // قرینهٔ بازوی فروش قیمت؛ کاربر طرح کارت را یک‌بار می‌سازد و زحمتش از بین نمی‌رود
     // ═══════════════════════════════════════════════════════
     async saveVisitCard(id: string, userId: string, spec: Record<string, any> | null | undefined) {
         const owned = await this.prisma.inquiry.findFirst({
@@ -705,7 +705,7 @@ export class InquiryService implements OnModuleInit {
             if (!normalized || normalized.length < 3 || RESERVED_SLUGS.includes(normalized.toLowerCase())) {
                 throw new BadRequestException({ errorCode: 'INVALID_SLUG', message: 'این آدرس قابل انتخاب نیست' });
             }
-            // ✅ فضای سراسری — کاتالوگ قیمت و بازار هم شمرده می‌شوند
+            // ✅ فضای سراسری — بازوی فروش قیمت و بازار هم شمرده می‌شوند
             const taken = await this.slugTakenAnywhere(normalized, id);
             if (taken) throw new BadRequestException({ errorCode: 'SLUG_TAKEN', message: 'این آدرس قبلاً گرفته شده' });
         }
@@ -940,7 +940,7 @@ export class InquiryService implements OnModuleInit {
         if (inquiry.ownerUserId === userId) {
             throw new BadRequestException({ errorCode: 'OWN_INQUIRY', message: 'روی بازوی خرید خودتان نمی‌توانید پیشنهاد بدهید' });
         }
-        // ✅ گیت کاتالوگ خصوصی — فقط تامین‌کننده‌های تاییدشده قیمت می‌دهند
+        // ✅ گیت بازوی فروش خصوصی — فقط تامین‌کننده‌های تاییدشده قیمت می‌دهند
         if (inquiry.visibility === 'private' && !(await this.isActiveMember(inquiryId, userId))) {
             throw new ForbiddenException({
                 errorCode: 'PRIVATE_INQUIRY',
@@ -1158,9 +1158,9 @@ export class InquiryService implements OnModuleInit {
 
     // ═══════════════════════════════════════════════════════════════════
     // ✅ اعضای بازوی خرید — تامین‌کننده‌های تاییدشده (شبکهٔ خرید↔فروش)
-    //    همهٔ ارتباطات کاتالوگ‌به‌کاتالوگ می‌شود: خریدار از روی بازوی خریدش
+    //    همهٔ ارتباطات بازوی فروش‌به‌بازوی فروش می‌شود: خریدار از روی بازوی خریدش
     //    تامین‌کننده اضافه می‌کند؛ تامین‌کننده اقلام فوری را در
-    //    پنل کاتالوگ قیمتش می‌بیند و قیمت می‌دهد.
+    //    پنل بازوی فروش قیمتش می‌بیند و قیمت می‌دهد.
     // ═══════════════════════════════════════════════════════════════════
 
     /** فهرست تامین‌کننده‌های این بازوی خرید (مالک — تب «تامین‌کنندگان» پنل خرید) */
@@ -1178,9 +1178,9 @@ export class InquiryService implements OnModuleInit {
     }
 
     /**
-     * جست‌وجوی کاتالوگ قیمت برای «درخواست تامین» (مالک بازو)
+     * جست‌وجوی بازوی فروش قیمت برای «درخواست تامین» (مالک بازو)
      * ✅ فیلتر استان/شهر/صنف (خواستهٔ مالک: خریدار اکثراً می‌خواهد از شهر خودش تامین کند)
-     *    + اطلاعات تصمیم‌گیری زیر هر کاتالوگ: نام بیزینس، صنف، شهر
+     *    + اطلاعات تصمیم‌گیری زیر هر بازوی فروش: نام بیزینس، صنف، شهر
      * ✅ همکارهای فعال (active) هرگز برنمی‌گردند؛ درخواست‌های در انتظار (pending) با فلگ pending
      *    برمی‌گردند تا مودال به‌جای دکمه، لیبل «در انتظار تایید» بگذارد
      */
@@ -1205,7 +1205,7 @@ export class InquiryService implements OnModuleInit {
         if (cityCode) where.cityCode = cityCode;
         const industry = opts.industry?.trim();
         if (industry) {
-            // صنف: متن آزاد روی کاتالوگ یا بیزینسِ آن (industryName backward-compat)
+            // صنف: متن آزاد روی بازوی فروش یا بیزینسِ آن (industryName backward-compat)
             where.OR = [
                 { industryName: { contains: industry } },
                 { business: { industryName: { contains: industry } } },
@@ -1235,7 +1235,7 @@ export class InquiryService implements OnModuleInit {
     async addMember(inquiryId: string, userId: string, dto: AddInquiryMemberDto) {
         await this.assertOwner(inquiryId, userId);
         if (!this.isValidObjectId(dto.catalogId)) {
-            throw new BadRequestException({ errorCode: 'INVALID_CATALOG', message: 'کاتالوگ نامعتبر است' });
+            throw new BadRequestException({ errorCode: 'INVALID_CATALOG', message: 'بازوی فروش نامعتبر است' });
         }
         const catalog = await this.prisma.catalog.findUnique({
             where: { id: dto.catalogId },
@@ -1245,11 +1245,11 @@ export class InquiryService implements OnModuleInit {
             },
         });
         if (!catalog || catalog.status !== 'active') {
-            throw new BadRequestException({ errorCode: 'CATALOG_NOT_FOUND', message: 'کاتالوگ تامین‌کننده پیدا نشد' });
+            throw new BadRequestException({ errorCode: 'CATALOG_NOT_FOUND', message: 'بازوی فروش تامین‌کننده پیدا نشد' });
         }
         const supplierUserId = catalog.business.ownerUserId || catalog.business.creatorUserId || null;
         if (supplierUserId === userId) {
-            throw new BadRequestException({ errorCode: 'OWN_CATALOG', message: 'کاتالوگ قیمت خودتان را نمی‌توانید تامین‌کننده کنید' });
+            throw new BadRequestException({ errorCode: 'OWN_CATALOG', message: 'بازوی فروش قیمت خودتان را نمی‌توانید تامین‌کننده کنید' });
         }
         const inquiry = await this.prisma.inquiry.findUnique({
             where: { id: inquiryId },
@@ -1298,7 +1298,7 @@ export class InquiryService implements OnModuleInit {
         return member;
     }
 
-    /** اتصال تامین‌کننده با کاتالوگش (مدال دکمهٔ پیشنهاد/درخواست تامین) —
+    /** اتصال تامین‌کننده با بازوی فروشش (مدال دکمهٔ پیشنهاد/درخواست تامین) —
      *  عمومی: اتصال فوری و فعال (خریدار برای همه قیمت می‌گیرد)؛ خصوصی: درخواست pending با تایید خریدار */
     async requestAccess(inquiryId: string, userId: string, dto: RequestInquiryAccessDto) {
         const inquiry = await this.prisma.inquiry.findUnique({ where: { id: inquiryId } });
@@ -1309,7 +1309,7 @@ export class InquiryService implements OnModuleInit {
             throw new BadRequestException({ errorCode: 'OWN_INQUIRY', message: 'این بازوی خرید مال خودتان است' });
         }
         if (!this.isValidObjectId(dto.catalogId)) {
-            throw new BadRequestException({ errorCode: 'INVALID_CATALOG', message: 'کاتالوگ نامعتبر است' });
+            throw new BadRequestException({ errorCode: 'INVALID_CATALOG', message: 'بازوی فروش نامعتبر است' });
         }
         const catalog = await this.prisma.catalog.findFirst({
             where: {
@@ -1319,7 +1319,7 @@ export class InquiryService implements OnModuleInit {
             select: { id: true, name: true, status: true },
         });
         if (!catalog || catalog.status !== 'active') {
-            throw new ForbiddenException({ errorCode: 'NOT_YOUR_CATALOG', message: 'این کاتالوگ قیمت متعلق به شما نیست' });
+            throw new ForbiddenException({ errorCode: 'NOT_YOUR_CATALOG', message: 'این بازوی فروش قیمت متعلق به شما نیست' });
         }
         const existing = await this.prisma.inquiryMember.findUnique({
             where: { inquiryId_catalogId: { inquiryId, catalogId: catalog.id } },
@@ -1328,7 +1328,7 @@ export class InquiryService implements OnModuleInit {
             return existing; // از قبل متصل — همان را برگردان
         }
         // ✅ سناریوی مالک: بازوی «عمومی» یعنی خریدار برای همه قیمت می‌گیرد →
-        //    انتخاب کاتالوگ، تامین‌کننده را همان لحظه متصل می‌کند (بدون انتظار تایید)؛
+        //    انتخاب بازوی فروش، تامین‌کننده را همان لحظه متصل می‌کند (بدون انتظار تایید)؛
         //    فقط بازوی «خصوصی» تایید خریدار می‌خواهد (pending).
         const autoActivate = inquiry.visibility !== 'private';
         const member = existing
@@ -1339,7 +1339,7 @@ export class InquiryService implements OnModuleInit {
             : await this.prisma.inquiryMember.create({
                   data: { inquiryId, catalogId: catalog.id, userId, status: autoActivate ? 'active' : 'pending', via: 'supplier_request', note: dto.note ?? null },
               });
-        // ✅ عضویت متقابل کاتالوگ — اتصال فوری بازوی عمومی هم خریدار را در «اعضای کاتالوگ»
+        // ✅ عضویت متقابل بازوی فروش — اتصال فوری بازوی عمومی هم خریدار را در «اعضای بازوی فروش»
         //    تامین‌کننده می‌گذارد (لِین خریدار — هم‌مسیر با تایید همکاری در decideMember)
         if (autoActivate) {
             await this.syncCatalogCustomerSide(catalog.id, inquiry);
@@ -1350,7 +1350,7 @@ export class InquiryService implements OnModuleInit {
             type: 'inquiry_member_request',
             title: autoActivate ? 'تامین‌کنندهٔ جدید' : 'پیشنهاد تامین',
             body: autoActivate
-                ? `«${catalog.name}» با کاتالوگش به بازوی خرید «${inquiry.title}» متصل شد`
+                ? `«${catalog.name}» با بازوی فروشش به بازوی خرید «${inquiry.title}» متصل شد`
                 : `«${catalog.name}» پیشنهاد تامین در بازوی خرید «${inquiry.title}» را دارد`,
             actorUserId: userId,
             href: '/my-inquiries?tab=members',
@@ -1394,8 +1394,8 @@ export class InquiryService implements OnModuleInit {
             where: { id: member.id },
             data: { status: 'active' },
         });
-        // ✅ عضویت متقابل کاتالوگ (خواستهٔ مالک): با تایید/پذیرش همکاری، خریدار هم باید
-        //    در «اعضای کاتالوگ» تامین‌کننده (لِین خریدار) ظاهر شود — نه فقط تامین‌کننده در اعضای بازو
+        // ✅ عضویت متقابل بازوی فروش (خواستهٔ مالک): با تایید/پذیرش همکاری، خریدار هم باید
+        //    در «اعضای بازوی فروش» تامین‌کننده (لِین خریدار) ظاهر شود — نه فقط تامین‌کننده در اعضای بازو
         await this.syncCatalogCustomerSide(member.catalogId, inquiry);
         // 🔔 به طرف مقابل
         if (member.via === 'supplier_request') {
@@ -1423,9 +1423,9 @@ export class InquiryService implements OnModuleInit {
     }
 
     /**
-     * ✅ عضویت متقابل کاتالوگ (خواستهٔ مالک): وقتی همکاریِ تامین‌کننده با بازوی خرید فعال می‌شود
+     * ✅ عضویت متقابل بازوی فروش (خواستهٔ مالک): وقتی همکاریِ تامین‌کننده با بازوی خرید فعال می‌شود
      *    (تایید خریدار، پذیرش دعوتِ تامین‌کننده یا اتصال فوری بازوی عمومی)، خریدار باید در
-     *    تب «اعضا» کاتالوگ تامین‌کننده هم به‌عنوان خریدار دیده شود — عضویت یک‌طرفه نباشد.
+     *    تب «اعضا» بازوی فروش تامین‌کننده هم به‌عنوان خریدار دیده شود — عضویت یک‌طرفه نباشد.
      *    پیاده‌سازی: upsert لِین خریدار (customerStatus=active) روی ردیف CatalogMember همان کاربر.
      *    ⚠️ حیاتی نیست — خطای این تابع هرگز تایید همکاری را شکست نمی‌دهد.
      */
@@ -1447,7 +1447,7 @@ export class InquiryService implements OnModuleInit {
                 leftAt: null as Date | null,
                 customerBusinessId: biz?.id ?? null,
                 customerStatus: 'active' as const,
-                // «self_request» = همان مسیر مجاز چرخهٔ فعلی لِین خریدار — تایید خریدار یعنی خودش خواستار همکاری با این کاتالوگ است
+                // «self_request» = همان مسیر مجاز چرخهٔ فعلی لِین خریدار — تایید خریدار یعنی خودش خواستار همکاری با این بازوی فروش است
                 customerVia: 'self_request' as const,
                 customerJoinedAt: new Date(),
                 customerLeftAt: null as Date | null,
@@ -1471,7 +1471,7 @@ export class InquiryService implements OnModuleInit {
     }
 
     /**
-     * ✅ فرصت‌های فروش تامین‌کننده — سمت کاتالوگ قیمت:
+     * ✅ فرصت‌های فروش تامین‌کننده — سمت بازوی فروش قیمت:
      *    دعوت‌های در انتظار (buyer_add) + درخواست‌های من در انتظار خریدار (supplier_request)
      *    + اقلام فوریِ بازوهای خریدی که تامین‌کنندهٔ تاییدشده‌شانم (تب «سرنخ‌های فروش»)
      */

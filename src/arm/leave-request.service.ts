@@ -18,7 +18,7 @@ export interface CreateLeaveRequestDto {
 /**
  * درخواست لغو عضویت — خروجِ عضو فقط با تصمیمِ مالکِ بازار:
  *
- *   عضو (خریدار از مدال عضویت بازار، فروشنده از بخش «انتشار در بازارها»ی پنل کاتالوگ)
+ *   عضو (خریدار از مدال عضویت بازار، فروشنده از بخش «انتشار در بازارها»ی پنل بازوی فروش)
  *     → درخواست لغو ثبت می‌کند (با دلیلِ اختیاری)
  *     → درخواست در پنل مالک (درخواست‌های لغو عضویت) می‌آید
  *     → مالک تایید می‌کند: عضویت لغو می‌شود (leftAt + leftVia=member_request + رویداد
@@ -85,7 +85,7 @@ export class LeaveRequestService {
         let businessId: string | null = null;
 
         if (roleType === 'seller') {
-            // ✅ فروشنده: لغوِ لِینِ فروشندگیِ همان کاتالوگی که در بازار منتشر است
+            // ✅ فروشنده: لغوِ لِینِ فروشندگیِ همان بازوی فروشی که در بازار منتشر است
             if (!membership.catalogId) {
                 throw new BadRequestException({
                     errorCode: 'NOT_SELLER',
@@ -95,7 +95,7 @@ export class LeaveRequestService {
             if (dto.catalogId && dto.catalogId !== membership.catalogId) {
                 throw new BadRequestException({
                     errorCode: 'CATALOG_MISMATCH',
-                    message: 'کاتالوگ ارسالی با کاتالوگ منتشرشده در این بازار یکی نیست',
+                    message: 'بازوی فروش ارسالی با بازوی فروش منتشرشده در این بازار یکی نیست',
                 });
             }
             catalogId = membership.catalogId;
@@ -438,7 +438,7 @@ export class LeaveRequestService {
                     armId: arm.id, userId: request.userId, eventType: 'leave_request_approved',
                     actorUserId: adminUserId,
                     note: request.roleType === 'seller'
-                        ? 'تایید درخواست لغو فروشندگی — کاتالوگ از بازار خارج شد'
+                        ? 'تایید درخواست لغو فروشندگی — بازوی فروش از بازار خارج شد'
                         : 'تایید درخواست لغو خریداری — نقش خریدار برداشته شد',
                 },
             });

@@ -204,7 +204,7 @@ export class AdminArmService {
             'featuresEnabled', 'rankingAlgorithm', 'metadata', 'config',
             'categoryTree',
             'allowedCategoryScopeTree',
-            // ✅ انواع کاتالوگ پذیرفته‌شده + بازار خصوصی + شرایط عضویت (فیلدهای ریشه‌ای)
+            // ✅ انواع بازوی فروش پذیرفته‌شده + بازار خصوصی + شرایط عضویت (فیلدهای ریشه‌ای)
             'acceptedCatalogTypes',
             'isPrivate',
             'membershipTerms',

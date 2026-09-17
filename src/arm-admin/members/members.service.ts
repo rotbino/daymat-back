@@ -220,7 +220,7 @@ export class MembersService {
             });
         }
 
-        // ۱. اطلاعات عضو — کاتالوگ با include کامل؛ فعالیت‌ها از مسیر نهاد
+        // ۱. اطلاعات عضو — بازوی فروش با include کامل؛ فعالیت‌ها از مسیر نهاد
         const member = await this.prisma.armMembership.findFirst({
             where: {
                 armId: arm.id,
@@ -245,7 +245,7 @@ export class MembersService {
                             take: 10,
                             orderBy: { createdAt: 'desc' },
                         },
-                        // ✅ فعالیت‌ها از مسیر نهادِ کاتالوگ
+                        // ✅ فعالیت‌ها از مسیر نهادِ بازوی فروش
                         business: {
                             include: {
                                 activities: {
@@ -269,7 +269,7 @@ export class MembersService {
             });
         }
 
-        // ✅ فعالیت‌ها را به شکل قدیمی روی کاتالوگ map کن
+        // ✅ فعالیت‌ها را به شکل قدیمی روی بازوی فروش map کن
         if (member.catalog) {
             (member.catalog as any).activities =
                 ((member.catalog as any).business as any)?.activities?.map((ba: any) => ba.activity) ?? [];
@@ -431,7 +431,7 @@ export class MembersService {
 
         // ✅ اثر بر تابلوی بازار:
         //    غیرفعال (paused/banned/removed) → برداشتن مهر آگهی‌ها
-        //    فعال + کاتالوگِ منتشرشده → مهر مجدد
+        //    فعال + بازوی فروشِ منتشرشده → مهر مجدد
         if (membership.catalogId) {
             if (status !== 'active') {
                 await this.catalogPublish.unstampCatalogAds(membership.catalogId, arm.id);
@@ -530,7 +530,7 @@ export class MembersService {
             },
         });
 
-        // ✅ اگر کاتالوگِ منتشرشده دارد → کالاهایش روی تابلو بیاید
+        // ✅ اگر بازوی فروشِ منتشرشده دارد → کالاهایش روی تابلو بیاید
         if (membership.catalogId && membership.publishState === 'published') {
             await this.catalogPublish.stampCatalogAds(arm, membership.catalogId);
         }
@@ -715,7 +715,7 @@ export class MembersService {
         };
     }
 
-    /** عزل ادمین — نقش به عضو عادی برمی‌گردد (رابطهٔ کسب‌وکار/کاتالوگ حفظ می‌شود) */
+    /** عزل ادمین — نقش به عضو عادی برمی‌گردد (رابطهٔ کسب‌وکار/بازوی فروش حفظ می‌شود) */
     async removeAdmin(slug: string, userId: string, ownerUserId: string) {
         const arm = await this.getArmOrThrow(slug);
 

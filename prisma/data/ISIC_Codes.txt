@@ -2679,7 +2679,7 @@ Key	Parent key	Code	TitleEn									Title
 107258	107257	55101500	Printed publications									انتشارات چاپی
 107259	107258	55101501	Charts or maps or atlases									نقشه‌ها یا اطلس‌ها
 107260	107258	55101502	Directories									دفترچه‌های راهنما
-107261	107258	55101503	Catalogs									کاتالوگ‌ها
+107261	107258	55101503	Catalogs									بازوی فروش‌ها
 107262	107258	55101504	Newspapers									روزنامه‌ها
 107263	107258	55101505	Comic books									کتاب‌های کمیک
 107264	107258	55101506	Magazines									مجلات
@@ -4641,7 +4641,7 @@ Key	Parent key	Code	TitleEn									Title
 111239	105040	44103200	Office time recording machines and accessories									دستگاه‌های ثبت زمان اداری
 111240	111239	44103201	Time card machines									دستگاه‌های کارت زمان
 111241	111239	44103202	Time stamping machines									دستگاه‌های مهر زمان
-111242	105170	44121507	Catalog or clasp envelopes									پاکت‌های کاتالوگ
+111242	105170	44121507	Catalog or clasp envelopes									پاکت‌های بازوی فروش
 111243	105196	44121711	Felt pen									ماژیک
 111244	105287	45121506	Video conference cameras									دوربین‌های ویدئوکنفرانس
 111246	105472	46182103	Grounding hardware									سخت‌افزار اتصال زمین

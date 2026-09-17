@@ -156,7 +156,7 @@ export class ContactService {
                                     },
                                 },
                             },
-                            // کاتالوگِ فعالِ عضو — مقصدِ «درخواست تامین» در بازوی خرید
+                            // بازوی فروشِ فعالِ عضو — مقصدِ «درخواست تامین» در بازوی خرید
                             catalogsOwned: {
                                 where: { status: 'active' },
                                 select: { id: true, name: true, slug: true, logoUrl: true, city: true, salesType: true },

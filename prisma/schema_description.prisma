@@ -47,14 +47,14 @@ model User {
   @@index([role])
 }
 
-// ---------------------- Catalog (کاتالوگ) ----------------------
-// کاتالوگ ثبت‌شده توسط کاربر. هر Catalog می‌تواند در چند بازار عضو شود
+// ---------------------- Catalog (بازوی فروش) ----------------------
+// بازوی فروش ثبت‌شده توسط کاربر. هر Catalog می‌تواند در چند بازار عضو شود
 // و آگهی ثبت کند. اعتبار (Credit) و امتیاز اعتماد به این مدل متصل است.
 model Catalog {
   id                 String    @id @default(auto()) @map("_id") @db.ObjectId
   ownerUserId        String    @db.ObjectId                       // شناسه کاربر مالک
   owner              User      @relation("CatalogOwner", fields: [ownerUserId], references: [id])
-  name               String                                       // نام کاتالوگ
+  name               String                                       // نام بازوی فروش
   type               String                                       // نوع: producer (تولیدکننده) | wholesaler (عمده‌فروش) | importer (واردکننده) | exporter (صادرکننده) | distributor (پخش‌کننده) | retailer (خرده‌فروش) | contractor (پیمانکار) | service_provider (ارائه‌دهنده خدمات) | other (سایر)
   description        String?                                      // توضیحات
   city               String                                       // شهر
@@ -87,7 +87,7 @@ model Catalog {
 }
 
 // ---------------------- TeamMember (عضو تیم) ----------------------
-// کاربری که به یک کاتالوگ متصل شده و نقش مشخصی دارد.
+// کاربری که به یک بازوی فروش متصل شده و نقش مشخصی دارد.
 // مانند مدیر فروش یا آپدیت‌کننده قیمت.
 model TeamMember {
   id           String   @id @default(auto()) @map("_id") @db.ObjectId
@@ -210,7 +210,7 @@ model Arm {
 
   rankingAlgorithm    String    @default("simple")                   // الگوریتم رتبه‌بندی: simple (ساده - بر اساس تازگی و نردبان) | standard (استاندارد) | advanced (پیشرفته - با اعتماد و رفتار کاربر)
   validityDefaultDays Int       @default(7)                          // اعتبار پیش‌فرض آگهی (به روز)
-  maxAdsFree          Int       @default(5)                          // سهمیه آگهی رایگان برای هر کاتالوگ در این بازار
+  maxAdsFree          Int       @default(5)                          // سهمیه آگهی رایگان برای هر بازوی فروش در این بازار
   bumpCostCredits     Int       @default(10)                         // هزینه نردبان (ارتقا) به اعتبار در این بازار
 
   metadata            Json?
@@ -243,8 +243,8 @@ model ArmConfig {
   primaryColor             String?
   secondaryColor           String?
   fontFamily               String?
-  showVerifiedBadge        Boolean  @default(true)                    // نمایش نشان تأیید برای کاتالوگهای تأییدشده
-  showCompanyName          Boolean  @default(true)                    // نمایش نام کاتالوگ در تابلوی آگهی‌ها
+  showVerifiedBadge        Boolean  @default(true)                    // نمایش نشان تأیید برای بازوی فروشهای تأییدشده
+  showCompanyName          Boolean  @default(true)                    // نمایش نام بازوی فروش در تابلوی آگهی‌ها
 
   // تنظیمات فیلتر
   defaultFilters           Json?
@@ -257,9 +257,9 @@ model ArmConfig {
   showLocationFilter       Boolean  @default(true)                    // نمایش فیلتر موقعیت جغرافیایی در تابلوی این بازار
 
   // الزامات ثبت‌نام
-  requireCatalogName      Boolean  @default(true)                    // آیا برای پیوستن به این بازار، نام کاتالوگ الزامی است؟
+  requireCatalogName      Boolean  @default(true)                    // آیا برای پیوستن به این بازار، نام بازوی فروش الزامی است؟
   requireCity              Boolean  @default(true)                    // آیا برای پیوستن به این بازار، شهر الزامی است؟
-  requireType              Boolean  @default(true)                    // آیا برای پیوستن به این بازار، نوع کاتالوگ الزامی است؟
+  requireType              Boolean  @default(true)                    // آیا برای پیوستن به این بازار، نوع بازوی فروش الزامی است؟
   allowAnonymousPublishing Boolean  @default(true)                    // آیا فروشنده می‌تواند آگهی را به صورت ناشناس منتشر کند؟
 
   // تنظیمات مالی
@@ -327,7 +327,7 @@ model CustomCategory {
 }
 
 // ---------------------- ArmMembership (پیوستن به بازار) ----------------------
-// پیوستن به بازار توسط کاربر (یا کاتالوگ) .
+// پیوستن به بازار توسط کاربر (یا بازوی فروش) .
 // برای MVP، عضویت به User متصل است (نه Catalog).
 model ArmMembership {
   id         String   @id @default(auto()) @map("_id") @db.ObjectId
@@ -495,7 +495,7 @@ model CallEvent {
 // ============================================================
 
 // ---------------------- Credit (کیف اعتبار) ----------------------
-// تراکنش‌های کیف اعتبار کاتالوگ.
+// تراکنش‌های کیف اعتبار بازوی فروش.
 // مثبت = بستانکار، منفی = بدهکار.
 model Credit {
   id                String   @id @default(auto()) @map("_id") @db.ObjectId
@@ -517,7 +517,7 @@ model Credit {
 }
 
 // ---------------------- Verification (تأیید هویت) ----------------------
-// مدارک و تأییدیه‌های کاتالوگ.
+// مدارک و تأییدیه‌های بازوی فروش.
 // سطح blue: کد ملی، سطح green: پروانه کسب.
 model Verification {
   id                String   @id @default(auto()) @map("_id") @db.ObjectId
@@ -539,7 +539,7 @@ model Verification {
 }
 
 // ---------------------- TrustMetric (امتیاز اعتماد) ----------------------
-// امتیاز اعتماد کاتالوگ در هر بازار.
+// امتیاز اعتماد بازوی فروش در هر بازار.
 // اگر armId null باشد، امتیاز سراسری است.
 model TrustMetric {
   id                  String   @id @default(auto()) @map("_id") @db.ObjectId
@@ -553,7 +553,7 @@ model TrustMetric {
   totalViews          Int      @default(0)                             // تعداد بازدیدها
   totalCalls          Int      @default(0)                             // تعداد تماس‌ها
   totalDealsConfirmed Int      @default(0)                             // تعداد معاملات تأییدشده توسط طرفین
-  totalDisputes       Int      @default(0)                             // تعداد اختلافات ثبت‌شده برای این کاتالوگ
+  totalDisputes       Int      @default(0)                             // تعداد اختلافات ثبت‌شده برای این بازوی فروش
   lastCalculatedAt    DateTime @default(now())                         // آخرین زمان محاسبه
 
   @@unique([catalogId, armId])

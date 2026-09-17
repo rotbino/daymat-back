@@ -174,11 +174,11 @@ async function main() {
         custom: {},
 
         formLabels: {
-            'catalog.name.label': 'نام کاتالوگ',
-            'catalog.name.placeholder': 'نام کاتالوگ را وارد کنید',
+            'catalog.name.label': 'نام بازوی فروش',
+            'catalog.name.placeholder': 'نام بازوی فروش را وارد کنید',
             'catalog.shortDescription.label': 'معرفی کوتاه',
             'catalog.shortDescription.placeholder': 'مثال: تولید کننده انواع آجر فشاری',
-            'catalog.type.label': 'نوع کاتالوگ',
+            'catalog.type.label': 'نوع بازوی فروش',
             'catalog.type.placeholder': 'انتخاب نوع...',
             'catalog.phone.label': 'شماره تماس',
             'catalog.phone.placeholder': 'شماره تماس را وارد کنید',

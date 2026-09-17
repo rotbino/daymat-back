@@ -184,12 +184,12 @@ export function getArmVisibleSalesTypes(arm: { config?: any }): string[] {
 }
 
 // ============================================================
-// ✅ انواع کاتالوگ پذیرفته‌شده در بازار — فیلد درجه‌یک Arm
+// ✅ انواع بازوی فروش پذیرفته‌شده در بازار — فیلد درجه‌یک Arm
 // ============================================================
 export const ARM_CATALOG_TYPES = ['retail', 'wholesale', 'service'] as const;
 
 /**
- * انواع کاتالوگ پذیرفته‌شده — ملاک واحد گارد عضویت و فیلتر تابلوی بازار.
+ * انواع بازوی فروش پذیرفته‌شده — ملاک واحد گارد عضویت و فیلتر تابلوی بازار.
  * اولویت: فیلد درجه‌یک acceptedCatalogTypes → fallback لگسی: visibleSalesTypes جدول قیمت
  * خالی = بدون محدودیت (هم تک‌فروشی هم عمده هم خدمات)
  */
@@ -200,7 +200,7 @@ export function getArmAcceptedCatalogTypes(arm: { acceptedCatalogTypes?: string[
 }
 
 /**
- * برچسب فارسی نوع فروش کاتالوگ — برای پیام‌های خطا
+ * برچسب فارسی نوع فروش بازوی فروش — برای پیام‌های خطا
  */
 export function catalogTypeLabel(salesType: string): string {
     if (salesType === 'retail') return 'تک‌فروشی';
@@ -212,7 +212,7 @@ export function catalogTypeLabel(salesType: string): string {
 export const salesTypeLabel = catalogTypeLabel;
 
 /**
- * گارد تناسب نوع کاتالوگ با نوع بازار:
+ * گارد تناسب نوع بازوی فروش با نوع بازار:
  * آگهیِ تک‌فروشی نباید در بازار عمده‌فروشی منتشر شود و بالعکس؛ خدماتی فقط در بازار خدمات.
  * خروجی: null یعنی مجاز؛ رشته یعنی پیام خطا
  */
@@ -222,9 +222,9 @@ export function checkMarketTypeMismatch(
 ): string | null {
     const accepted = getArmAcceptedCatalogTypes(arm);
     if (!accepted.length) return null; // بازار بدون محدودیت
-    if (!catalogSalesType) return null; // کاتالوگ بدون نوع — محدودیت اعمال نمی‌شود
+    if (!catalogSalesType) return null; // بازوی فروش بدون نوع — محدودیت اعمال نمی‌شود
     if (accepted.includes(catalogSalesType)) return null;
     return accepted.length === 1
-        ? `این بازار فقط ${catalogTypeLabel(accepted[0])} را می‌پذیرد — کاتالوگ شما ${catalogTypeLabel(catalogSalesType)} است`
-        : `نوع کاتالوگ شما (${catalogTypeLabel(catalogSalesType)}) با انواع کاتالوگ پذیرفته‌شده در این بازار هم‌خوان نیست`;
+        ? `این بازار فقط ${catalogTypeLabel(accepted[0])} را می‌پذیرد — بازوی فروش شما ${catalogTypeLabel(catalogSalesType)} است`
+        : `نوع بازوی فروش شما (${catalogTypeLabel(catalogSalesType)}) با انواع بازوی فروش پذیرفته‌شده در این بازار هم‌خوان نیست`;
 }

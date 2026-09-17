@@ -87,7 +87,7 @@ export class ArmService {
                     geoScopeType: dto.geoScopeType,
                     defaultUnitId: dto.defaultUnitId || null,
                     featuresEnabled: dto.featuresEnabled || [],
-                    // ✅ انواع کاتالوگ پذیرفته‌شده — فقط مقادیر معتبر، بدون تکرار
+                    // ✅ انواع بازوی فروش پذیرفته‌شده — فقط مقادیر معتبر، بدون تکرار
                     acceptedCatalogTypes: Array.isArray(dto.acceptedCatalogTypes)
                         ? [...new Set(dto.acceptedCatalogTypes.filter((t: string) => (ARM_CATALOG_TYPES as readonly string[]).includes(t)))]
                         : [],
@@ -435,7 +435,7 @@ export class ArmService {
                 where: { userId },
                 orderBy: { savedAt: 'desc' },
             }),
-            // ✅ درخواست‌های لغوی در انتظار — بج «در انتظار تایید مالک» در پنل کاتالوگ/کسب‌وکار
+            // ✅ درخواست‌های لغوی در انتظار — بج «در انتظار تایید مالک» در پنل بازوی فروش/کسب‌وکار
             this.prisma.armLeaveRequest.findMany({
                 where: { userId, status: 'pending' },
                 select: { armId: true, roleType: true, createdAt: true },
@@ -486,7 +486,7 @@ export class ArmService {
             const general = config.general || {};
             const logoFile = logoMap.get(m.arm.id);
             const logoUrl = logoFile?.path || general.logoUrl || null;
-            // ✅ عضو واقعی = لِین فعال (کسب‌وکار/کاتالوگ) یا نقش مدیریتی
+            // ✅ عضو واقعی = لِین فعال (کسب‌وکار/بازوی فروش) یا نقش مدیریتی
             const isMember = m.status === 'active' &&
                 !!(m.catalogId || m.role === 'arm_owner' || m.role === 'arm_admin' || m.businessId);
 
@@ -508,7 +508,7 @@ export class ArmService {
                 leftAt: m.leftAt ?? null,
                 leftVia: m.leftVia ?? null,
                 selfRemovedCatalog: m.selfRemovedCatalog ?? false,
-                // ✅ درخواست لغویِ در انتظارِ تاییدِ مالک — بج در پنل کاتالوگ/کسب‌وکار
+                // ✅ درخواست لغویِ در انتظارِ تاییدِ مالک — بج در پنل بازوی فروش/کسب‌وکار
                 pendingLeaveRequest: pendingLeaveMap.get(m.arm.id) ?? null,
                 roleType: m.roleType,
                 acceptedCatalogTypes: m.arm.acceptedCatalogTypes || [],
@@ -562,7 +562,7 @@ export class ArmService {
     // مدل نهایی عضویت:
     //   - عضویتِ خریدار (با کسب‌وکار) در بازار عمومی → فعالِ آنی؛ در خصوصی اصلاً از این مسیر نمی‌آید
     //   - بازار خصوصی → فقط از مسیر درخواست عضویت (ArmMembershipRequest) — تاییدِ مدیر سازندهٔ عضویت است
-    //   - فروشنده شدن (هر دو نوع بازار) → همیشه درخواست + تایید مدیر + افزودن کاتالوگ توسط مدیر
+    //   - فروشنده شدن (هر دو نوع بازار) → همیشه درخواست + تایید مدیر + افزودن بازوی فروش توسط مدیر
     //   - دنبال‌کردن بازار (بدون کسب‌وکار) → دکمهٔ ذخیرهٔ هدر (ArmSavedMark) — عضویت نیست
     // ============================================================
     async join(userId: string, slug: string, roleType?: 'seller' | 'buyer', catalogId?: string, businessId?: string) {
@@ -582,7 +582,7 @@ export class ArmService {
             });
         }
 
-        // ✅ فروشنده شدن همیشه نیاز به تایید و افزودن کاتالوگ توسط مدیر دارد (بازار عمومی و خصوصی)
+        // ✅ فروشنده شدن همیشه نیاز به تایید و افزودن بازوی فروش توسط مدیر دارد (بازار عمومی و خصوصی)
         if (catalogId) {
             throw new BadRequestException({
                 errorCode: 'USE_SELLER_REQUEST',
@@ -1170,7 +1170,7 @@ export class ArmService {
     }
 
     // ============================================================
-    // 16. سوییچ انتشار صاحب کاتالوگ — مالکیت از مسیر نهاد
+    // 16. سوییچ انتشار صاحب بازوی فروش — مالکیت از مسیر نهاد
     // ============================================================
     async toggleCatalogPublish(userId: string, slug: string, catalogId: string, published: boolean) {
         const arm = await this.prisma.arm.findUnique({
@@ -1186,7 +1186,7 @@ export class ArmService {
             select: { id: true, ownerUserId: true },
         });
         if (!catalog || catalog.ownerUserId !== userId) {
-            throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'فقط مالک کاتالوگ' });
+            throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'فقط مالک بازوی فروش' });
         }
 
         // ✅ membership این کاربر در این بازار رو پیدا کن (با armId + userId)
@@ -1194,7 +1194,7 @@ export class ArmService {
             where: { armId_userId: { armId: arm.id, userId } },
         });
         if (!membership || membership.catalogId !== catalogId) {
-            throw new BadRequestException({ errorCode: 'NOT_MEMBER', message: 'این کاتالوگ عضو این بازار نیست' });
+            throw new BadRequestException({ errorCode: 'NOT_MEMBER', message: 'این بازوی فروش عضو این بازار نیست' });
         }
 
         if (published) {
@@ -1221,7 +1221,7 @@ export class ArmService {
     }
 
     // ============================================================
-    // 16.5 تابلوی بازوهای خرید — انتشار دفتر خرید در بازار (قرینهٔ انتشار کاتالوگ)
+    // 16.5 تابلوی بازوهای خرید — انتشار دفتر خرید در بازار (قرینهٔ انتشار بازوی فروش)
     //   ذخیره در InquiryPublication (قرینهٔ AdPublication) — یک دفتر می‌تواند در چند بازار منتشر شود
     //   مجوز: مالک دفتر (سوئیچ دفتر خودش) یا مدیر بازار (افزودن دفترِ خریدار به بازار — پنل مالک)
     // ============================================================
@@ -1285,7 +1285,7 @@ export class ArmService {
 
     // ============================================================
     // 16.6 تابلوهای خریدِ یک عضو — برای انتخابگر «تابلوی خرید» در پنل مالک
-    //   (قرینهٔ مدیریت کاتالوگ قیمتندگان) — فقط مدیر بازار
+    //   (قرینهٔ مدیریت بازوی فروش قیمتندگان) — فقط مدیر بازار
     // ============================================================
     async listMemberInquiries(requesterId: string, slug: string, memberUserId: string) {
         const arm = await this.prisma.arm.findUnique({

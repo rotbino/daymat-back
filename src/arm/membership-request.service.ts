@@ -20,7 +20,7 @@ export interface CreateMembershipRequestDto {
 /**
  * درخواست عضویت در بازار خصوصی — چرخهٔ کامل:
  *   کاربر: شرایط را می‌خواند → تیک می‌زند → خریدار/فروشنده را انتخاب می‌کند →
- *          کسب‌وکار (خریدار) یا کاتالوگ (فروشنده) را مشخص می‌کند → درخواست pending ثبت می‌شود
+ *          کسب‌وکار (خریدار) یا بازوی فروش (فروشنده) را مشخص می‌کند → درخواست pending ثبت می‌شود
  *   مالک/ادمین بازار: در پنل «درخواست‌های عضویت» می‌بیند → تایید (ساخت عضویت فعال)
  *          یا رد با دلیل (کاربر در اعلان‌ها دلیل را می‌بیند)
  */
@@ -42,7 +42,7 @@ export class MembershipRequestService {
         }
         if (!arm.isPrivate && dto.roleType !== 'seller') {
             // ✅ بازار عمومی: خریدار نیازی به درخواست ندارد (قیمت‌ها آزاد است؛ عضویت آنی از مسیر join)
-            //    ولی فروشنده همیشه باید درخواست بدهد — تایید مدیر + افزودن کاتالوگ توسط مدیر
+            //    ولی فروشنده همیشه باید درخواست بدهد — تایید مدیر + افزودن بازوی فروش توسط مدیر
             throw new BadRequestException({
                 errorCode: 'MARKET_NOT_PRIVATE',
                 message: 'در بازار عمومی برای دیدن قیمت عضویت لازم نیست',
@@ -121,11 +121,11 @@ export class MembershipRequestService {
                 });
             }
         } else {
-            // ✅ فروشنده: باید کاتالوگ مشخص کند (قیمت‌های همان کاتالوگ وارد بازار می‌شود)
+            // ✅ فروشنده: باید بازوی فروش مشخص کند (قیمت‌های همان بازوی فروش وارد بازار می‌شود)
             if (!dto.catalogId) {
                 throw new BadRequestException({
                     errorCode: 'CATALOG_REQUIRED',
-                    message: 'برای عضویت به‌عنوان فروشنده باید کاتالوگتان را انتخاب کنید',
+                    message: 'برای عضویت به‌عنوان فروشنده باید بازوی فروشتان را انتخاب کنید',
                 });
             }
             const catalog = await this.prisma.catalog.findUnique({
@@ -137,16 +137,16 @@ export class MembershipRequestService {
             if (!catalog || catalog.ownerUserId !== userId) {
                 throw new BadRequestException({
                     errorCode: 'CATALOG_NOT_FOUND',
-                    message: 'کاتالوگ انتخاب‌شده یافت نشد یا متعلق به شما نیست',
+                    message: 'بازوی فروش انتخاب‌شده یافت نشد یا متعلق به شما نیست',
                 });
             }
             if (catalog.status !== 'active') {
                 throw new BadRequestException({
                     errorCode: 'CATALOG_NOT_ACTIVE',
-                    message: 'کاتالوگ انتخاب‌شده فعال نیست',
+                    message: 'بازوی فروش انتخاب‌شده فعال نیست',
                 });
             }
-            // ✅ گارد تناسب نوع کاتالوگ با نوع بازار (عمده/خرده/خدمات)
+            // ✅ گارد تناسب نوع بازوی فروش با نوع بازار (عمده/خرده/خدمات)
             const typeMismatch = checkMarketTypeMismatch(arm, catalog.salesType);
             if (typeMismatch) {
                 throw new BadRequestException({ errorCode: 'MARKET_TYPE_MISMATCH', message: typeMismatch });
@@ -154,7 +154,7 @@ export class MembershipRequestService {
             catalogId = catalog.id;
             businessId = catalog.businessId;
 
-            // همین کاتالوگ قبلاً منتشر شده؟
+            // همین بازوی فروش قبلاً منتشر شده؟
             if (
                 membership?.status === 'active' &&
                 membership.publishState === 'published' &&
@@ -162,7 +162,7 @@ export class MembershipRequestService {
             ) {
                 throw new BadRequestException({
                     errorCode: 'ALREADY_MEMBER',
-                    message: 'این کاتالوگ قبلاً در این بازار منتشر شده است',
+                    message: 'این بازوی فروش قبلاً در این بازار منتشر شده است',
                 });
             }
         }
@@ -380,7 +380,7 @@ export class MembershipRequestService {
 
         if (roleType === 'seller') {
             catalogId = request.catalogId;
-            // businessId از کاتالوگ تضمین می‌شود (در ثبت درخواست هم resolve شده)
+            // businessId از بازوی فروش تضمین می‌شود (در ثبت درخواست هم resolve شده)
             if (request.catalog?.salesType !== undefined) {
                 const catalog = await this.prisma.catalog.findUnique({
                     where: { id: catalogId! },
@@ -459,7 +459,7 @@ export class MembershipRequestService {
             });
         } catch (err) { console.error('membership-request: event log failed:', err); }
 
-        // ✅ عضویت فروشنده فعال شد → کالاهای کاتالوگ منتشر و مهر بازار می‌خورند
+        // ✅ عضویت فروشنده فعال شد → کالاهای بازوی فروش منتشر و مهر بازار می‌خورند
         if (catalogId) {
             await this.prisma.ad.updateMany({
                 where: { catalogId, status: 'active', publishToMarket: false },

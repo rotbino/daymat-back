@@ -14,13 +14,13 @@ import { CatalogPublishService } from '../common/services/catalog-publish.servic
 import { checkMarketTypeMismatch } from '../common/utils/arm.utils';
 import { RESERVED_SLUGS } from '../common/reserved-slugs';
 
-/** عمر کش لیست‌های عمومی کاتالوگ — ۵ دقیقه */
+/** عمر کش لیست‌های عمومی بازوی فروش — ۵ دقیقه */
 const PUBLIC_LIST_CACHE_TTL_MS = 5 * 60 * 1000;
 
 /**
- * کاتالوگ — ویترینِ یک کسب‌وکارِ مرجع.
- * ✅ مالکیتِ مستقیم روی کاتالوگ: catalog.ownerUserId (کاربری که کاتالوگ را ساخته)
- *    کسب‌وکار مشترک/مرجع است و مالکِ شخصی ندارد — هر کاربری می‌تواند کاتالوگش را
+ * بازوی فروش — ویترینِ یک کسب‌وکارِ مرجع.
+ * ✅ مالکیتِ مستقیم روی بازوی فروش: catalog.ownerUserId (کاربری که بازوی فروش را ساخته)
+ *    کسب‌وکار مشترک/مرجع است و مالکِ شخصی ندارد — هر کاربری می‌تواند بازوی فروشش را
  *    روی هر کسب‌وکارِ فعالی بسازد و با پستِ خودش عضو تیمِ آن کسب‌وکار می‌شود (BusinessMember).
  * تیک اعتماد: روی نهاد (Business) — این سرویس فقط می‌خواند، نمی‌نویسد.
  * صنف: industryName (متن) روی هر دو؛ رلیشن Industry حذف شده.
@@ -46,7 +46,7 @@ export class CatalogService {
     private validateSlugOrThrow(raw: string): string {
         const slug = this.normalizeSlug(raw);
         if (!slug || slug.length < 3) {
-            throw new BadRequestException({ errorCode: 'INVALID_SLUG', message: 'آدرس کاتالوگ باید حداقل ۳ حرف باشد' });
+            throw new BadRequestException({ errorCode: 'INVALID_SLUG', message: 'آدرس بازوی فروش باید حداقل ۳ حرف باشد' });
         }
         if (RESERVED_SLUGS.includes(slug.toLowerCase())) {
             throw new BadRequestException({ errorCode: 'SLUG_RESERVED', message: 'این آدرس قابل انتخاب نیست' });
@@ -54,7 +54,7 @@ export class CatalogService {
         return slug;
     }
 
-    // ✅ فضای اسلاگ سراسری است (کاتالوگ + بازار + صفحهٔ اعلان خرید همه روی ریشه بالا می‌آیند)
+    // ✅ فضای اسلاگ سراسری است (بازوی فروش + بازار + صفحهٔ اعلان خرید همه روی ریشه بالا می‌آیند)
     private async ensureSlugAvailable(slug: string, excludeId?: string): Promise<void> {
         const [cat, arm, inq] = await Promise.all([
             this.prisma.catalog.findFirst({
@@ -116,24 +116,24 @@ export class CatalogService {
             },
         });
         if (!catalog) {
-            throw new NotFoundException({ errorCode: 'CATALOG_NOT_FOUND', message: 'کاتالوگ یافت نشد' });
+            throw new NotFoundException({ errorCode: 'CATALOG_NOT_FOUND', message: 'بازوی فروش یافت نشد' });
         }
         if (catalog.ownerUserId !== userId) {
-            throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'شما به این کاتالوگ دسترسی ندارید' });
+            throw new ForbiddenException({ errorCode: 'FORBIDDEN', message: 'شما به این بازوی فروش دسترسی ندارید' });
         }
         return catalog;
     }
 
     // ============================================================
-    // ثبت کاتالوگ — روی هر کسب‌وکارِ فعال (مرجع/مشترک):
-    //   · کسب‌وکار از قبل ثبت‌شده (حتی توسط دیگری) → انتخاب و ساخت کاتالوگ
+    // ثبت بازوی فروش — روی هر کسب‌وکارِ فعال (مرجع/مشترک):
+    //   · کسب‌وکار از قبل ثبت‌شده (حتی توسط دیگری) → انتخاب و ساخت بازوی فروش
     //   · کاربر با پستِ انتخابی‌اش عضو تیمِ کسب‌وکار می‌شود (BusinessMember)
     // ============================================================
     async create(userId: string, dto: CreateCatalogDto) {
         if (!dto.businessId) {
             throw new BadRequestException({
                 errorCode: 'BUSINESS_REQUIRED',
-                message: 'کاتالوگ باید برای یک کسب‌وکار ساخته شود',
+                message: 'بازوی فروش باید برای یک کسب‌وکار ساخته شود',
             });
         }
         const biz = await this.prisma.business.findUnique({
@@ -147,14 +147,14 @@ export class CatalogService {
             throw new BadRequestException({ errorCode: 'BUSINESS_INACTIVE', message: 'این کسب‌وکار فعال نیست' });
         }
 
-        // ✅ نام تکراری — در کاتالوگ‌های خودِ کاربر (نه کسب‌وکار؛ کسب‌وکار مشترک است)
+        // ✅ نام تکراری — در بازوی فروش‌های خودِ کاربر (نه کسب‌وکار؛ کسب‌وکار مشترک است)
         const dup = await this.prisma.catalog.findFirst({
             where: { ownerUserId: userId, name: dto.name, status: 'active' },
         });
         if (dup) {
             throw new ConflictException({
                 errorCode: 'DUPLICATE_CATALOG_NAME',
-                message: 'قبلاً کاتالوگی با این نام ساخته‌اید',
+                message: 'قبلاً بازوی فروشی با این نام ساخته‌اید',
             });
         }
 
@@ -175,9 +175,9 @@ export class CatalogService {
             }
         }
 
-        // ✅ ناوردی بازار — «قبل از هر نوشتنی» چک می‌شود تا کاتالوگ یتیم نسازد:
-        //    • عضویتِ فعال با کاتالوگِ واقعیِ دیگر → خطا (بدون ساخت کاتالوگ)
-        //    • ارجاعِ یتیم (کاتالوگ حذف/بسته شده) → مانع نیست؛ عضویت با کاتالوگ تازه repoint می‌شود
+        // ✅ ناوردی بازار — «قبل از هر نوشتنی» چک می‌شود تا بازوی فروش یتیم نسازد:
+        //    • عضویتِ فعال با بازوی فروشِ واقعیِ دیگر → خطا (بدون ساخت بازوی فروش)
+        //    • ارجاعِ یتیم (بازوی فروش حذف/بسته شده) → مانع نیست؛ عضویت با بازوی فروش تازه repoint می‌شود
         let armCtx: { id: string; categoryTree: any } | null = null;
         if (dto.armSlug) {
             const arm = await this.prisma.arm.findUnique({
@@ -197,7 +197,7 @@ export class CatalogService {
                     if (existingCat?.status === 'active') {
                         throw new ConflictException({
                             errorCode: 'BUSINESS_HAS_OTHER_CATALOG',
-                            message: 'شما در این بازار با کاتالوگ دیگری فعال هستید — ابتدا آن کاتالوگ را حذف یا اتصالش را از پنل بازار قطع کنید',
+                            message: 'شما در این بازار با بازوی فروش دیگری فعال هستید — ابتدا آن بازوی فروش را حذف یا اتصالش را از پنل بازار قطع کنید',
                         });
                     }
                 }
@@ -209,15 +209,15 @@ export class CatalogService {
             }
         }
 
-        // ✅ همهٔ نوشته‌ها در یک تراکنش — یا همه ثبت می‌شود یا هیچ‌کدام؛ خطای وسطِ راه دیگر کاتالوگ یتیم جا نمی‌گذارد
+        // ✅ همهٔ نوشته‌ها در یک تراکنش — یا همه ثبت می‌شود یا هیچ‌کدام؛ خطای وسطِ راه دیگر بازوی فروش یتیم جا نمی‌گذارد
         const catalog = await this.prisma.$transaction(async (tx) => {
             const cat = await tx.catalog.create({
                 data: {
-                    ownerUserId: userId, // ✅ مالکِ مستقیم کاتالوگ = سازندهٔ آن
+                    ownerUserId: userId, // ✅ مالکِ مستقیم بازوی فروش = سازندهٔ آن
                     businessId: biz.id,
                     name: dto.name,
                     slug,
-                    // ✅ کاتالوگ خصوصی — قیمت‌ها فقط برای مالک و اعضای پذیرفته‌شده
+                    // ✅ بازوی فروش خصوصی — قیمت‌ها فقط برای مالک و اعضای پذیرفته‌شده
                     isPrivate: dto.isPrivate ?? false,
                     salesType: dto.salesType === 'retail' ? 'retail' : 'wholesale',
                     shortDescription: dto.shortDescription || null,
@@ -240,7 +240,7 @@ export class CatalogService {
                 },
             });
 
-            // ✅ تیم کاتالوگ — رکورد مالک با لِین فروشندهٔ فعال (مالک خودش هم سفارش می‌گیرد)
+            // ✅ تیم بازوی فروش — رکورد مالک با لِین فروشندهٔ فعال (مالک خودش هم سفارش می‌گیرد)
             // (TeamMember legacy — دیگر نوشته نمی‌شود)
             await tx.catalogMember.create({
                 data: {
@@ -255,7 +255,7 @@ export class CatalogService {
                 },
             });
             await tx.catalogTeamEvent.create({
-                data: { catalogId: cat.id, userId, eventType: 'joined', actorUserId: userId, note: 'ساخت کاتالوگ — مالک و  فروشندهٔ فعال' },
+                data: { catalogId: cat.id, userId, eventType: 'joined', actorUserId: userId, note: 'ساخت بازوی فروش — مالک و  فروشندهٔ فعال' },
             });
 
             // ✅ تیمِ کسب‌وکار — کاربر با پستِ انتخابی‌اش عضو کسب‌وکارِ مرجع می‌شود
@@ -297,7 +297,7 @@ export class CatalogService {
                         businessId: cat.businessId,
                     },
                 });
-                // ✅ انتشار پیش‌فرض: همهٔ آگهی‌های کاتالوگ تازه به این بازار مهر می‌خورند
+                // ✅ انتشار پیش‌فرض: همهٔ آگهی‌های بازوی فروش تازه به این بازار مهر می‌خورند
                 await tx.ad.updateMany({
                     where: { catalogId: cat.id, status: 'active', publishToMarket: false },
                     data: { publishToMarket: true },
@@ -329,20 +329,20 @@ export class CatalogService {
             }
         }
 
-        // ✅ سینک تیم کسب‌وکار → کاتالوگ تازه — اعضای فعال تیم در صف تاییدِ همکاری در فروش می‌نشینند
+        // ✅ سینک تیم کسب‌وکار → بازوی فروش تازه — اعضای فعال تیم در صف تاییدِ همکاری در فروش می‌نشینند
         try {
             await this.syncBusinessTeamIntoNewCatalog(catalog.id, biz.id, userId);
         } catch (err) {
             console.error('catalog create: business-team sync failed:', err);
         }
 
-        // ⚠️ دیتای خود کاربر تغییر کرد → کش لیست کاتالوگ‌هایش فوراً باطل
+        // ⚠️ دیتای خود کاربر تغییر کرد → کش لیست بازوی فروش‌هایش فوراً باطل
         await this.bustUserCatalogs(userId);
 
         return catalog;
     }
 
-    /** اعضای فعال تیم کسب‌وکار → sellerStatus=pending (sellerVia=business_team) در کاتالوگ تازه */
+    /** اعضای فعال تیم کسب‌وکار → sellerStatus=pending (sellerVia=business_team) در بازوی فروش تازه */
     private async syncBusinessTeamIntoNewCatalog(catalogId: string, businessId: string, creatorUserId: string) {
         const team = await this.prisma.businessMember.findMany({
             where: { businessId, status: 'active', userId: { not: creatorUserId } },
@@ -382,7 +382,7 @@ export class CatalogService {
     }
 
     // ============================================================
-    // لیست کاتالوگ‌های کاربر — مالکیت مستقیم روی کاتالوگ
+    // لیست بازوی فروش‌های کاربر — مالکیت مستقیم روی بازوی فروش
     // ⚠️ دیتای خود کاربر: کش per-user + باطل‌سازی فوری در create/update/remove/updateConfig
     // ============================================================
     async findAllByUser(userId: string) {
@@ -390,7 +390,7 @@ export class CatalogService {
             this.fetchAllByUser(userId));
     }
 
-    /** باطل‌سازی کش لیست کاتالوگ‌های یک کاربر */
+    /** باطل‌سازی کش لیست بازوی فروش‌های یک کاربر */
     private async bustUserCatalogs(userId: string) {
         await this.cache.bust(`my-catalogs:${userId}`);
     }
@@ -441,8 +441,8 @@ export class CatalogService {
         const bizIdList = [...new Set(catalogs.map((c) => c.businessId).filter(Boolean))];
 
         // ✅ لوگوها در ۲ کوئری بچ (به‌جای N+1 قبلی) + فال‌بک کامل:
-        //    فایل کاتالوگ → catalog.logoUrl → فایل Business → business.logoUrl
-        //    (ریشهٔ باگ «لوگوی شرکت ست می‌شود ولی در کاتالوگ نمی‌آمد»:
+        //    فایل بازوی فروش → catalog.logoUrl → فایل Business → business.logoUrl
+        //    (ریشهٔ باگ «لوگوی شرکت ست می‌شود ولی در بازوی فروش نمی‌آمد»:
         //     فایل/فیلد لوگوی Business هرگز خوانده نمی‌شد)
         const [catLogoFiles, bizLogoFiles] = await Promise.all([
             catalogIds.length
@@ -475,8 +475,8 @@ export class CatalogService {
             };
         });
 
-        // ✅ کاتالوگ‌های تیمی — عضوِ فروش (فروشنده/ویزیتور کاتالوگ دیگری)، مدیر کاتالوگ، یا درخواستِ در انتظار
-        //    تیم کاتالوگ: بازار پخش — اعضایِ فروش بدون کاتالوگِ جدا در کاتالوگِ مالک کار می‌کنند
+        // ✅ بازوی فروش‌های تیمی — عضوِ فروش (فروشنده/ویزیتور بازوی فروش دیگری)، مدیر بازوی فروش، یا درخواستِ در انتظار
+        //    تیم بازوی فروش: بازار پخش — اعضایِ فروش بدون بازوی فروشِ جدا در بازوی فروشِ مالک کار می‌کنند
         const teamRows = await this.prisma.catalogMember.findMany({
             where: {
                 userId,
@@ -517,7 +517,7 @@ export class CatalogService {
     }
 
     // ============================================================
-    // جزئیات یک کاتالوگ — فعالیت‌ها و تیک از مسیر نهاد
+    // جزئیات یک بازوی فروش — فعالیت‌ها و تیک از مسیر نهاد
     // ============================================================
     async findOne(id: string, userId: string) {
         const owned = await this.getOwnedCatalog(id, userId);
@@ -603,7 +603,7 @@ export class CatalogService {
     }
 
     // ============================================================
-    // ویرایش کاتالوگ — بدون industryId (صنف متن آزاد)
+    // ویرایش بازوی فروش — بدون industryId (صنف متن آزاد)
     // ============================================================
     async update(id: string, userId: string, dto: UpdateCatalogDto) {
         const owned = await this.getOwnedCatalog(id, userId);
@@ -649,15 +649,15 @@ export class CatalogService {
         });
 
         if (dto.position !== undefined) {
-            // ✅ سمت نمایشی روی رکورد تیم کاتالوگ (CatalogMember) — جایگزین TeamMember legacy
+            // ✅ سمت نمایشی روی رکورد تیم بازوی فروش (CatalogMember) — جایگزین TeamMember legacy
             await this.prisma.catalogMember.updateMany({
                 where: { catalogId: id, userId },
                 data: { position: dto.position || null },
             });
         }
 
-        // ⚠️ دیتای خود کاربر تغییر کرد → کش لیست کاتالوگ‌هایش باطل؛
-        // صفحهٔ عمومی کاتالوگ (findBySlug) هم تازه شود (اسلاگ قبلی و جدید)
+        // ⚠️ دیتای خود کاربر تغییر کرد → کش لیست بازوی فروش‌هایش باطل؛
+        // صفحهٔ عمومی بازوی فروش (findBySlug) هم تازه شود (اسلاگ قبلی و جدید)
         await this.bustUserCatalogs(userId);
         const oldSlug = (owned as any)?.slug;
         if (oldSlug) await this.cache.bust(`catalog-slug:${oldSlug}`);
@@ -667,7 +667,7 @@ export class CatalogService {
     }
 
     // ============================================================
-    // حذف کاتالوگ (soft delete)
+    // حذف بازوی فروش (soft delete)
     // ============================================================
     async remove(id: string, userId: string) {
         const owned = await this.getOwnedCatalog(id, userId);
@@ -676,12 +676,12 @@ export class CatalogService {
         if (activeAds > 0) {
             throw new ConflictException({
                 errorCode: 'CATALOG_HAS_ACTIVE_ADS',
-                message: 'این کاتالوگ آگهی فعال دارد، ابتدا آنها را حذف کنید',
+                message: 'این بازوی فروش آگهی فعال دارد، ابتدا آنها را حذف کنید',
             });
         }
         const closed = await this.prisma.catalog.update({ where: { id }, data: { status: 'closed', updatedAt: new Date() } });
 
-        // ✅ آزادسازی اتصال بازارها — رهاکردن catalogId یتیم، ساخت کاتالوگ بعدی در همان بازار را قفل نمی‌کند
+        // ✅ آزادسازی اتصال بازارها — رهاکردن catalogId یتیم، ساخت بازوی فروش بعدی در همان بازار را قفل نمی‌کند
         //    (عضویتِ خریدارِ بازار دست‌نخورده می‌ماند؛ فقط لینکِ فروشنده آزاد می‌شود)
         await this.prisma.armMembership.updateMany({
             where: { catalogId: id, roleType: 'seller' },
@@ -692,7 +692,7 @@ export class CatalogService {
             data: { catalogId: null, publishState: 'draft' },
         });
 
-        // ⚠️ کش لیست مالک + صفحهٔ عمومی کاتالوگ باطل شود
+        // ⚠️ کش لیست مالک + صفحهٔ عمومی بازوی فروش باطل شود
         await this.bustUserCatalogs(userId);
         const slug = (owned as any)?.slug;
         if (slug) await this.cache.bust(`catalog-slug:${slug}`);
@@ -714,7 +714,7 @@ export class CatalogService {
     }
 
     // ============================================================
-    // کاتالوگ عمومی با آدرس (/{slug}) — owner از نهاد
+    // بازوی فروش عمومی با آدرس (/{slug}) — owner از نهاد
     // ⚠️ کش عمومی ۵ دقیقه‌ای per slug؛ ویرایش/حذف/کانفیگ مالک فوراً bust می‌کند
     // ============================================================
     async findBySlug(slug: string) {
@@ -750,10 +750,10 @@ export class CatalogService {
         });
 
         if (!catalog) {
-            throw new NotFoundException({ errorCode: 'CATALOG_NOT_FOUND', message: 'کاتالوگ یافت نشد' });
+            throw new NotFoundException({ errorCode: 'CATALOG_NOT_FOUND', message: 'بازوی فروش یافت نشد' });
         }
 
-        // ✅ کاتالوگ عمومی با آدرس — مالکِ کاتالوگ (نه مالکِ کسب‌وکارِ مشترک)
+        // ✅ بازوی فروش عمومی با آدرس — مالکِ بازوی فروش (نه مالکِ کسب‌وکارِ مشترک)
         const ownerUser = await this.prisma.user.findUnique({
             where: { id: catalog.ownerUserId },
             select: {
@@ -802,7 +802,7 @@ export class CatalogService {
     }
 
     async getFeatured(limit = 12) {
-        // ✅ کش عمومی ۵ دقیقه‌ای — دیتای دیگران؛ ثبت/ویرایش کاتالوگ کش را نمی‌شکند
+        // ✅ کش عمومی ۵ دقیقه‌ای — دیتای دیگران؛ ثبت/ویرایش بازوی فروش کش را نمی‌شکند
         return this.cache.wrap('catalog-featured', [limit], PUBLIC_LIST_CACHE_TTL_MS, async () => {
             const now = new Date();
             const items = await this.prisma.catalog.findMany({
@@ -847,7 +847,7 @@ export class CatalogService {
     }
 
     // ═══════════════════════════════════════════════════════
-    // کارت ویزیت — ذخیرهٔ مشخصات (JSON) در metadata کاتالوگ
+    // کارت ویزیت — ذخیرهٔ مشخصات (JSON) در metadata بازوی فروش
     // کاربر طرح کارت را یک‌بار می‌سازد و زحمتش از بین نمی‌رود
     // ═══════════════════════════════════════════════════════
     async saveVisitCard(id: string, userId: string, spec: Record<string, any> | null | undefined) {
@@ -871,7 +871,7 @@ export class CatalogService {
             data: { metadata: newMetadata as any, updatedAt: new Date() },
         });
 
-        // کش مالک + صفحهٔ عمومی کاتالوگ باطل شود
+        // کش مالک + صفحهٔ عمومی بازوی فروش باطل شود
         await this.bustUserCatalogs(userId);
         const slug = (owned as any)?.slug;
         if (slug) await this.cache.bust(`catalog-slug:${slug}`);
@@ -902,7 +902,7 @@ export class CatalogService {
     async save(catalogId: string, userId: string) {
         const catalog = await this.prisma.catalog.findUnique({ where: { id: catalogId }, select: { id: true } });
         if (!catalog) {
-            throw new NotFoundException({ errorCode: 'CATALOG_NOT_FOUND', message: 'کاتالوگ یافت نشد' });
+            throw new NotFoundException({ errorCode: 'CATALOG_NOT_FOUND', message: 'بازوی فروش یافت نشد' });
         }
         const existing = await this.prisma.catalogInteraction.findFirst({
             where: { catalogId, userId, type: 'save' },

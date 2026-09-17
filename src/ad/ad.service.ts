@@ -29,11 +29,11 @@ const FA_NORMALIZE = (s: string) =>
 
 const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/** عمر کش لیست‌های عمومی (ویترین/سرچ/کاتالوگ) — تصمیم محصول: ۵ دقیقه کهنگی قابل‌قبول */
+/** عمر کش لیست‌های عمومی (ویترین/سرچ/بازوی فروش) — تصمیم محصول: ۵ دقیقه کهنگی قابل‌قبول */
 const PUBLIC_LIST_CACHE_TTL_MS = 5 * 60 * 1000;
 const VITRINE_CACHE_TTL_MS = PUBLIC_LIST_CACHE_TTL_MS;
 
-/** include مشترکِ اطلاعات کاتالوگ در آگهی — تیک از کسب‌وکارِ مرجع */
+/** include مشترکِ اطلاعات بازوی فروش در آگهی — تیک از کسب‌وکارِ مرجع */
 const CATALOG_INFO_SELECT = {
     id: true,
     name: true,
@@ -78,10 +78,10 @@ export class AdService {
     }
 
     // ═══════════════════════════════════════
-    // 1. ثبت آگهی جدید — کاتالوگ‌محور نهایی
+    // 1. ثبت آگهی جدید — بازوی فروش‌محور نهایی
     // ═══════════════════════════════════════
     async create(userId: string, dto: CreateAdDto) {
-        // ─── ۱) کاتالوگ مالک — الزامی؛ مالکیت از مسیر نهاد ───
+        // ─── ۱) بازوی فروش مالک — الزامی؛ مالکیت از مسیر نهاد ───
         const catalog = await this.prisma.catalog.findUnique({
             where: { id: dto.catalogId },
             select: { id: true },
@@ -89,13 +89,13 @@ export class AdService {
         if (!catalog) {
             throw new BadRequestException({
                 errorCode: 'INVALID_CATALOG',
-                message: 'کاتالوگ مورد نظر یافت نشد',
+                message: 'بازوی فروش مورد نظر یافت نشد',
             });
         }
-        // ✅ گیتِ واحد: مالکِ کسب‌وکار یا تیمِ بازاری که کارِ کاتالوگ به آن واگذار شده
+        // ✅ گیتِ واحد: مالکِ کسب‌وکار یا تیمِ بازاری که کارِ بازوی فروش به آن واگذار شده
         await this.catalogAccess.assertCanManageCatalog(catalog.id, userId, {
             errorCode: 'FORBIDDEN_CATALOG',
-            message: 'شما به این کاتالوگ دسترسی ندارید',
+            message: 'شما به این بازوی فروش دسترسی ندارید',
         });
 
         // ─── ۲) واحد — الزامی و سراسری ───
@@ -113,7 +113,7 @@ export class AdService {
             });
         }
 
-        // ─── ۳) جلوگیری از قیمت تکراری (در سطح کاتالوگ) ───
+        // ─── ۳) جلوگیری از قیمت تکراری (در سطح بازوی فروش) ───
         const duplicateWhere: any = {
             catalogId: catalog.id,
             productType: dto.productType,
@@ -154,7 +154,7 @@ export class AdService {
             effectiveBrandId = ref?.brandId ?? null;
         }
 
-        // ─── ۶) ساخت آگهی — همیشه فقط-کاتالوگی؛ انتشار با مهر بعدی ───
+        // ─── ۶) ساخت آگهی — همیشه فقط-بازوی فروشی؛ انتشار با مهر بعدی ───
         const ad = await this.prisma.ad.create({
             data: {
                 armId: null,
@@ -209,12 +209,12 @@ export class AdService {
 
         // ─── ۶.۵) تصویر کالای مرجع — وقتی کاربر عکسِ خودش برای آگهی نگذاشته ───
         // فرانت تصویر مرجع را فقط پیش‌نمایش می‌دهد (slot بدون file) — اینجا ماندگارش می‌کنیم
-        // تا در پنل مدیریت، کاتالوگ عمومی و تابلو، آگهی بی‌تصویر دیده نشود
+        // تا در پنل مدیریت، بازوی فروش عمومی و تابلو، آگهی بی‌تصویر دیده نشود
         await this.syncReferenceImage(ad.id, (dto as any).productReferenceId, userId);
 
-        // ─── ۷) انتشار خودکار کالای تازه — به همه بازارهایی که کاتالوگ در آن‌ها published است ───
+        // ─── ۷) انتشار خودکار کالای تازه — به همه بازارهایی که بازوی فروش در آن‌ها published است ───
         if (dto.publishToMarket !== false) {
-            // ✅ همه membership های published این کاتالوگ را بگیر (نه فقط اولی)
+            // ✅ همه membership های published این بازوی فروش را بگیر (نه فقط اولی)
             const memberships = await this.prisma.armMembership.findMany({
                 where: { catalogId: catalog.id, status: 'active', publishState: 'published' },
                 select: { armId: true },
@@ -247,7 +247,7 @@ export class AdService {
     }
 
     // ============================================================
-    // ویرایش آگهی — کاتالوگ‌محور
+    // ویرایش آگهی — بازوی فروش‌محور
     // ============================================================
     async update(id: string, userId: string, dto: UpdateAdDto) {
         const ad = await this.prisma.ad.findUnique({
@@ -398,7 +398,7 @@ export class AdService {
         //    (re-stamp دسته هم خودش bust می‌زند؛ اینجا برای بقیهٔ تغییرات)
         await this.cache.bust(VITRINE_CACHE_PREFIX);
 
-        // ─── اگر دستهٔ کاتالوگ عوض شد → دستهٔ بازاری در همه بازارها بازمحاسبه ───
+        // ─── اگر دستهٔ بازوی فروش عوض شد → دستهٔ بازاری در همه بازارها بازمحاسبه ───
         if (dto.categoryId !== undefined) {
             // ✅ همه publication های این آگهی را بگیر
             const publications = await this.prisma.adPublication.findMany({
@@ -645,7 +645,7 @@ export class AdService {
             
         };
 
-        // ✅ فیلتر نوع کاتالوگ پذیرفته‌شدهٔ بازار — ملاک واحد: acceptedCatalogTypes (fallback لگسی: visibleSalesTypes)
+        // ✅ فیلتر نوع بازوی فروش پذیرفته‌شدهٔ بازار — ملاک واحد: acceptedCatalogTypes (fallback لگسی: visibleSalesTypes)
         const acceptedTypes = getArmAcceptedCatalogTypes(arm);
         if (acceptedTypes.length) {
             adWhere.catalog = { salesType: { in: acceptedTypes } };
@@ -924,7 +924,7 @@ export class AdService {
     }
 
     // ============================================================
-    // جزئیات آگهی — همهٔ فیلدها + کاتالوگ با مالک (از مسیر نهاد)
+    // جزئیات آگهی — همهٔ فیلدها + بازوی فروش با مالک (از مسیر نهاد)
     // ============================================================
     async findOne(id: string, userId?: string) {
         const ad = await this.prisma.ad.findUnique({
@@ -977,7 +977,7 @@ export class AdService {
         const bizOwner = (ad.catalog as any)?.business?.owner;
         const bizVerificationTier = (ad.catalog as any)?.business?.verificationTier ?? null;
 
-        // ✅ گیت قیمت صفحهٔ جزئیات — ۱) کاتالوگ خصوصی ۲) آگهیِ فقط در بازار(های) خصوصی
+        // ✅ گیت قیمت صفحهٔ جزئیات — ۱) بازوی فروش خصوصی ۲) آگهیِ فقط در بازار(های) خصوصی
         const catalogPrivate = !!(ad.catalog as any)?.isPrivate;
         const canViewDetail = catalogPrivate
             ? await this.canViewCatalogPrices(ad.catalog, userId)
@@ -1015,8 +1015,8 @@ export class AdService {
         return result;
     }
 
-    /** حق دیدن قیمت‌های یک کاتالوگ خصوصی:
-     *  فقط مالک کاتالوگ یا عضو پذیرفته‌شده (درخواست ارتباط تجاری تاییدشده) */
+    /** حق دیدن قیمت‌های یک بازوی فروش خصوصی:
+     *  فقط مالک بازوی فروش یا عضو پذیرفته‌شده (درخواست ارتباط تجاری تاییدشده) */
     private async canViewCatalogPrices(catalog: { id: string; ownerUserId?: string }, userId?: string): Promise<boolean> {
         if (!userId) return false;
         if (catalog?.ownerUserId && catalog.ownerUserId === userId) return true;
@@ -1038,7 +1038,7 @@ export class AdService {
             select: { armId: true },
         });
         memberships.forEach((m) => armIds.add(m.armId));
-        if (!armIds.size) return true; // فقط در کاتالوگ خودش است
+        if (!armIds.size) return true; // فقط در بازوی فروش خودش است
 
         const arms = await this.prisma.arm.findMany({
             where: { id: { in: [...armIds] } },
@@ -1170,7 +1170,7 @@ export class AdService {
             message: 'شما اجازه حذف این آگهی را ندارید',
         });
         const removed = await this.prisma.ad.update({ where: { id }, data: { status: 'deleted', updatedAt: new Date() } });
-        // ✅ آگهی حذف‌شده باید فوری از تابلوی همهٔ بازارها برود — کش ویترین می‌شکند (همان کلاس باگِ مکث کاتالوگ)
+        // ✅ آگهی حذف‌شده باید فوری از تابلوی همهٔ بازارها برود — کش ویترین می‌شکند (همان کلاس باگِ مکث بازوی فروش)
         await this.cache.bust(VITRINE_CACHE_PREFIX);
         return removed;
     }
@@ -1207,7 +1207,7 @@ export class AdService {
     }
 
     // ═══════════════════════════════════════
-    // شماره تماس — مسیر بازاری با عضویت، مسیر کاتالوگی آزاد
+    // شماره تماس — مسیر بازاری با عضویت، مسیر بازوی فروشی آزاد
     // ═══════════════════════════════════════
 
     /**
@@ -1250,7 +1250,7 @@ export class AdService {
             throw new BadRequestException({ errorCode: 'ARM_NOT_ACTIVE', message: 'بازار فعال نیست' });
         }
 
-        // ✅ گارد تناسب نوع کاتالوگ با نوع بازار — آگهیِ تک‌فروشی در بازار عمده ثبت نمی‌شود و بالعکس
+        // ✅ گارد تناسب نوع بازوی فروش با نوع بازار — آگهیِ تک‌فروشی در بازار عمده ثبت نمی‌شود و بالعکس
         const salesTypeOfCatalog = await this.prisma.catalog.findUnique({
             where: { id: ad.catalogId },
             select: { salesType: true },
@@ -1260,7 +1260,7 @@ export class AdService {
             throw new BadRequestException({ errorCode: 'MARKET_TYPE_MISMATCH', message: typeMismatch });
         }
 
-        // ✅ چک کن membership این کاتالوگ در این بازار
+        // ✅ چک کن membership این بازوی فروش در این بازار
         const membership = await this.prisma.armMembership.findFirst({
             where: {
                 armId: arm.id,
@@ -1271,7 +1271,7 @@ export class AdService {
         if (!membership) {
             throw new BadRequestException({
                 errorCode: 'NOT_MEMBER',
-                message: 'کاتالوگ شما در این بازار منتشر نیست — اول عضو بازار شوید',
+                message: 'بازوی فروش شما در این بازار منتشر نیست — اول عضو بازار شوید',
             });
         }
 
@@ -1303,7 +1303,7 @@ export class AdService {
         if (membership.publishState !== 'published') {
             throw new BadRequestException({
                 errorCode: 'NOT_PUBLISHED',
-                message: 'کاتالوگ شما در این بازار منتشر نیست',
+                message: 'بازوی فروش شما در این بازار منتشر نیست',
             });
         }
 
@@ -1342,8 +1342,8 @@ export class AdService {
         });
         if (!arm) throw new NotFoundException({ errorCode: 'ARM_NOT_FOUND', message: 'بازار یافت نشد' });
 
-        // ✅ فقط همین آگهی از بازار حذف می‌شود (قبلاً کل کاتالوگ حذف می‌شد — باگ)
-        //    optOut ثبت می‌شود تا re-stamp کلی کاتالوگ آن را دوباره منتشر نکند
+        // ✅ فقط همین آگهی از بازار حذف می‌شود (قبلاً کل بازوی فروش حذف می‌شد — باگ)
+        //    optOut ثبت می‌شود تا re-stamp کلی بازوی فروش آن را دوباره منتشر نکند
         await this.catalogPublish.unpublishAdFromArm(adId, arm.id);
         return { success: true, message: `آگهی از بازار ${arm.name} حذف شد` };
     }
@@ -1366,9 +1366,9 @@ export class AdService {
         if (!ad) throw new NotFoundException({ errorCode: 'AD_NOT_FOUND', message: 'آگهی یافت نشد' });
         if (ad.status !== 'active') throw new BadRequestException({ errorCode: 'AD_NOT_ACTIVE', message: 'این آگهی فعال نیست' });
 
-        // ✅ مسیریابی تماس — اعضای کاتالوگ (سناریوی بازار پخش):
-        //    اگر تماس‌گیرنده مشتریِ فعالِ این کاتالوگ با مسئول فروشِ منتسب باشد،
-        //    تماس به‌جای شمارهٔ کاتالوگ روی مسئول فروشِ خودش می‌افتد.
+        // ✅ مسیریابی تماس — اعضای بازوی فروش (سناریوی بازار پخش):
+        //    اگر تماس‌گیرنده مشتریِ فعالِ این بازوی فروش با مسئول فروشِ منتسب باشد،
+        //    تماس به‌جای شمارهٔ بازوی فروش روی مسئول فروشِ خودش می‌افتد.
         const route = await this.catalogMembers.resolveCallRoute(ad.catalogId, userId);
 
         await this.prisma.callEvent.create({
@@ -1393,7 +1393,7 @@ export class AdService {
               }
             : null;
 
-        // ✅ آگهیِ فقط-کاتالوگی: شماره = مسئول فروشِ منتسب (اگر هست) وگرنه اطلاعات عمومی کاتالوگ/نهاد
+        // ✅ آگهیِ فقط-بازوی فروشی: شماره = مسئول فروشِ منتسب (اگر هست) وگرنه اطلاعات عمومی بازوی فروش/نهاد
         if (!ad.armId) {
             const phone = route?.phone || ad.catalog.phone || ownerPhone;
             if (!phone) {
@@ -1414,7 +1414,7 @@ export class AdService {
         const config = (ad.arm?.config as any) || {};
         const priceTableConfig = config?.modules?.priceTable || {};
 
-        // ✅ مشتریِ مسیریابی‌شده — مشتریِ خودِ این کاتالوگ است؛ از گیت عضویتِ تماس عبور می‌کند
+        // ✅ مشتریِ مسیریابی‌شده — مشتریِ خودِ این بازوی فروش است؛ از گیت عضویتِ تماس عبور می‌کند
         //    (سقف روزانه همچنان اعمال می‌شود)
         if (route) {
             const dailyCallLimit = config.features?.dailyCallLimit || 20;
@@ -1493,7 +1493,7 @@ export class AdService {
     async bulkUpdate(userId: string, updates: { id: string; unitPrice: number }[]) {
         if (!updates || updates.length === 0) throw new BadRequestException('هیچ آگهی ارسال نشده است.');
 
-        // ✅ گیتِ واحد — کاتالوگ‌های خودِ کاربر + کاتالوگ‌های واگذارشده به تیمِ او
+        // ✅ گیتِ واحد — بازوی فروش‌های خودِ کاربر + بازوی فروش‌های واگذارشده به تیمِ او
         const catalogIds = await this.catalogAccess.manageableCatalogIds(userId);
 
         const ads = await this.prisma.ad.findMany({
@@ -1644,7 +1644,7 @@ export class AdService {
     }
 
     // ═══════════════════════════════════════
-    // لیست کالاهای یک کاتالوگ — search + statusFilter
+    // لیست کالاهای یک بازوی فروش — search + statusFilter
     // ═══════════════════════════════════════
     async getCatalogAds(
         catalogId: string,
@@ -1659,7 +1659,7 @@ export class AdService {
         //    تا تغییرات آگهی‌های خودش بلافاصله ببیند.
         const isPublicView = statusFilter === 'active';
         if (isPublicView) {
-            // ✅ کاتالوگ خصوصی — کش عمومی نمی‌شود؛ قیمت‌ها per-user ماسک می‌شوند
+            // ✅ بازوی فروش خصوصی — کش عمومی نمی‌شود؛ قیمت‌ها per-user ماسک می‌شوند
             const cat = await this.prisma.catalog.findUnique({
                 where: { id: catalogId },
                 select: { isPrivate: true, ownerUserId: true },
@@ -1679,7 +1679,7 @@ export class AdService {
         return this.fetchCatalogAds(catalogId, page, limit, search, statusFilter);
     }
 
-    /** ماسک قیمت‌ها برای غیرعضوِ کاتالوگ خصوصی — در payload لیست */
+    /** ماسک قیمت‌ها برای غیرعضوِ بازوی فروش خصوصی — در payload لیست */
     private maskAdsPrices(res: any): any {
         const mask = (a: any) => ({
             ...a,
@@ -1972,7 +1972,7 @@ export class AdService {
     }
 
     async derivedNotifications(userId: string) {
-        // ✅ مالکیت مستقیم روی کاتالوگ — کسب‌وکار مرجع مشترک است و ربطی به مالکیت ندارد
+        // ✅ مالکیت مستقیم روی بازوی فروش — کسب‌وکار مرجع مشترک است و ربطی به مالکیت ندارد
         const catalogs = await this.prisma.catalog.findMany({
             where: { ownerUserId: userId, status: 'active' },
             select: {
@@ -1983,7 +1983,7 @@ export class AdService {
         });
 
         // ✅ لوگو ممکن است به‌صورت فایل (fieldKey=logo) ذخیره شده باشد بدون sync فیلد —
-        //    زنجیرهٔ نمایش (فایل کاتالوگ → فیلد کاتالوگ → فایل کسب‌وکار → فیلد کسب‌وکار)
+        //    زنجیرهٔ نمایش (فایل بازوی فروش → فیلد بازوی فروش → فایل کسب‌وکار → فیلد کسب‌وکار)
         //    باید با چکِ اعلان یکی باشد وگرنه اعلانِ «لوگو ندارد» با لوگویِ نمایان می‌ماند
         const catalogIds = catalogs.map((c) => c.id);
         const bizIds = [...new Set(catalogs.map((c) => c.businessId))];
@@ -2000,7 +2000,7 @@ export class AdService {
         const hasCatLogoFile = new Set(logoFiles.filter((f) => f.relatedModel === 'Catalog').map((f) => f.relatedId));
         const hasBizLogoFile = new Set(logoFiles.filter((f) => f.relatedModel === 'Business').map((f) => f.relatedId));
 
-        // ✅ مقصدِ اعلانِ لوگو — ویرایشگرِ کسب‌وکار → صفحهٔ ویرایش کسب‌وکار | بقیه → لوگوی خودِ کاتالوگ
+        // ✅ مقصدِ اعلانِ لوگو — ویرایشگرِ کسب‌وکار → صفحهٔ ویرایش کسب‌وکار | بقیه → لوگوی خودِ بازوی فروش
         const bizMeta = await this.prisma.business.findMany({
             where: { id: { in: bizIds.length ? bizIds : ['__none__'] } },
             select: { id: true, creatorUserId: true, ownerUserId: true },
@@ -2072,7 +2072,7 @@ export class AdService {
                     catalogId: b.id,
                 });
             }
-            // ✅ لوگو روی کاتالوگ یا کسب‌وکار — فیلد یا فایل، هرکدام کافی است
+            // ✅ لوگو روی بازوی فروش یا کسب‌وکار — فیلد یا فایل، هرکدام کافی است
             //    (ریشهٔ باگ: لوگو با فایل آپلود و از مسیر فایل نمایش داده می‌شد
             //     ولی اعلان فقط فیلدهای logoUrl را می‌دید)
             const hasLogo = !!b.logoUrl
@@ -2085,10 +2085,10 @@ export class AdService {
                     id: `nologo-${b.id}`,
                     type: 'incomplete',
                     severity: 'info',
-                    title: `«${b.name}» لوگو ندارد — کاتالوگ با لوگو اعتماد بیشتری می‌گیرد`,
+                    title: `«${b.name}» لوگو ندارد — بازوی فروش با لوگو اعتماد بیشتری می‌گیرد`,
                     action: canEditBiz
                         ? { label: 'ویرایش کسب‌وکار', href: `/business/edit?id=${b.businessId}` }
-                        : { label: 'تنظیم لوگوی کاتالوگ', href: `/my-catalogs?catalog=${b.id}` },
+                        : { label: 'تنظیم لوگوی بازوی فروش', href: `/my-catalogs?catalog=${b.id}` },
                     catalogId: b.id,
                 });
             }
@@ -2116,7 +2116,7 @@ export class AdService {
                 id: `joined-${m.catalogId}-${m.arm.slug}`,
                 type: 'membership',
                 severity: 'success',
-                title: `🎉 کاتالوگت فروشندهٔ ${m.arm.name} شد!`,
+                title: `🎉 بازوی فروشت فروشندهٔ ${m.arm.name} شد!`,
                 body: 'کالاهات حالا کنار رقیب‌هات روی تابلوی قیمت دیده می‌شوند — برای پیدا شدن در فیلترها، دسته‌بندی بازار را برایشان انتخاب کن',
                 action: { label: 'تنظیم دسته‌ها', href: `/my-catalogs?catalog=${m.catalogId}&filter=uncat` },
                 catalogId: m.catalogId,
@@ -2181,7 +2181,7 @@ export class AdService {
                 title: `درخواست لغو عضویت شما در «${lr.arm.name}» در انتظار بررسی مالک بازار است`,
                 body: 'تا زمانی که مالک بررسی نکند، عضویتتان و مزایایش برقرار است — می‌توانید درخواست را پس بگیرید',
                 action: lr.roleType === 'seller'
-                    ? { label: 'پنل کاتالوگ', href: '/my-catalogs' }
+                    ? { label: 'پنل بازوی فروش', href: '/my-catalogs' }
                     : { label: 'دیدن بازار', href: `/${lr.arm.slug}` },
             });
         }
@@ -2201,7 +2201,7 @@ export class AdService {
                     severity: 'warning',
                     title: `عضویت شما در بازار «${lr.arm.name}» لغو شد`,
                     body: lr.roleType === 'seller'
-                        ? 'کاتالوگتان از تابلوی این بازار برداشته شد — برای عضویت مجدد با مالک بازار هماهنگ کنید'
+                        ? 'بازوی فروشتان از تابلوی این بازار برداشته شد — برای عضویت مجدد با مالک بازار هماهنگ کنید'
                         : 'دسترسیِ نقش خریدارتان در این بازار برداشته شد — برای عضویت مجدد با مالک بازار هماهنگ کنید',
                     action: { label: 'دیدن بازار', href: `/${lr.arm.slug}` },
                 });
@@ -2261,14 +2261,14 @@ export class AdService {
                 id: `mpaused-${m.catalogId}-${m.arm.slug}`,
                 type: 'membership-paused',
                 severity: 'warning',
-                title: `انتشار کاتالوگت در ${m.arm.name} موقتاً متوقف شده`,
+                title: `انتشار بازوی فروشت در ${m.arm.name} موقتاً متوقف شده`,
                 body: 'کالاهاش فعلاً روی تابلوی این بازار دیده نمی‌شن — با مدیر بازار هماهنگ کن',
-                action: { label: 'دیدن کاتالوگ', href: `/my-catalogs?catalog=${m.catalogId}` },
+                action: { label: 'دیدن بازوی فروش', href: `/my-catalogs?catalog=${m.catalogId}` },
                 catalogId: m.catalogId,
             });
         }
 
-        // کاتالوگ‌های منتشرنشده
+        // بازوی فروش‌های منتشرنشده
         for (const b of catalogs) {
             const has = memberships.some((m) => m.catalogId === b.id && m.status === 'active');
             if (!has && catalogIds.length) {
@@ -2318,7 +2318,7 @@ export class AdService {
             }
         }
 
-        // ═══ ✅ NEW — اعضای کاتالوگ: درخواست‌های همکاریِ در انتظار تایید (مالک/مدیر کاتالوگ) ═══
+        // ═══ ✅ NEW — اعضای بازوی فروش: درخواست‌های همکاریِ در انتظار تایید (مالک/مدیر بازوی فروش) ═══
         const adminTeamRows = await this.prisma.catalogMember.findMany({
             where: { userId, role: 'catalog_admin', status: 'active' },
             select: { catalogId: true },
@@ -2345,20 +2345,20 @@ export class AdService {
                 for (const r of rows) catNameOf.set(r.id, r.name);
             }
             for (const p of pendingCoopByCat) {
-                const catName = catNameOf.get(p.catalogId) || 'کاتالوگ';
+                const catName = catNameOf.get(p.catalogId) || 'بازوی فروش';
                 items.unshift({
                     id: `cteam-coopreq-${p.catalogId}`,
                     type: 'catalog-team-pending-coop',
                     severity: 'warning',
-                    title: `${p._count.toLocaleString('fa-IR')} درخواست ارتباط تجاری در کاتالوگ «${catName}» در انتظار تایید شماست`,
-                    body: 'همکار فروش، خریدار یا تامین‌کننده می‌خواهند با کاتالوگ همکاری کنند — در انتظار تایید مدیر (مالک کاتالوگ)',
+                    title: `${p._count.toLocaleString('fa-IR')} درخواست ارتباط تجاری در بازوی فروش «${catName}» در انتظار تایید شماست`,
+                    body: 'همکار فروش، خریدار یا تامین‌کننده می‌خواهند با بازوی فروش همکاری کنند — در انتظار تایید مدیر (مالک بازوی فروش)',
                     action: { label: 'بررسی اعضا', href: `/my-catalogs?catalog=${p.catalogId}&tab=team` },
                     catalogId: p.catalogId,
                 });
             }
         }
 
-        // ═══ ✅ NEW — اعضای کاتالوگ: تاییدِ خریداربودنِ در انتظارِ من (صاحب کسب‌وکار) ═══
+        // ═══ ✅ NEW — اعضای بازوی فروش: تاییدِ خریداربودنِ در انتظارِ من (صاحب کسب‌وکار) ═══
         const myPendingCustomers = await this.prisma.catalogMember.findMany({
             where: { userId, customerStatus: 'pending', status: 'active' },
             take: 5,
@@ -2374,13 +2374,13 @@ export class AdService {
                 id: `cteam-confirm-${c.id}`,
                 type: 'catalog-team-customer-confirm',
                 severity: 'warning',
-                title: `«${sellerName}» شما را به‌عنوان مشتری کاتالوگ «${(c as any).catalog.name}» ثبت کرده`,
-                body: 'با تایید، تماس‌تان از آگهی‌های این کاتالوگ به مسئول فروشِ خودتان می‌رسد — اگر اشتباه است رد کنید',
+                title: `«${sellerName}» شما را به‌عنوان مشتری بازوی فروش «${(c as any).catalog.name}» ثبت کرده`,
+                body: 'با تایید، تماس‌تان از آگهی‌های این بازوی فروش به مسئول فروشِ خودتان می‌رسد — اگر اشتباه است رد کنید',
                 action: { label: 'بررسی در پروفایل', href: '/profile' },
             });
         }
 
-        // ═══ ✅ NEW — تیم کاتالوگ: نتیجهٔ درخواست فروشندگیِ من (۷ روز) ═══
+        // ═══ ✅ NEW — تیم بازوی فروش: نتیجهٔ درخواست فروشندگیِ من (۷ روز) ═══
         const mySellerEvents = await this.prisma.catalogTeamEvent.findMany({
             where: { userId, eventType: { in: ['seller_approved', 'seller_rejected'] }, createdAt: { gte: weekAgo } },
             orderBy: { createdAt: 'desc' },
@@ -2395,16 +2395,16 @@ export class AdService {
                 type: approved ? 'catalog-team-seller-approved' : 'catalog-team-seller-rejected',
                 severity: approved ? 'success' : 'warning',
                 title: approved
-                    ? `درخواست فروشندگی شما در کاتالوگ «${e.catalog.name}» تایید شد 🎉`
-                    : `درخواست فروشندگی شما در کاتالوگ «${e.catalog.name}» رد شد`,
+                    ? `درخواست فروشندگی شما در بازوی فروش «${e.catalog.name}» تایید شد 🎉`
+                    : `درخواست فروشندگی شما در بازوی فروش «${e.catalog.name}» رد شد`,
                 body: approved
-                    ? 'حالا می‌توانید مشتری‌های خودتان را در این کاتالوگ ثبت کنید — تماسشان به شما مسیریابی می‌شود'
-                    : 'برای هماهنگی با مالک کاتالوگ تماس بگیرید',
-                action: { label: 'پنل کاتالوگ', href: `/my-catalogs?catalog=${e.catalogId}&tab=team` },
+                    ? 'حالا می‌توانید مشتری‌های خودتان را در این بازوی فروش ثبت کنید — تماسشان به شما مسیریابی می‌شود'
+                    : 'برای هماهنگی با مالک بازوی فروش تماس بگیرید',
+                action: { label: 'پنل بازوی فروش', href: `/my-catalogs?catalog=${e.catalogId}&tab=team` },
             });
         }
 
-        // ═══ ✅ NEW — اعضای کاتالوگ: خبرهای خریدارهای منتسب به من (مسئول فروش — ۷ روز) ═══
+        // ═══ ✅ NEW — اعضای بازوی فروش: خبرهای خریدارهای منتسب به من (مسئول فروش — ۷ روز) ═══
         const mySellerRows = await this.prisma.catalogMember.findMany({
             where: { userId, sellerStatus: 'active', status: 'active' },
             select: { catalogId: true },
@@ -2430,7 +2430,7 @@ export class AdService {
                             ? data.previousSellerUserId === userId
                             : data.assignedSellerUserId === userId;
                 if (!isMine) continue;
-                const catName = (e as any).catalog?.name || 'کاتالوگ';
+                const catName = (e as any).catalog?.name || 'بازوی فروش';
                 const textMap: Record<string, { title: string; severity: 'success' | 'info' | 'warning' }> = {
                     customer_confirmed: { title: `مشتری جدیدتان در «${catName}» عضویتش را تایید کرد — تماسش به شما می‌رسد`, severity: 'success' },
                     customer_added: { title: `یک مشتری جدید در «${catName}» به شما منتسب شد — در انتظار تایید او`, severity: 'info' },
@@ -2451,9 +2451,9 @@ export class AdService {
             }
         }
 
-        // ═══ ✅ NEW — راهنمای شبکهٔ خرید↔فروش: «هر دو کاتالوگ را داشته باش» ═══
-        //    کسب‌وکارِ فعال دارید ولی بازوی خرید/کاتالوگ قیمت ندارید → یادآوری پایدار تا بسازد
-        //    (بدون آن عضوگیریِ کاتالوگ‌به‌کاتالوگ ممکن نیست — درخواست‌ها بی‌مقصد می‌مانند)
+        // ═══ ✅ NEW — راهنمای شبکهٔ خرید↔فروش: «هر دو بازوی فروش را داشته باش» ═══
+        //    کسب‌وکارِ فعال دارید ولی بازوی خرید/بازوی فروش قیمت ندارید → یادآوری پایدار تا بسازد
+        //    (بدون آن عضوگیریِ بازوی فروش‌به‌بازوی فروش ممکن نیست — درخواست‌ها بی‌مقصد می‌مانند)
         try {
             const [hasBiz, salesCatalogCount, purchaseCatalogCount] = await Promise.all([
                 this.prisma.business.count({ where: { OR: [{ ownerUserId: userId }, { creatorUserId: userId }], status: 'active' } }),
@@ -2475,9 +2475,9 @@ export class AdService {
                     id: 'network-no-sales-catalog',
                     type: 'network-no-sales-catalog',
                     severity: 'info',
-                    title: 'کاتالوگ قیمت نداری — دیده نمی‌شی',
-                    body: 'با کاتالوگ قیمت، خریدارها از روی بازوی خریدشان بهت وصل می‌شن و سرنخ فروش می‌گیری',
-                    action: { label: 'ساخت کاتالوگ قیمت', href: '/business/register' },
+                    title: 'بازوی فروش قیمت نداری — دیده نمی‌شی',
+                    body: 'با بازوی فروش قیمت، خریدارها از روی بازوی خریدشان بهت وصل می‌شن و سرنخ فروش می‌گیری',
+                    action: { label: 'ساخت بازوی فروش قیمت', href: '/business/register' },
                 });
             }
         } catch { /* راهنما هرگز جریان اصلی را نمی‌شکند */ }

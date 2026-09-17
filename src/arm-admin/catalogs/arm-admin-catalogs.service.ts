@@ -14,7 +14,7 @@ import { findCategoryPathInTree, findNodeInTree, checkMarketTypeMismatch } from 
 /**
  * مدیریت اعضای بازار — دو-مرحله‌ای:
  *
- *   فروشندگان (Sellers)  = عضویتِ «نوشتن» — کاتالوگ‌هایی که روی تابلو اجازهٔ انتشار دارند
+ *   فروشندگان (Sellers)  = عضویتِ «نوشتن» — بازوی فروش‌هایی که روی تابلو اجازهٔ انتشار دارند
  *   خریداران (Buyers)    = عضویتِ «دیدن» — کسب‌وکارهایی که تابلو را می‌بینند و خرید می‌کنند
  *
  * هر دو از یک رکورد ArmMembership استفاده می‌کنند:
@@ -53,7 +53,7 @@ export class ArmAdminCatalogsService {
         return owners.map((o) => o.userId);
     }
 
-    /** دریافت/ساخت عضویت فرد در بازار (بدون کاتالوگ) — فقط buyer */
+    /** دریافت/ساخت عضویت فرد در بازار (بدون بازوی فروش) — فقط buyer */
     private async ensureMembership(armId: string, userId: string, businessId: string) {
         // ✅ membership این کاربر در این بازار رو پیدا کن
         const existing = await this.prisma.armMembership.findUnique({
@@ -78,7 +78,7 @@ export class ArmAdminCatalogsService {
     // ═══════════════════════════════════════════════════════
 
     // ============================================================
-    // S1) کاتالوگ‌های قیمتندهٔ عضو بازار — با جستجو، فیلتر و سورت
+    // S1) بازوی فروش‌های قیمتندهٔ عضو بازار — با جستجو، فیلتر و سورت
     // ============================================================
     async getSellers(
         slug: string,
@@ -240,7 +240,7 @@ export class ArmAdminCatalogsService {
     }
 
     // ============================================================
-    // S2) کاندیدهای فروشنده — کاتالوگ‌هایی که هنوز عضو نیستند
+    // S2) کاندیدهای فروشنده — بازوی فروش‌هایی که هنوز عضو نیستند
     // ============================================================
     async getSellerCandidates(
         requesterId: string,
@@ -281,7 +281,7 @@ export class ArmAdminCatalogsService {
             }
         }
 
-        // ✅ فقط عضویت‌های «زنده» (active/pending/paused) کاتالوگشان را از کاندیدها حذف می‌کنند —
+        // ✅ فقط عضویت‌های «زنده» (active/pending/paused) بازوی فروششان را از کاندیدها حذف می‌کنند —
         //    removed یعنی مالک قبلاً حذف کرده و می‌تواند دوباره اضافه شود
         const liveMembers = await this.prisma.armMembership.findMany({
             where: { armId: arm.id, catalogId: { not: null }, status: { in: ['active', 'pending', 'paused'] } },
@@ -300,7 +300,7 @@ export class ArmAdminCatalogsService {
 
         // ✅ فیلتر business — صنف و موقعیت روی Business هست (نه Catalog)
         //    چون Catalog ممکنه industryName/cityCode قدیمی یا خالی داشته باشه
-        // ✅ فیلتر موقعیت/صنف روی Business هست (نه Catalog) — مالکیت روی خودِ کاتالوگ
+        // ✅ فیلتر موقعیت/صنف روی Business هست (نه Catalog) — مالکیت روی خودِ بازوی فروش
         const businessFilter: any = {};
         if (industry) businessFilter.industryName = { contains: industry };
         if (cityCode) businessFilter.cityCode = cityCode;
@@ -310,7 +310,7 @@ export class ArmAdminCatalogsService {
             where: {
                 status: { not: 'closed' },
                 ...(excludeCatIds.length ? { id: { notIn: excludeCatIds } } : {}),
-                // ✅ کاتالوگِ کاربرِ معرفی‌شده — مالکیت مستقیم روی کاتالوگ (کسب‌وکار مرجع مشترک است)
+                // ✅ بازوی فروشِ کاربرِ معرفی‌شده — مالکیت مستقیم روی بازوی فروش (کسب‌وکار مرجع مشترک است)
                 ...(referredUserIds ? { ownerUserId: { in: referredUserIds } } : {}),
                 // ✅ فیلترهای صنف/موقعیت از مسیر business
                 ...(Object.keys(businessFilter).length > 0
@@ -379,7 +379,7 @@ export class ArmAdminCatalogsService {
     }
 
     // ============================================================
-    // S3) افزودن فروشنده — کاتالوگ + مهر انتشار
+    // S3) افزودن فروشنده — بازوی فروش + مهر انتشار
     // ============================================================
     // ✅ مدل: یک کاربر در یک بازار فقط یک membership دارد
     //    - role (systemic): arm_owner / arm_member — هرگز تغییر نمی‌کند
@@ -388,7 +388,7 @@ export class ArmAdminCatalogsService {
     //
     // این متد:
     //   1) membership کاربر رو پیدا می‌کنه (با armId + userId)
-    //   2) اگه هست و قبلاً با کاتالوگ دیگه‌ای seller شده → خطا
+    //   2) اگه هست و قبلاً با بازوی فروش دیگه‌ای seller شده → خطا
     //   3) اگه هست → آپدیت کن (businessId, catalogId, roleType=seller, publishState=published)
     //      ولی role رو دست نمی‌زنه (اگه arm_owner بوده، arm_owner می‌مونه)
     //   4) اگه نیست → بساز با role=arm_member
@@ -401,13 +401,13 @@ export class ArmAdminCatalogsService {
             select: { id: true, salesType: true, ownerUserId: true, businessId: true },
         });
         if (!catalog) {
-            throw new NotFoundException({ errorCode: 'CATALOG_NOT_FOUND', message: 'کاتالوگ یافت نشد' });
+            throw new NotFoundException({ errorCode: 'CATALOG_NOT_FOUND', message: 'بازوی فروش یافت نشد' });
         }
-        // ✅ مالکِ مستقیمِ کاتالوگ — کاربری که کاتالوگ را ساخته (کسب‌وکار مرجع مشترک است)
+        // ✅ مالکِ مستقیمِ بازوی فروش — کاربری که بازوی فروش را ساخته (کسب‌وکار مرجع مشترک است)
         const ownerUserId = catalog.ownerUserId;
         const businessId = catalog.businessId;
 
-        // ✅ گارد تناسب نوع کاتالوگ با نوع بازار — تک‌فروشی در بازار عمده پذیرفته نمی‌شود و بالعکس
+        // ✅ گارد تناسب نوع بازوی فروش با نوع بازار — تک‌فروشی در بازار عمده پذیرفته نمی‌شود و بالعکس
         const mismatch = checkMarketTypeMismatch(arm as any, (catalog as any).salesType);
         if (mismatch) {
             throw new BadRequestException({ errorCode: 'MARKET_TYPE_MISMATCH', message: mismatch });
@@ -418,20 +418,20 @@ export class ArmAdminCatalogsService {
             where: { armId_userId: { armId: arm.id, userId: ownerUserId } },
         });
 
-        // ✅ چک کن: اگه قبلاً با کاتالوگ دیگه‌ای seller شده → خطا
+        // ✅ چک کن: اگه قبلاً با بازوی فروش دیگه‌ای seller شده → خطا
         if (existing?.catalogId && existing.catalogId !== catalogId) {
             throw new ConflictException({
                 errorCode: 'BUSINESS_HAS_OTHER_CATALOG',
-                message: 'این کاربر با کاتالوگ دیگری در این بازار فعال است — ابتدا آن را حذف کنید',
+                message: 'این کاربر با بازوی فروش دیگری در این بازار فعال است — ابتدا آن را حذف کنید',
             });
         }
 
-        // ✅ گارد «خروج اختیاری»: فروشنده‌ای که خودش کاتالوگش را از بازار خارج کرده را
+        // ✅ گارد «خروج اختیاری»: فروشنده‌ای که خودش بازوی فروشش را از بازار خارج کرده را
         //    نباید اشتباهی دوباره ادد کرد — افزودن مجدد فقط با تاییدِ صریحِ مدیر
         if (existing?.selfRemovedCatalog && !existing.catalogId && opts?.confirmSelfRemoved !== true) {
             throw new ConflictException({
                 errorCode: 'SELF_REMOVED_CONFLICT',
-                message: 'این فروشنده خودش کاتالوگش را از بازار خارج کرده — برای افزودن مجدد، تایید صریح لازم است',
+                message: 'این فروشنده خودش بازوی فروشش را از بازار خارج کرده — برای افزودن مجدد، تایید صریح لازم است',
             });
         }
 
@@ -473,7 +473,7 @@ export class ArmAdminCatalogsService {
                 },
             });
 
-        // ✅ تاریخچه — افزودن کاتالوگ توسط مدیر (اددِ مجدد بعد از خروج اختیاری هم ثبت می‌شود)
+        // ✅ تاریخچه — افزودن بازوی فروش توسط مدیر (اددِ مجدد بعد از خروج اختیاری هم ثبت می‌شود)
         try {
             await this.prisma.armMembershipEvent.create({
                 data: {
@@ -481,13 +481,13 @@ export class ArmAdminCatalogsService {
                     userId: ownerUserId,
                     eventType: 'catalog_added_by_admin',
                     actorUserId: opts?.actorUserId || null,
-                    note: `کاتالوگ به بازار افزوده شد`,
+                    note: `بازوی فروش به بازار افزوده شد`,
                 },
             });
         } catch (err) { console.error('addSeller: event log failed:', err); }
 
-        // ✅ قبل از stamp، تمام آگهی‌های فعال این کاتالوگ رو publishToMarket=true کن
-        // این یعنی وقتی کاتالوگ به بازار اضافه می‌شه، همه آگهی‌هاش خودکار منتشر می‌شن
+        // ✅ قبل از stamp، تمام آگهی‌های فعال این بازوی فروش رو publishToMarket=true کن
+        // این یعنی وقتی بازوی فروش به بازار اضافه می‌شه، همه آگهی‌هاش خودکار منتشر می‌شن
         await this.prisma.ad.updateMany({
             where: {
                 catalogId,
@@ -786,7 +786,7 @@ async addBuyer(slug: string, businessId: string) {
 // ۴) توقف / ادامهٔ عضو — فقط businessStatus (نه status سیستمی)
 // ============================================================
 // ✅ Pause = تعلیق موقت نقش تجاری
-//    - seller: آگهی‌ها از تابلو غیب می‌شن (unstamp) ولی در کاتالوگ می‌مونن
+//    - seller: آگهی‌ها از تابلو غیب می‌شن (unstamp) ولی در بازوی فروش می‌مونن
 //    - buyer: حق دیدن قیمت‌ها رو از دست می‌ده
 //    - status سیستمی (active) دست نمی‌خوره — arm_owner به پنل دسترسی داره
 // ============================================================
@@ -818,9 +818,9 @@ async setCatalogPaused(slug: string, catalogId: string, paused: boolean) {
 }
 
 // ============================================================
-// تنظیمات اختصاصی کاتالوگ — ارث‌بری از ماژول کاتالوگِ بازار + اورایت مالک بازار
-//   همهٔ کاتالوگ‌ها «چندفروشندگی» را از بازار به ارث می‌برند؛
-//   مالک بازار می‌تواند برای کاتالوگ‌های خاص این را اورایت کند
+// تنظیمات اختصاصی بازوی فروش — ارث‌بری از ماژول بازوی فروشِ بازار + اورایت مالک بازار
+//   همهٔ بازوی فروش‌ها «چندفروشندگی» را از بازار به ارث می‌برند؛
+//   مالک بازار می‌تواند برای بازوی فروش‌های خاص این را اورایت کند
 //   (مقدار اورایت در catalog.config.settings.multiSeller نوشته می‌شود).
 // ============================================================
 async getCatalogSettings(slug: string, catalogId: string) {
@@ -830,7 +830,7 @@ async getCatalogSettings(slug: string, catalogId: string) {
         select: { id: true, name: true, config: true },
     });
     if (!catalog) {
-        throw new NotFoundException({ errorCode: 'CATALOG_NOT_FOUND', message: 'کاتالوگ یافت نشد' });
+        throw new NotFoundException({ errorCode: 'CATALOG_NOT_FOUND', message: 'بازوی فروش یافت نشد' });
     }
     const armModule = (arm.config as any)?.modules?.catalog ?? {};
     const override = (catalog.config as any)?.settings?.multiSeller;
@@ -851,7 +851,7 @@ async setCatalogMultiSellerOverride(slug: string, catalogId: string, userId: str
     const arm = await this.resolveArm(slug);
     // فقط مالک بازار — تنظیم تجاریِ مالکانه است
     if (arm.ownerUserId !== userId) {
-        throw new ForbiddenException({ errorCode: 'ONLY_ARM_OWNER', message: 'فقط مالک بازار می‌تواند تنظیمات اختصاصی کاتالوگ را تغییر دهد' });
+        throw new ForbiddenException({ errorCode: 'ONLY_ARM_OWNER', message: 'فقط مالک بازار می‌تواند تنظیمات اختصاصی بازوی فروش را تغییر دهد' });
     }
     if (multiSeller === undefined) {
         throw new BadRequestException({ errorCode: 'VALUE_REQUIRED', message: 'مقدار multiSeller الزامی است' });
@@ -862,7 +862,7 @@ async setCatalogMultiSellerOverride(slug: string, catalogId: string, userId: str
         select: { id: true, config: true },
     });
     if (!catalog) {
-        throw new NotFoundException({ errorCode: 'CATALOG_NOT_FOUND', message: 'کاتالوگ یافت نشد' });
+        throw new NotFoundException({ errorCode: 'CATALOG_NOT_FOUND', message: 'بازوی فروش یافت نشد' });
     }
 
     const currentConfig = (catalog.config as any) || {};
@@ -929,7 +929,7 @@ async removeCatalog(slug: string, catalogId: string, adminUserId: string) {
         });
     }
 
-    // ✅ تاریخچه — حذف کاتالوگ توسط مدیر (خروجِ اختیاریِ خودِ فروشنده نیست)
+    // ✅ تاریخچه — حذف بازوی فروش توسط مدیر (خروجِ اختیاریِ خودِ فروشنده نیست)
     try {
         await this.prisma.armMembershipEvent.create({
             data: {
@@ -937,7 +937,7 @@ async removeCatalog(slug: string, catalogId: string, adminUserId: string) {
                 userId: membership.userId,
                 eventType: 'removed_by_admin',
                 actorUserId: adminUserId,
-                note: 'کاتالوگ توسط مدیر از بازار حذف شد',
+                note: 'بازوی فروش توسط مدیر از بازار حذف شد',
             },
         });
     } catch (err) { console.error('removeCatalog: event log failed:', err); }
@@ -1124,7 +1124,7 @@ async getReferralStats(requesterId: string, slug: string) {
     });
     const invitedIds = invitedUsers.map((u) => u.id);
 
-    // ✅ شمارش کاتالوگ هر دعوت‌شده — groupBy (User رلیشن catalogs ندارد)
+    // ✅ شمارش بازوی فروش هر دعوت‌شده — groupBy (User رلیشن catalogs ندارد)
     const catCountRows = invitedIds.length
         ? await this.prisma.catalog.groupBy({
             by: ['referredByUserId'],
@@ -1200,7 +1200,7 @@ async getReferralStats(requesterId: string, slug: string) {
 }
 
 // ============================================================
-// ۹) تعیین دستهٔ بازاری توسط صاحب کاتالوگ (از داشبورد)
+// ۹) تعیین دستهٔ بازاری توسط صاحب بازوی فروش (از داشبورد)
 // ============================================================
 async setOwnAdCategory(userId: string, adId: string, categoryId: string) {
     const ad = await this.prisma.ad.findUnique({
@@ -1216,7 +1216,7 @@ async setOwnAdCategory(userId: string, adId: string, categoryId: string) {
     if (!ad) {
         throw new NotFoundException({ errorCode: 'AD_NOT_FOUND', message: 'آگهی یافت نشد' });
     }
-    // ✅ گیتِ واحد — مالکِ کاتالوگ یا تیمِ بازاری که کارِ کاتالوگ به آن واگذار شده
+    // ✅ گیتِ واحد — مالکِ بازوی فروش یا تیمِ بازاری که کارِ بازوی فروش به آن واگذار شده
     await this.catalogAccess.assertCanManageCatalog(ad.catalogId, userId, {
         message: 'شما اجازه تعیین دستهٔ بازاری این کالا را ندارید',
     });
@@ -1262,7 +1262,7 @@ async setOwnAdCategory(userId: string, adId: string, categoryId: string) {
 // ۱۰) کالاهای «کاربر» منتشرشده در بازار که دستهٔ بازاری ندارند
 // ============================================================
 async getMyNeedsCategory(userId: string) {
-    // ✅ کاتالوگ‌هایی که مالکشان هستم — مالکیت مستقیم روی کاتالوگ
+    // ✅ بازوی فروش‌هایی که مالکشان هستم — مالکیت مستقیم روی بازوی فروش
     const myCatalogIds = (
         await this.prisma.catalog.findMany({
             where: { ownerUserId: userId },
@@ -1314,7 +1314,7 @@ async getMyNeedsCategory(userId: string) {
 }
 
 // ============================================================
-// ۱۱) کاتالوگ‌های عضو بازار (سازگاری با تب «کاتالوگ‌های بازار» قدیمی)
+// ۱۱) بازوی فروش‌های عضو بازار (سازگاری با تب «بازوی فروش‌های بازار» قدیمی)
 // ============================================================
 async getCatalogs(
     slug: string,
@@ -1350,7 +1350,7 @@ private async getMembershipByCatalog(armId: string, catalogId: string) {
         where: { armId, catalogId },
     });
     if (!membership) {
-        throw new NotFoundException({ errorCode: 'NOT_MEMBER', message: 'این کاتالوگ عضو این بازار نیست' });
+        throw new NotFoundException({ errorCode: 'NOT_MEMBER', message: 'این بازوی فروش عضو این بازار نیست' });
     }
     return membership;
 }

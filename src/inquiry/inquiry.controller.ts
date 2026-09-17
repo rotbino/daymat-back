@@ -90,7 +90,7 @@ export class InquiryController {
     }
 
     // ⚠️ قبل از :idOrSlug — وگرنه greedy می‌شود
-    // ✅ فضای اسلاگ سراسری (کاتالوگ + بازار + صفحهٔ اعلان خرید) — چک زندهٔ فرم ساخت/ویرایش
+    // ✅ فضای اسلاگ سراسری (بازوی فروش + بازار + صفحهٔ اعلان خرید) — چک زندهٔ فرم ساخت/ویرایش
     @Get('check-slug')
     @ApiOperation({ summary: 'بررسی آزاد بودن آدرس صفحهٔ اعلان خرید' })
     @ApiQuery({ name: 'slug', required: true })
@@ -166,7 +166,7 @@ export class InquiryController {
         return this.inquiryService.finalize(id, user.id, dto.outcome);
     }
 
-    // 🪪 کارت ویزیت بازوی خرید — قرینهٔ کاتالوگ قیمت (ذخیره/حذف JSON در metadata)
+    // 🪪 کارت ویزیت بازوی خرید — قرینهٔ بازوی فروش قیمت (ذخیره/حذف JSON در metadata)
     @Patch(':id/visit-card')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
@@ -246,7 +246,7 @@ export class InquiryController {
     @Get(':id/supplier-candidates')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'جست‌وجوی کاتالوگ قیمت برای درخواست تامین (مالک) — با فیلتر استان/شهر/صنف' })
+    @ApiOperation({ summary: 'جست‌وجوی بازوی فروش قیمت برای درخواست تامین (مالک) — با فیلتر استان/شهر/صنف' })
     supplierCandidates(
         @Param('id') id: string,
         @CurrentUser() user: any,
@@ -269,7 +269,7 @@ export class InquiryController {
     @Post(':id/request-access')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'درخواست عضویت تامین‌کننده با کاتالوگ قیمتش — تایید با خریدار' })
+    @ApiOperation({ summary: 'درخواست عضویت تامین‌کننده با بازوی فروش قیمتش — تایید با خریدار' })
     requestAccess(@Param('id') id: string, @CurrentUser() user: any, @Body() dto: RequestInquiryAccessDto) {
         return this.inquiryService.requestAccess(id, user.id, dto);
     }

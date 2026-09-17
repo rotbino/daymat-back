@@ -18,7 +18,7 @@ import { Cache } from 'cache-manager';
 const EPOCH_TTL_MS = 24 * 60 * 60 * 1000;
 
 /** namespace کش تابلوی بازار (ویترین) — بعد از هر تغییر وضعیت انتشار باید bust شود
- *  وگرنه مکث/حذف کاتالوگ تا ۵ دقیقه در تابلو اعمال نمی‌شود */
+ *  وگرنه مکث/حذف بازوی فروش تا ۵ دقیقه در تابلو اعمال نمی‌شود */
 export const VITRINE_CACHE_PREFIX = 'vitrine';
 
 /** حداکثر تعداد کلید «گرم» نگه‌داری‌شده برای rewarm هر namespace */

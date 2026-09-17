@@ -128,7 +128,7 @@ async function printStats() {
     console.log('\n📊 آمار نهایی دیتابیس:');
     console.log('─'.repeat(40));
     console.log(`   👤 کاربران: ${stats.users}`);
-    console.log(`   🏢 کاتالوگها: ${stats.cataloges}`);
+    console.log(`   🏢 بازوی فروشها: ${stats.cataloges}`);
     console.log(`   🏗️  بازارها: ${stats.arms}`);
     console.log(`   📦 دسته‌بندی‌ها: ${stats.categories}`);
     console.log(`   📍 موقعیت‌ها: ${stats.locations}`);

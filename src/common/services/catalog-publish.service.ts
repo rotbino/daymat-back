@@ -1,6 +1,6 @@
 // src/common/services/catalog-publish.service.ts
 // ========================================================================
-// موتور انتشار کاتالوگ در بازار — نسخه ۲ (با AdPublication)
+// موتور انتشار بازوی فروش در بازار — نسخه ۲ (با AdPublication)
 // ========================================================================
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -19,7 +19,7 @@ export class CatalogPublishService {
 
     /**
      * تابلوی بازار (ویترین) کش ۵ دقیقه‌ای دارد — بعد از هر تغییر وضعیت انتشار باید بشکند،
-     * وگرنه مکث/حذف/برگشت کاتالوگ تا ۵ دقیقه در تابلو اعمال نمی‌شود
+     * وگرنه مکث/حذف/برگشت بازوی فروش تا ۵ دقیقه در تابلو اعمال نمی‌شود
      * (باگ واقعی: مالک بازار عضویت را متوقف می‌کند ولی آگهی‌ها هنوز نمایش داده می‌شوند)
      */
     private async bustVitrineCache(): Promise<void> {
@@ -65,7 +65,7 @@ export class CatalogPublishService {
             return { stamped: 0, needsCategory: [] };
         }
 
-        // ✅ publicationهای موجود این کاتالوگ در این بازار — برای حفظ دستهٔ دستی و رد کردن optOut
+        // ✅ publicationهای موجود این بازوی فروش در این بازار — برای حفظ دستهٔ دستی و رد کردن optOut
         const existingPubs = await this.prisma.adPublication.findMany({
             where: { catalogId, armId: arm.id },
             select: { adId: true, categoryId: true, categoryPath: true, optOut: true },
@@ -300,7 +300,7 @@ export class CatalogPublishService {
 
     /**
      * برداشتن مهرِ تک‌آگهی از یک بازار — برخلاف unstampCatalogAds فقط همان آگهی است
-     * + optOut ثبت می‌شود تا re-stamp کلیِ کاتالوگ آن را دوباره منتشر نکند
+     * + optOut ثبت می‌شود تا re-stamp کلیِ بازوی فروش آن را دوباره منتشر نکند
      */
     async unpublishAdFromArm(adId: string, armId: string): Promise<void> {
         await this.prisma.$transaction(async (tx) => {
@@ -320,7 +320,7 @@ export class CatalogPublishService {
     }
 
     /**
-     * تغییر وضعیت همهٔ publicationهای یک کاتالوگ در یک بازار — برای مکث/فعال‌سازی عضویت
+     * تغییر وضعیت همهٔ publicationهای یک بازوی فروش در یک بازار — برای مکث/فعال‌سازی عضویت
      * (دسته‌بندی‌ها و optOut حفظ می‌شوند)
      */
     async setPublicationsStatus(catalogId: string, armId: string, status: 'paused' | 'published'): Promise<void> {

@@ -34,7 +34,7 @@ export class ArmAppearanceConfigDto {
     @IsBoolean()
     showVerifiedBadge: boolean;
 
-    @ApiProperty({ example: true, description: 'نمایش نام کاتالوگ' })
+    @ApiProperty({ example: true, description: 'نمایش نام بازوی فروش' })
     @IsBoolean()
     showCompanyName: boolean;
 
@@ -82,7 +82,7 @@ export class ArmFeaturesConfigDto {
     @IsBoolean()
     subscriptionEnabled: boolean;
 
-    @ApiProperty({ example: true, description: 'نیاز به نام کاتالوگ' })
+    @ApiProperty({ example: true, description: 'نیاز به نام بازوی فروش' })
     @IsBoolean()
     requireCatalogName: boolean;
 
@@ -90,7 +90,7 @@ export class ArmFeaturesConfigDto {
     @IsBoolean()
     requireCity: boolean;
 
-    @ApiProperty({ example: true, description: 'نیاز به نوع کاتالوگ' })
+    @ApiProperty({ example: true, description: 'نیاز به نوع بازوی فروش' })
     @IsBoolean()
     requireType: boolean;
 
@@ -98,7 +98,7 @@ export class ArmFeaturesConfigDto {
     @IsBoolean()
     autoApproveAds: boolean;
 
-    @ApiProperty({ example: false, description: 'نیاز به مجوز کاتالوگ' })
+    @ApiProperty({ example: false, description: 'نیاز به مجوز بازوی فروش' })
     @IsBoolean()
     requireCatalogLicense: boolean;
 
@@ -613,7 +613,7 @@ export class CreateArmDto {
 
     @ApiProperty({
         example: ['wholesale', 'retail'],
-        description: 'انواع کاتالوگ پذیرفته‌شده در بازار — خالی یا ناموجود = بدون محدودیت',
+        description: 'انواع بازوی فروش پذیرفته‌شده در بازار — خالی یا ناموجود = بدون محدودیت',
         required: false,
         type: [String],
         enum: ['retail', 'wholesale', 'service'],

@@ -34,13 +34,13 @@ enum ArmRole {
 }
 
 // ============================================================
-// نقش‌های سطح کاتالوگ (Catalog) — نقشِ «سیستمی» (چه کسی اداره می‌کند)
+// نقش‌های سطح بازوی فروش (Catalog) — نقشِ «سیستمی» (چه کسی اداره می‌کند)
 // نقش‌های «بیزینسی» (فروشنده/خریدار) لِین‌های جدا در CatalogMember هستند
 // ============================================================
 enum CatalogRole {
-  catalog_owner  // مالک کاتالوگ (مدیر فروش آنلاین) — نشانه‌گذاری رکورد؛ ملاکِ واقعیِ مالکی: Business.ownerUserId (مشتق)
-  catalog_admin  // ادمین کاتالوگ — توسط مالک منصوب می‌شود؛ در مدیریت کاتالوگ سهیم است (ویرایش محصول/قیمت/انتشار) به‌جز انتقال مالکیت
-  catalog_member // عضو عادی کاتالوگ (همکار فروش، خریدار یا تامین‌کننده)
+  catalog_owner  // مالک بازوی فروش (مدیر فروش آنلاین) — نشانه‌گذاری رکورد؛ ملاکِ واقعیِ مالکی: Business.ownerUserId (مشتق)
+  catalog_admin  // ادمین بازوی فروش — توسط مالک منصوب می‌شود؛ در مدیریت بازوی فروش سهیم است (ویرایش محصول/قیمت/انتشار) به‌جز انتقال مالکیت
+  catalog_member // عضو عادی بازوی فروش (همکار فروش، خریدار یا تامین‌کننده)
 }
 
 model VerificationCode {
@@ -109,7 +109,7 @@ model User {
   teamMemberships          BusinessMember[]       @relation("BizMemberUser") // ✅ کسب‌وکارهایی که کارمند/عضوشان است (تیم کسب‌وکار)
   businesses               Business[]             @relation("BizOwner") // ⚠️ legacy — کسب‌وکارهایی که قبلاً مالکشان بود
   businessesCreated        Business[]             @relation("BizCreator") // ✅ کسب‌وکارهایی که ثبت‌کنندهٔ اولشان است
-  catalogsOwned            Catalog[]              @relation("CatalogOwner") // ✅ کاتالوگ‌هایی که مالکشان است
+  catalogsOwned            Catalog[]              @relation("CatalogOwner") // ✅ بازوی فروش‌هایی که مالکشان است
   ads                      Ad[]                   @relation("AdCreator")
   callEvents               CallEvent[]
   files                    File[]
@@ -126,9 +126,9 @@ model User {
   feedbacks                Feedback[]
   searchLogs               SearchLog[]
   catalogInteractions      CatalogInteraction[]
-  catalogMemberships       CatalogMember[]        @relation("CatMemberUser") // کاتالوگ‌هایی که عضوشان است (همکار فروش/خریدار/تامین‌کننده/مدیر)
+  catalogMemberships       CatalogMember[]        @relation("CatMemberUser") // بازوی فروش‌هایی که عضوشان است (همکار فروش/خریدار/تامین‌کننده/مدیر)
   catalogAssignedCustomers CatalogMember[]        @relation("CatMemberAssignee") // خریدارهایی که به او به‌عنوان مسئول فروش منتسب شده‌اند
-  inquiryMemberships       InquiryMember[]        @relation("InqMemberUser") // ✅ کاتالوگ‌های خریدی که (با کاتالوگ فروشش) تامین‌کنندهٔشان است
+  inquiryMemberships       InquiryMember[]        @relation("InqMemberUser") // ✅ بازوی فروش‌های خریدی که (با بازوی فروش فروشش) تامین‌کنندهٔشان است
   savedInquiries           SavedInquiry[]         @relation("SavedInquiryUser") // ✅ بازوهای خرید ذخیره‌شده — سوییچرِ تامین‌کننده بین خریدارها
   catalogTeamEvents        CatalogTeamEvent[]     @relation("CatTeamEventUser") // رویدادهای تیمیِ مربوط به کاربر
   phoneContacts            UserContact[]          @relation("ContactOwner")       // ✅ دفترچهٔ مخاطبینِ آپلودشدهٔ کاربر
@@ -186,11 +186,11 @@ model Business {
   leaveRequests      ArmLeaveRequest[]      @relation("ArmLeaveRequests")
   catalogs           Catalog[]              @relation("BusinessCatalogs")
   members            BusinessMember[]       @relation("BizMembers")           // ✅ کارکنان کسب‌وکار (تیم کسب‌وکار)
-  catalogSellerLanes   CatalogMember[] @relation("CatMemberSellerBiz")   // کاتالوگ‌هایی که این کسب‌وکار از طریقشان می‌فروشد (همکار فروش)
-  catalogCustomerLanes CatalogMember[] @relation("CatMemberCustomerBiz") // کاتالوگ‌هایی که این کسب‌وکار خریدارشان است
+  catalogSellerLanes   CatalogMember[] @relation("CatMemberSellerBiz")   // بازوی فروش‌هایی که این کسب‌وکار از طریقشان می‌فروشد (همکار فروش)
+  catalogCustomerLanes CatalogMember[] @relation("CatMemberCustomerBiz") // بازوی فروش‌هایی که این کسب‌وکار خریدارشان است
   verifications      Verification[]         @relation("BusinessVerification")
   activities         BusinessActivity[]     @relation("BusinessActivity") // ✅ از Catalog برگشت
-  inquiries          Inquiry[]              @relation("InquiryBusiness") // ✅ کاتالوگ‌های خریدِ صادرشدهٔ این کسب‌وکار
+  inquiries          Inquiry[]              @relation("InquiryBusiness") // ✅ بازوی فروش‌های خریدِ صادرشدهٔ این کسب‌وکار
 
   @@index([ownerUserId])
   @@index([creatorUserId])
@@ -204,7 +204,7 @@ model Catalog {
   id               String    @id @default(auto()) @map("_id") @db.ObjectId
   referredByCode   String?
   referredByUserId String?   @db.ObjectId
-  // ✅ مالک مستقیم کاتالوگ — کاربری که کاتالوگ را ساخته (حتی اگر کسب‌وکارِ آن مال او نباشد)
+  // ✅ مالک مستقیم بازوی فروش — کاربری که بازوی فروش را ساخته (حتی اگر کسب‌وکارِ آن مال او نباشد)
   ownerUserId      String    @db.ObjectId
   owner            User      @relation("CatalogOwner", fields: [ownerUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   name             String
@@ -225,7 +225,7 @@ model Catalog {
   phone            String
   website          String?
   logoUrl          String?
-  // ✅ کاتالوگ خصوصی — قیمت‌ها فقط برای مالک و اعضای پذیرفته‌شده (درخواست ارتباط تجاری) نمایش داده می‌شود
+  // ✅ بازوی فروش خصوصی — قیمت‌ها فقط برای مالک و اعضای پذیرفته‌شده (درخواست ارتباط تجاری) نمایش داده می‌شود
   isPrivate        Boolean   @default(false)
   status           String    @default("active")
   metadata         Json?
@@ -233,10 +233,10 @@ model Catalog {
   updatedAt        DateTime  @updatedAt
 
   files               File[]
-  members             CatalogMember[]    @relation("CatMemberCatalog") // اعضای کاتالوگ (مالک/مدیر/همکار فروش/خریدار)
-  supplierMemberships CatalogMember[]    @relation("CatMemberSupplierCatalog") // کاتالوگ‌هایی که این کاتالوگ ازشان تامین می‌کند
-  serviceMemberships  CatalogMember[]    @relation("CatMemberServiceCatalog") // کاتالوگ‌هایی که این کاتالوگ برایشان خدمات ارائه می‌کند
-  inquirySupplierMemberships InquiryMember[] @relation("InqMemberSupplierCatalog") // ✅ کاتالوگ‌های خریدی که این کاتالوگ تامین‌کنندهٔ تاییدشدهٔشان است
+  members             CatalogMember[]    @relation("CatMemberCatalog") // اعضای بازوی فروش (مالک/مدیر/همکار فروش/خریدار)
+  supplierMemberships CatalogMember[]    @relation("CatMemberSupplierCatalog") // بازوی فروش‌هایی که این بازوی فروش ازشان تامین می‌کند
+  serviceMemberships  CatalogMember[]    @relation("CatMemberServiceCatalog") // بازوی فروش‌هایی که این بازوی فروش برایشان خدمات ارائه می‌کند
+  inquirySupplierMemberships InquiryMember[] @relation("InqMemberSupplierCatalog") // ✅ بازوی فروش‌های خریدی که این بازوی فروش تامین‌کنندهٔ تاییدشدهٔشان است
   teamEvents          CatalogTeamEvent[] @relation("CatTeamEventCatalog")
   ads                 Ad[]
   armMemberships      ArmMembership[]
@@ -246,7 +246,7 @@ model Catalog {
   trustMetrics        TrustMetric[]
   creditRequests      CreditRequest[]
   catalogInteractions CatalogInteraction[]
-  connectionRequests  ConnectionRequestLog[] @relation("ConnReqCatalog") // دفتر درخواست‌های ارتباطی ارسالی به این کاتالوگ
+  connectionRequests  ConnectionRequestLog[] @relation("ConnReqCatalog") // دفتر درخواست‌های ارتباطی ارسالی به این بازوی فروش
 
   businessId String   @db.ObjectId
   business   Business @relation("BusinessCatalogs", fields: [businessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -282,10 +282,10 @@ model Verification {
 
 // ============================================================
 // تیم کسب‌وکار (BusinessMember) — کارکنان و اعضای یک کسب‌وکار:
-//   کسب‌وکار «مرجع» است و مالکِ شخصی ندارد؛ هرکس کاتالوگش را به یک کسب‌وکار
+//   کسب‌وکار «مرجع» است و مالکِ شخصی ندارد؛ هرکس بازوی فروشش را به یک کسب‌وکار
 //   وصل کند، با پست/سمتِ انتخابی‌اش به‌عنوان عضو این کسب‌وکار ثبت می‌شود.
 //   (بازنویسی‌شده از TeamMember قدیمی که اشتباهاً به Catalog وصل بود —
-//    عضویتِ تیمِ کاتالوگ حالا فقط در CatalogMember است.)
+//    عضویتِ تیمِ بازوی فروش حالا فقط در CatalogMember است.)
 // ============================================================
 model BusinessMember {
   id            String   @id @default(auto()) @map("_id") @db.ObjectId
@@ -296,7 +296,7 @@ model BusinessMember {
 
   role         String   @default("member") // member — رزرو برای نقش‌های سیستمی آینده
   position     String? // پست/سمت نمایشی در کسب‌وکار (مثل «مدیر فروش»)
-  viaCatalogId String?  @db.ObjectId // کاتالوگی که عضویت با آن ثبت شد
+  viaCatalogId String?  @db.ObjectId // بازوی فروشی که عضویت با آن ثبت شد
   invitedBy    String?  @db.ObjectId
   status       String   @default("active") // active | removed
   createdAt    DateTime @default(now())
@@ -308,19 +308,19 @@ model BusinessMember {
 }
 
 // ============================================================
-// تیم کاتالوگ (CatalogMember) — عضویتِ کاربر در تیمِ یک کاتالوگ:
-//   کاتالوگ ابزار ارتباطات تجاری در هر دسته‌بندی کالاست (پخش فقط یک نمونه است):
-//   مالک کاتالوگ اعضا را مدیریت می‌کند؛ همکاران فروش (فروشنده/ویزیتور) کالا تکرار نمی‌کنند
+// تیم بازوی فروش (CatalogMember) — عضویتِ کاربر در تیمِ یک بازوی فروش:
+//   بازوی فروش ابزار ارتباطات تجاری در هر دسته‌بندی کالاست (پخش فقط یک نمونه است):
+//   مالک بازوی فروش اعضا را مدیریت می‌کند؛ همکاران فروش (فروشنده/ویزیتور) کالا تکرار نمی‌کنند
 //   و خریدارها به مسئول فروشِ خودشان منتسب می‌شوند تا تماسشان مسیریابی شود؛
-//   تامین‌کننده‌ها با کاتالوگِ خودشان عضو می‌شوند (شبکه‌سازی بین کاتالوگ‌ها).
-//   ورود به همهٔ لِین‌ها از یک در: «درخواست همکاری» روی کاتالوگ + تایید مدیر (مالک کاتالوگ).
+//   تامین‌کننده‌ها با بازوی فروشِ خودشان عضو می‌شوند (شبکه‌سازی بین بازوی فروش‌ها).
+//   ورود به همهٔ لِین‌ها از یک در: «درخواست همکاری» روی بازوی فروش + تایید مدیر (مالک بازوی فروش).
 //
 //   نقش سیستمی (role):   catalog_owner (نشانه‌گذار؛ ملاک = Business.ownerUserId)
 //                        catalog_admin (منصوبِ مالک — سهیم در مدیریت) | catalog_member
 //   لِین‌های بیزینسی:     همکار فروش (فروشنده/ویزیتور — sellerBusinessId + منطقهٔ فروش)
 //                        خریدار (customerBusinessId — منتسب به مسئول فروش)
-//                        تامین‌کننده (supplierCatalogId — عضویت با کاتالوگِ خودش)
-//   یک رکورد برای هر کاربر در هر کاتالوگ — می‌تواند همزمان چند لِین داشته باشد
+//                        تامین‌کننده (supplierCatalogId — عضویت با بازوی فروشِ خودش)
+//   یک رکورد برای هر کاربر در هر بازوی فروش — می‌تواند همزمان چند لِین داشته باشد
 //   (مثلاً مالک که خودش هم فروشنده است).
 //   همهٔ تاریخ‌ها و عامل‌ها + CatalogTeamEvent برای شکایت‌ها — هم‌راستا با ArmMembership.
 // ============================================================
@@ -336,7 +336,7 @@ model CatalogMember {
   position    String? // سمت نمایشی (مثل «مدیر فروش آنلاین»)
   permissions Json?       // رزرو برای دسترسی‌های ریزدانهٔ آینده
 
-  // ── لِین فروش ── مالک به‌طور پیش‌فرض فروشندهٔ فعال کاتالوگ خودش است
+  // ── لِین فروش ── مالک به‌طور پیش‌فرض فروشندهٔ فعال بازوی فروش خودش است
   sellerBusinessId String?   @db.ObjectId
   sellerBusiness   Business? @relation("CatMemberSellerBiz", fields: [sellerBusinessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   sellerStatus     String? // pending | active | declined | removed — null = اصلاً در لِین فروش نیست (declined = دعوت رد شده — دعوت‌کننده می‌بیند)
@@ -360,15 +360,15 @@ model CatalogMember {
   assignedSellerUser   User?    @relation("CatMemberAssignee", fields: [assignedSellerUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   assignedAt           DateTime?
 
-  // ── لِین تامین‌کننده ── عضویت با کاتالوگِ خودِ تامین‌کننده (شبکه‌سازی بین کاتالوگ‌ها)
+  // ── لِین تامین‌کننده ── عضویت با بازوی فروشِ خودِ تامین‌کننده (شبکه‌سازی بین بازوی فروش‌ها)
   supplierCatalogId String?  @db.ObjectId
   supplierCatalog   Catalog? @relation("CatMemberSupplierCatalog", fields: [supplierCatalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   supplierStatus    String? // pending | active | declined | removed — null = تامین‌کننده نیست (declined = دعوت رد شده)
-  supplierVia       String? // self_request | manager_add — مسیر ورود به لِین (manager_add = تایید با صاحبِ کاتالوگِ تامین‌کننده)
+  supplierVia       String? // self_request | manager_add — مسیر ورود به لِین (manager_add = تایید با صاحبِ بازوی فروشِ تامین‌کننده)
   supplierJoinedAt  DateTime?
   supplierLeftAt    DateTime?
 
-  // ── لِین سرویس‌دهندهٔ خدمات ── عضویت با کاتالوگِ خدماتیِ خود (salesType=service) — چرخهٔ تجارت خدمات
+  // ── لِین سرویس‌دهندهٔ خدمات ── عضویت با بازوی فروشِ خدماتیِ خود (salesType=service) — چرخهٔ تجارت خدمات
   serviceCatalogId String?  @db.ObjectId
   serviceCatalog   Catalog? @relation("CatMemberServiceCatalog", fields: [serviceCatalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   serviceStatus    String? // pending | active | declined | removed — null = سرویس‌دهنده نیست (declined = دعوت رد شده)
@@ -376,12 +376,12 @@ model CatalogMember {
   serviceJoinedAt  DateTime?
   serviceLeftAt    DateTime?
 
-  // ── شهر/استانِ لحظهٔ درخواست همکاری — مالک کاتالوگ می‌بیند
+  // ── شهر/استانِ لحظهٔ درخواست همکاری — مالک بازوی فروش می‌بیند
   memberCity     String?
   memberProvince String?
 
   invitedBy String?   @db.ObjectId
-  joinedAt  DateTime  @default(now()) // ورود به تیم کاتالوگ
+  joinedAt  DateTime  @default(now()) // ورود به تیم بازوی فروش
   leftAt    DateTime? // خروج از تیم (اگر هیچ لِینی فعال نماند)
   leftVia   String? // member_request | owner_direct
   createdAt DateTime  @default(now())
@@ -396,7 +396,7 @@ model CatalogMember {
   @@index([supplierCatalogId])
 }
 
-// تاریخچهٔ تیم کاتالوگ — هر تغییر نقش/لِین/انتساب یک رویداد با عامل ثبت می‌شود (برای شکایت‌ها)
+// تاریخچهٔ تیم بازوی فروش — هر تغییر نقش/لِین/انتساب یک رویداد با عامل ثبت می‌شود (برای شکایت‌ها)
 model CatalogTeamEvent {
   id          String   @id @default(auto()) @map("_id") @db.ObjectId
   catalogId   String   @db.ObjectId
@@ -519,7 +519,7 @@ model Arm {
   geoScopeType             String
   defaultUnitId            String?                @db.ObjectId
   featuresEnabled          String[]               @default([])
-  // ✅ انواع کاتالوگ پذیرفته‌شده در بازار (retail | wholesale | service) — خالی = بدون محدودیت
+  // ✅ انواع بازوی فروش پذیرفته‌شده در بازار (retail | wholesale | service) — خالی = بدون محدودیت
   //    ملاک گارد عضویت و فیلتر تابلوی قیمت؛ fallback لگسی: config.modules.priceTable.visibleSalesTypes
   acceptedCatalogTypes     String[]               @default([])
   // ✅ بازار خصوصی (مثل کانال خصوصی تلگرام) — قیمت‌ها و امکانات فقط برای اعضای تاییدشده؛
@@ -560,8 +560,8 @@ model Arm {
 // ============================================================
 // پیوستن به بازار — دو-مرحله‌ای:
 //   userId     → انسانِ عضو (دیدن، سرچ، تماس، خرید = حقوق خریدار)
-//   businessId → کلاهِ کاری عضویت (کسب‌وکارِ خریدار، یا نهادِ کاتالوگِ فروشنده)
-//   catalogId  → مجوز نوشتن (فقط فروشنده — کاتالوگی که روی تابلو اجازهٔ انتشار دارد)
+//   businessId → کلاهِ کاری عضویت (کسب‌وکارِ خریدار، یا نهادِ بازوی فروشِ فروشنده)
+//   catalogId  → مجوز نوشتن (فقط فروشنده — بازوی فروشی که روی تابلو اجازهٔ انتشار دارد)
 // ============================================================
 model ArmMembership {
   id     String @id @default(auto()) @map("_id") @db.ObjectId
@@ -570,9 +570,9 @@ model ArmMembership {
   userId String @db.ObjectId
   user   User   @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  publishState String? // 'published' | 'paused' | null — وضعیت انتشار کاتالوگ در بازار
+  publishState String? // 'published' | 'paused' | null — وضعیت انتشار بازوی فروش در بازار
 
-  // ✅ تابلوی اعلام‌های خرید بازار — اعلام خریدِ عضو + وضعیت انتشارش (قرینهٔ کاتالوگ)
+  // ✅ تابلوی اعلام‌های خرید بازار — اعلام خریدِ عضو + وضعیت انتشارش (قرینهٔ بازوی فروش)
   inquiryId           String?  @db.ObjectId
   inquiryPublishState String?  // 'published' | 'paused' | null
 
@@ -610,7 +610,7 @@ model ArmMembership {
   // ✅ عاملِ لغو عضویت — برای پرونده و شکایت‌ها:
   //    member_request = درخواست لغویِ عضو که مالک تایید کرد | owner_direct = حذف مستقیم توسط مالک/ادمین بازار
   leftVia            String?
-  // ✅ ردِ خروجِ اختیاریِ فروشنده: کاتالوگش را خودش خواستار خروج شده —
+  // ✅ ردِ خروجِ اختیاریِ فروشنده: بازوی فروشش را خودش خواستار خروج شده —
   //    مدیر نباید اشتباهی دوباره اددش کند (گارد addSeller + بج در کاندیدها)
   selfRemovedCatalog Boolean   @default(false)
 
@@ -628,7 +628,7 @@ model ArmMembership {
 
 // ============================================================
 // درخواست عضویت در بازار خصوصی — جایگزین سازوکار قدیمی «membership با status pending»:
-//   کاربر شرایط را می‌خواند، نقش (خریدار/فروشنده) و کسب‌وکار/کاتالوگ را مشخص می‌کند
+//   کاربر شرایط را می‌خواند، نقش (خریدار/فروشنده) و کسب‌وکار/بازوی فروش را مشخص می‌کند
 //   و درخواستش به صف بررسی مالک/ادمین بازار می‌رود.
 //   تایید → ساخت/به‌روزرسانی ArmMembership فعال؛ رد → ذخیرهٔ دلیل برای نمایش به کاربر.
 // ============================================================
@@ -639,12 +639,12 @@ model ArmMembershipRequest {
   userId String @db.ObjectId
   user   User   @relation("ArmMembershipRequests", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  // ✅ نقش درخواست‌شده — خریدار (دیدن قیمت/خرید) یا فروشنده (انتشار کاتالوگ)
+  // ✅ نقش درخواست‌شده — خریدار (دیدن قیمت/خرید) یا فروشنده (انتشار بازوی فروش)
   roleType   String // 'buyer' | 'seller'
   // خریدار: با کدام کسب‌وکار می‌خواهد خریدار شود
   businessId String?   @db.ObjectId
   business   Business? @relation("ArmMembershipRequests", fields: [businessId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  // فروشنده: قیمت‌های کدام کاتالوگ را می‌خواهد در بازار ببیند/بدهد
+  // فروشنده: قیمت‌های کدام بازوی فروش را می‌خواهد در بازار ببیند/بدهد
   catalogId  String?   @db.ObjectId
   catalog    Catalog?  @relation("ArmMembershipRequests", fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
@@ -661,7 +661,7 @@ model ArmMembershipRequest {
 
 // ============================================================
 // درخواست لغو عضویت — خروجِ عضو فقط با تصمیمِ مالکِ بازار (نه ادمین سیستم):
-//   عضو (خریدار از مدال عضویت، فروشنده از بخش «انتشار در بازارها»ی پنل کاتالوگ)
+//   عضو (خریدار از مدال عضویت، فروشنده از بخش «انتشار در بازارها»ی پنل بازوی فروش)
 //   درخواست لغو می‌دهد → درخواست در پنل مالک می‌آید → مالک لغو را تایید می‌کند
 //   (leftAt/leftVia/رویداد/selfRemovedCatalog ثبت می‌شود) یا با دلیل رد می‌کند.
 //   عضو می‌تواند درخواستِ در انتظارش را پس بگیرد (withdrawn).
@@ -676,7 +676,7 @@ model ArmLeaveRequest {
 
   // نقشی که درخواستِ لغویش را داده — buyer | seller
   roleType   String
-  // فروشنده: کدام کاتالوگ از بازار خارج شود
+  // فروشنده: کدام بازوی فروش از بازار خارج شود
   catalogId  String?   @db.ObjectId
   catalog    Catalog?  @relation("ArmLeaveRequests", fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   // خریدار: کدام کسب‌وکار از بازار خارج شود
@@ -733,8 +733,8 @@ model ArmMembershipEvent {
 }
 
 // ============================================================
-// واگذاری کارِ کاتالوگ به تیم بازار:
-//   مالکِ کسب‌وکار (فروشندهٔ بازار) کارهای کاتالوگش (محصول‌ها، قیمت‌ها، انتشار)
+// واگذاری کارِ بازوی فروش به تیم بازار:
+//   مالکِ کسب‌وکار (فروشندهٔ بازار) کارهای بازوی فروشش (محصول‌ها، قیمت‌ها، انتشار)
 //   را به تیمِ بازار (مالک + ادمین‌های بازار) واگذار می‌کند تا به‌جایش انجام دهند —
 //   چون معمولاً خودش وقت ندارد. مالکِ کسب‌وکار هر وقت بخواهد پس می‌گیرد؛
 //   مالکِ بازار هم می‌تواند واگذاری را لغو کند.
@@ -743,19 +743,19 @@ model ArmMembershipEvent {
 // ============================================================
 // ============================================================
 // آگهی — عرضهٔ یک کالا/قیمت
-//   catalogId          → کاتالوگ مالک (الزامی)
-//   catalogCategoryId  → دسته در درختِ خصوصیِ کاتالوگ (همیشه پر؛ از فرم ثبت کالا)
+//   catalogId          → بازوی فروش مالک (الزامی)
+//   catalogCategoryId  → دسته در درختِ خصوصیِ بازوی فروش (همیشه پر؛ از فرم ثبت کالا)
 //   categoryId/categoryPath → دسته روی تابلوی بازار — اختیاری؛ فقط هنگام
 //                        مهرِ انتشار (stampCatalogAds) پر می‌شود. null = بی‌دسته در بازار
 //                        (کاربر باید از داشبورد یا مالک بازار از پنل تعیین کند)
-//   armId              → مهر انتشار؛ null = فقط در کاتالوگ نمایش داده می‌شود
+//   armId              → مهر انتشار؛ null = فقط در بازوی فروش نمایش داده می‌شود
 // ============================================================
 model Ad {
   id              String  @id @default(auto()) @map("_id") @db.ObjectId
   armId           String? @db.ObjectId
-  publishToMarket Boolean @default(true) // نمایش در تابلوی بازار (کاتالوگ همیشه نشان می‌دهد)
+  publishToMarket Boolean @default(true) // نمایش در تابلوی بازار (بازوی فروش همیشه نشان می‌دهد)
 
-  catalogCategoryId String? // گره در درختِ خصوصیِ کاتالوگ
+  catalogCategoryId String? // گره در درختِ خصوصیِ بازوی فروش
   categoryId        String? // ✅ دسته روی تابلوی بازار — اختیاری؛ هنگام انتشار پر می‌شود
   categoryPath      String[] @default([]) // ✅ مسیر کامل دستهٔ بازاری (فیلتر + سئو)
 
@@ -964,7 +964,7 @@ model Inquiry {
   viewCount  Int @default(0)
   offerCount Int @default(0)              // شمارندهٔ غیرنرمال برای نمایش سریع
 
-  // ✅ واحدهای اختصاصیِ این اعلام خرید (مثل کاتالوگ فروش) — [{ unitId: string }]
+  // ✅ واحدهای اختصاصیِ این اعلام خرید (مثل بازوی فروش فروش) — [{ unitId: string }]
   //    در فرم ساخت/ویرایش، سلکتِ واحد اقلام از همین + واحدهای مرجع پر می‌شود
   units Json?
 
@@ -974,7 +974,7 @@ model Inquiry {
   // ✅ امکان ارسال قیمت برای خریدهای غیر فوری (سایر کالاها) — خریدار در تنظیمات کنترل می‌کند؛
   //    خاموش = تامین‌کننده فقط روی اقلام با «اعلام خرید فعال» قیمت می‌دهد
   allowNonUrgentOffers Boolean @default(true)
-  // ✅ مهاجرت یک‌بارهٔ کاتالوگ‌های قدیمی (اقلامشان در مدل قدیمی همه درخواست بودند → اعلام خرید فعال)
+  // ✅ مهاجرت یک‌بارهٔ بازوی فروش‌های قدیمی (اقلامشان در مدل قدیمی همه درخواست بودند → اعلام خرید فعال)
   legacyUrgentMigrated Boolean @default(false)
 
   // ☎️ نمایش شمارهٔ تماس خریدار به بازدیدکنندگان — خود خریدار در «تنظیمات بازوی خرید» تصمیم می‌گیرد
@@ -1013,10 +1013,10 @@ model InquiryItem {
   brand           String?           // اختیاری — برند یا سازندهٔ مدنظر
   specs           Json?             // اختیاری — [{ key, value }] مشخصات فنی قطعه
   imageUrl        String?           // اختیاری — عکس کالا/قطعه
-  referenceUrl    String?           // اختیاری — لینک نمونه یا کاتالوگ سازنده
+  referenceUrl    String?           // اختیاری — لینک نمونه یا بازوی فروش سازنده
   note            String?
   order           Int     @default(0)
-  // ✅ اعلام خرید فعال — قلم بالای کاتالوگ عمومی در «درخواست‌های خرید جاری» می‌نشیند
+  // ✅ اعلام خرید فعال — قلم بالای بازوی فروش عمومی در «درخواست‌های خرید جاری» می‌نشیند
   //    و تامین‌کننده‌ها می‌توانند رویش قیمت بدهند؛ خاموش = «سایر کالاهایی که معمولا می‌خرد»
   urgent          Boolean  @default(false)
   urgentAt        DateTime?            // زمان اعلام — برای مرتب‌سازی (جدیدترین اول)
@@ -1061,10 +1061,10 @@ model InquiryOffer {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// ✅ عضویت کاتالوگ‌به‌کاتالوگ: تامین‌کننده (کاتالوگ فروش) ↔ خریدار (اعلام خرید)
-//    «همهٔ ارتباطات می‌شود اعلام خرید و کاتالوگ فروش» — قبلاً بیزینس ادد می‌شد.
+// ✅ عضویت بازوی فروش‌به‌بازوی فروش: تامین‌کننده (بازوی فروش فروش) ↔ خریدار (اعلام خرید)
+//    «همهٔ ارتباطات می‌شود اعلام خرید و بازوی فروش فروش» — قبلاً بیزینس ادد می‌شد.
 //    عضوِ فعال: اقلام فوریِ خریدار را در تب «سرنخ‌های فروش»ی پنل فروشش می‌بیند
-//    و رویشان قیمت می‌دهد؛ در کاتالوگ‌های خریدِ خصوصی، فقط همین‌ها می‌بینند و قیمت می‌دهند.
+//    و رویشان قیمت می‌دهد؛ در بازوی فروش‌های خریدِ خصوصی، فقط همین‌ها می‌بینند و قیمت می‌دهند.
 //    دو مسیر: buyer_add (خریدار دعوت می‌کند → تایید با تامین‌کننده)
 //             supplier_request (تامین‌کننده درخواست عضویت می‌دهد → تایید با خریدار)
 // ────────────────────────────────────────────────────────────────────────────
@@ -1072,7 +1072,7 @@ model InquiryMember {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
   inquiryId String   @db.ObjectId
   inquiry   Inquiry  @relation("InqMemberInquiry", fields: [inquiryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  catalogId String   @db.ObjectId // کاتالوگ فروشِ تامین‌کننده
+  catalogId String   @db.ObjectId // بازوی فروش فروشِ تامین‌کننده
   catalog   Catalog  @relation("InqMemberSupplierCatalog", fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   userId    String   @db.ObjectId // مالکِ تامین‌کننده — برای دسترسی و اعلان
   user      User     @relation("InqMemberUser", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -1173,7 +1173,7 @@ model CallEvent {
   ledToDeal         Boolean?
   feedbackText      String?
   source            String?
-  routedToUserId    String?   @db.ObjectId // مسیریابی تماس به مسئول فروشِ منتسب (اعضای کاتالوگ) — null = مسیر عادی
+  routedToUserId    String?   @db.ObjectId // مسیریابی تماس به مسئول فروشِ منتسب (اعضای بازوی فروش) — null = مسیر عادی
 
   @@index([adId, initiatedAt])
 }
@@ -1287,7 +1287,7 @@ model File {
 }
 
 // ============================================================
-// لایه صنوف (Industry) – یک صنف اصلی برای کاتالوگ
+// لایه صنوف (Industry) – یک صنف اصلی برای بازوی فروش
 // ============================================================
 
 // ============================================================
@@ -1327,7 +1327,7 @@ model Industry {
 }
 
 // ============================================================
-// لایه فعالیت‌ها (Activity) – چند فعالیت برای هر کاتالوگ
+// لایه فعالیت‌ها (Activity) – چند فعالیت برای هر بازوی فروش
 // ============================================================
 
 model Activity {
@@ -1466,7 +1466,7 @@ model Brand {
 // ============================================================
 // کالای مرجع — ProductReference
 // ------------------------------------------------------------
-// کاتالوگ مرکزی کالاها. هر کالا یک عنوان + عکس + (اختیاری) برند داره.
+// بازوی فروش مرکزی کالاها. هر کالا یک عنوان + عکس + (اختیاری) برند داره.
 // وقتی کاربر آگهی می‌سازه، عنوان کالا رو سرچ می‌کنه:
 //   - اگه پیدا شد → انتخاب می‌کنه (productReferenceId ست می‌شه)
 //   - اگه نبود → کالای جدید می‌سازه و انتخاب می‌کنه
@@ -1512,7 +1512,7 @@ model ProductReference {
 // ============================================================
 // اعلان‌های درون‌برنامه‌ای — رویدادهای عضویت/ارتباط تجاری
 //   • با رویدادِ عضویت ساخته می‌شود (درخواست/تایید/رد/دعوت/سینک تیم)
-//   • href آمادهٔ فرانت است (کلیک → کاتالوگ/پنل/پروفایل مقصد)
+//   • href آمادهٔ فرانت است (کلیک → بازوی فروش/پنل/پروفایل مقصد)
 // ============================================================
 model Notification {
   id          String   @id @default(auto()) @map("_id") @db.ObjectId
@@ -1527,7 +1527,7 @@ model Notification {
   body        String?
   actorUserId String?  @db.ObjectId // چه کسی باعث رویداد شد (برای نمایش «توسط …»)
   href        String?  // مسیر مقصد کلیک — /[slug] یا /my-catalogs?tab=team&cat=…
-  catalogId   String?  @db.ObjectId // کاتالوگ مرتبط (برای گروه‌بندی/فیلتر آینده)
+  catalogId   String?  @db.ObjectId // بازوی فروش مرتبط (برای گروه‌بندی/فیلتر آینده)
   businessId  String?  @db.ObjectId
   isRead      Boolean  @default(false)
   readAt      DateTime?
@@ -1561,8 +1561,8 @@ model UserContact {
 }
 
 // ─────────────────────────────────────────────────────────────
-// دفترِ درخواست‌های ارتباطِ تجاریِ ارسالی هر کاربر (عضوگیری کاتالوگ)
-//   • سهمیهٔ رایگانِ هر شخص روی «همهٔ» کاتالوگ‌ها و کسب‌وکارهایش شمرده می‌شود
+// دفترِ درخواست‌های ارتباطِ تجاریِ ارسالی هر کاربر (عضوگیری بازوی فروش)
+//   • سهمیهٔ رایگانِ هر شخص روی «همهٔ» بازوی فروش‌ها و کسب‌وکارهایش شمرده می‌شود
 //   • پس از پایان سهمیه: هر درخواست به‌اندازهٔ creditCost اعتبار هزینه دارد
 //   • درصدی از هر مصرفِ اعتباری، سهمِ دعوت‌کنندهٔ فرستنده است (تسویهٔ وقتی ≥۱ اعتبار)
 // ─────────────────────────────────────────────────────────────
@@ -1570,10 +1570,10 @@ model ConnectionRequestLog {
   id             String   @id @default(auto()) @map("_id") @db.ObjectId
   userId         String   @db.ObjectId // فرستندهٔ درخواست
   user           User     @relation("ConnReqSender", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  catalogId      String   @db.ObjectId // کاتالوگ مقصد
+  catalogId      String   @db.ObjectId // بازوی فروش مقصد
   catalog        Catalog  @relation("ConnReqCatalog", fields: [catalogId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   type           String   // customer | supplier | service | seller
-  targetId       String?  @db.ObjectId // businessId یا userId یا کاتالوگِ مبدأ تامین
+  targetId       String?  @db.ObjectId // businessId یا userId یا بازوی فروشِ مبدأ تامین
   targetName     String?  // نام مقصد در لحظهٔ ارسال — برای گزارش
   isFree         Boolean  @default(true)  // از سهمیهٔ رایگان گذشت؟
   creditCost     Int      @default(0)     // اعتبارِ مصرف‌شده (صفر = رایگان)

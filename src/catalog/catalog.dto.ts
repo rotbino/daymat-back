@@ -10,12 +10,12 @@ import {
 } from 'class-validator';
 
 export class CreateCatalogDto {
-    @ApiProperty({ example: 'پخش مصالح نارین', description: 'نام کاتالوگ' })
-    @IsNotEmpty({ message: 'نام کاتالوگ الزامی است' })
+    @ApiProperty({ example: 'پخش مصالح نارین', description: 'نام بازوی فروش' })
+    @IsNotEmpty({ message: 'نام بازوی فروش الزامی است' })
     @IsString()
     name: string;
 
-    @ApiPropertyOptional({ enum: ['wholesale', 'retail', 'service'], description: 'هدف از ساخت کاتالوگ', required: false })
+    @ApiPropertyOptional({ enum: ['wholesale', 'retail', 'service'], description: 'هدف از ساخت بازوی فروش', required: false })
     @IsOptional()
     @IsIn(['wholesale', 'retail', 'service'])
     salesType?: string;
@@ -27,12 +27,12 @@ export class CreateCatalogDto {
     @IsString()
     shortDescription?: string;
 
-    @ApiPropertyOptional({ description: 'کاتالوگ خصوصی — قیمت‌ها فقط برای اعضای پذیرفته‌شده', required: false })
+    @ApiPropertyOptional({ description: 'بازوی فروش خصوصی — قیمت‌ها فقط برای اعضای پذیرفته‌شده', required: false })
     @IsOptional()
     @IsBoolean()
     isPrivate?: boolean;
 
-    @ApiProperty({ example: 'ali-supermarket', description: 'اسلاگ (آدرس) کاتالوگ', required: false })
+    @ApiProperty({ example: 'ali-supermarket', description: 'اسلاگ (آدرس) بازوی فروش', required: false })
     @IsOptional()
     @IsString()
     @MaxLength(40)
@@ -41,10 +41,10 @@ export class CreateCatalogDto {
 
     @ApiProperty({
         example: 'wholesaler',
-        description: 'نوع کاتالوگ',
+        description: 'نوع بازوی فروش',
         enum: ['producer', 'wholesaler', 'importer', 'exporter', 'distributor', 'retailer', 'contractor', 'service_provider', 'other'],
     })
-    @IsNotEmpty({ message: 'نوع کاتالوگ الزامی است' })
+    @IsNotEmpty({ message: 'نوع بازوی فروش الزامی است' })
     @IsEnum(['producer', 'wholesaler', 'importer', 'exporter', 'distributor', 'retailer', 'contractor', 'service_provider', 'other'])
     type: string;
 
@@ -53,7 +53,7 @@ export class CreateCatalogDto {
     @IsString()
     countryCode?: string;
 
-    @ApiPropertyOptional({ description: 'نهادِ مالک کاتالوگ — الزامی در create', required: false })
+    @ApiPropertyOptional({ description: 'نهادِ مالک بازوی فروش — الزامی در create', required: false })
     @IsOptional()
     @IsString()
     businessId?: string;
@@ -83,7 +83,7 @@ export class CreateCatalogDto {
     @IsString()
     phone?: string;
 
-    @ApiProperty({ example: 'توضیحات درباره کاتالوگ', description: 'توضیحات', required: false })
+    @ApiProperty({ example: 'توضیحات درباره بازوی فروش', description: 'توضیحات', required: false })
     @IsOptional()
     @IsString()
     description?: string;
@@ -103,7 +103,7 @@ export class CreateCatalogDto {
     @IsString()
     website?: string;
 
-    @ApiProperty({ example: 'صاحب کاتالوگ', description: 'سمت کاربر در کاتالوگ', required: false })
+    @ApiProperty({ example: 'صاحب بازوی فروش', description: 'سمت کاربر در بازوی فروش', required: false })
     @IsOptional()
     @IsString()
     position?: string;
@@ -132,54 +132,54 @@ export class CreateCatalogDto {
 
     @ApiProperty({
         example: 'tamino',
-        description: 'شناسه یکتای بازار (اختیاری — کاتالوگ می‌تواند مستقل از بازار ساخته شود)',
+        description: 'شناسه یکتای بازار (اختیاری — بازوی فروش می‌تواند مستقل از بازار ساخته شود)',
         required: false,
     })
     @IsOptional()
     @IsString()
     armSlug?: string;
 
-    @ApiPropertyOptional({ example: 'AB3xKm9Q', description: 'کد دعوت‌کننده (از لینک رفرال‌دار فوتر کاتالوگ)', required: false })
+    @ApiPropertyOptional({ example: 'AB3xKm9Q', description: 'کد دعوت‌کننده (از لینک رفرال‌دار فوتر بازوی فروش)', required: false })
     @IsOptional()
     @IsString()
     refCode?: string;
 }
 
 export class UpdateCatalogDto {
-    @ApiProperty({ example: 'بازرگانی آهن مرکزی', description: 'نام کاتالوگ', required: false })
+    @ApiProperty({ example: 'بازرگانی آهن مرکزی', description: 'نام بازوی فروش', required: false })
     @IsOptional()
     @IsString()
     name?: string;
 
-    @ApiPropertyOptional({ enum: ['wholesale', 'retail', 'service'], description: 'هدف از ساخت کاتالوگ', required: false })
+    @ApiPropertyOptional({ enum: ['wholesale', 'retail', 'service'], description: 'هدف از ساخت بازوی فروش', required: false })
     @IsOptional()
     @IsIn(['wholesale', 'retail', 'service'])
     salesType?: string;
 
-    @ApiProperty({ example: 'پخش عمده مصالح ساختمانی', description: 'معرفی کوتاه کاتالوگ', required: false })
+    @ApiProperty({ example: 'پخش عمده مصالح ساختمانی', description: 'معرفی کوتاه بازوی فروش', required: false })
     @IsOptional()
     @IsString()
     shortDescription?: string;
 
-    @ApiPropertyOptional({ description: 'کاتالوگ خصوصی — قیمت‌ها فقط برای اعضای پذیرفته‌شده', required: false })
+    @ApiPropertyOptional({ description: 'بازوی فروش خصوصی — قیمت‌ها فقط برای اعضای پذیرفته‌شده', required: false })
     @IsOptional()
     @IsBoolean()
     isPrivate?: boolean;
 
-    @ApiProperty({ example: 'ali-supermarket', description: 'اسلاگ (آدرس) کاتالوگ', required: false })
+    @ApiProperty({ example: 'ali-supermarket', description: 'اسلاگ (آدرس) بازوی فروش', required: false })
     @IsOptional()
     @IsString()
     @MaxLength(40)
     slug?: string;
 
-    @ApiPropertyOptional({ description: 'نهادِ مالک کاتالوگ — الزامی در create', required: false })
+    @ApiPropertyOptional({ description: 'نهادِ مالک بازوی فروش — الزامی در create', required: false })
     @IsOptional()
     @IsString()
     businessId?: string;
 
     @ApiProperty({
         example: 'wholesaler',
-        description: 'نوع کاتالوگ',
+        description: 'نوع بازوی فروش',
         enum: ['producer', 'wholesaler', 'importer', 'exporter', 'distributor', 'retailer', 'contractor', 'service_provider', 'other'],
         required: false,
     })
@@ -212,7 +212,7 @@ export class UpdateCatalogDto {
     @IsString()
     phone?: string;
 
-    @ApiProperty({ example: 'توضیحات درباره کاتالوگ', description: 'توضیحات', required: false })
+    @ApiProperty({ example: 'توضیحات درباره بازوی فروش', description: 'توضیحات', required: false })
     @IsOptional()
     @IsString()
     description?: string;
@@ -232,7 +232,7 @@ export class UpdateCatalogDto {
     @IsString()
     website?: string;
 
-    @ApiProperty({ example: 'صاحب کاتالوگ', description: 'سمت کاربر در کاتالوگ', required: false })
+    @ApiProperty({ example: 'صاحب بازوی فروش', description: 'سمت کاربر در بازوی فروش', required: false })
     @IsOptional()
     @IsString()
     position?: string;
@@ -259,7 +259,7 @@ export class UpdateCatalogDto {
     @IsString({ each: true })
     activityIds?: string[];
 
-    @ApiPropertyOptional({ example: 'AB3xKm9Q', description: 'کد دعوت‌کننده (از لینک رفرال‌دار فوتر کاتالوگ)', required: false })
+    @ApiPropertyOptional({ example: 'AB3xKm9Q', description: 'کد دعوت‌کننده (از لینک رفرال‌دار فوتر بازوی فروش)', required: false })
     @IsOptional()
     @IsString()
     refCode?: string;

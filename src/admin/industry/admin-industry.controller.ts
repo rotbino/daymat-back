@@ -191,7 +191,7 @@ export class AdminIndustryController {
     @ApiOperation({ summary: 'حذف صنف (فقط ادمین)' })
     @ApiResponse({ status: 200, description: 'صنف با موفقیت حذف شد' })
     @ApiResponse({ status: 404, description: 'صنف یافت نشد' })
-    @ApiResponse({ status: 409, description: 'صنف دارای زیرمجموعه یا در کاتالوگ استفاده شده است' })
+    @ApiResponse({ status: 409, description: 'صنف دارای زیرمجموعه یا در بازوی فروش استفاده شده است' })
     async remove(@Param('id') id: string) {
         return this.industryService.remove(id);
     }

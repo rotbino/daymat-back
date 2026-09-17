@@ -58,7 +58,7 @@ export class CreditController {
     @ApiBearerAuth('access-token')
     @ApiOperation({ summary: 'خرید اعتبار (انتخاب روش توسط کاربر)' })
     async purchase(@CurrentUser() user: any, @Body() dto: PurchaseCreditDto) {
-        // ✅ کاتالوگ‌های کاربر — مالکیت مستقیم روی کاتالوگ
+        // ✅ بازوی فروش‌های کاربر — مالکیت مستقیم روی بازوی فروش
         const catalog = await this.creditService['prisma'].catalog.findFirst({
             where: { ownerUserId: user.id, status: 'active' },
         });
@@ -66,7 +66,7 @@ export class CreditController {
         if (!catalog) {
             throw new BadRequestException({
                 errorCode: 'NO_ACTIVE_BUSINESS',
-                message: 'ابتدا یک کاتالوگ ثبت کنید',
+                message: 'ابتدا یک بازوی فروش ثبت کنید',
             });
         }
 

@@ -65,7 +65,7 @@ export class AdController {
     }
 
     // ============================================================
-    // 3. لیست آگهی‌های یک کاتالوگ
+    // 3. لیست آگهی‌های یک بازوی فروش
     // ============================================================
 
 
@@ -386,7 +386,7 @@ export class AdController {
 
     @Get('catalog/:catalogId')
     @UseGuards(OptionalJwtAuthGuard)
-    @ApiOperation({ summary: 'لیست کالاهای یک کاتالوگ — با search و status (کاتالوگ خصوصی: قیمت ماسک می‌شود)' })
+    @ApiOperation({ summary: 'لیست کالاهای یک بازوی فروش — با search و status (بازوی فروش خصوصی: قیمت ماسک می‌شود)' })
     async getCatalogAds(
         @Param('catalogId') catalogId: string,
         @Query('page') page?: string,
@@ -410,7 +410,7 @@ export class AdController {
     @Get('notifications')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'اعلان‌های مشتق از دیتای کاربر (قیمت‌های در حال انقضا، کاتالوگ ناقص)' })
+    @ApiOperation({ summary: 'اعلان‌های مشتق از دیتای کاربر (قیمت‌های در حال انقضا، بازوی فروش ناقص)' })
     async derivedNotifications(@CurrentUser() user: any) {
         return this.adService.derivedNotifications(user.id);
     }

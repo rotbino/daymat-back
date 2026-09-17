@@ -19,7 +19,7 @@ export class UserMarketController {
     }
 
     @Patch('ads/:adId/category')
-    @ApiOperation({ summary: 'تعیین دستهٔ بازاری کالای خودم (از داشبورد کاتالوگ)' })
+    @ApiOperation({ summary: 'تعیین دستهٔ بازاری کالای خودم (از داشبورد بازوی فروش)' })
     async setCategory(
         @CurrentUser() user: any,
         @Param('adId') adId: string,

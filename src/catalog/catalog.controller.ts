@@ -22,13 +22,13 @@ export class CatalogController {
 
     // ─── عمومی ───
     @Get('slug/:slug')
-    @ApiOperation({ summary: 'دریافت کاتالوگ با اسلاگ (عمومی)' })
+    @ApiOperation({ summary: 'دریافت بازوی فروش با اسلاگ (عمومی)' })
     async findBySlug(@Param('slug') slug: string) {
         return this.catalogService.findBySlug(slug);
     }
 
     @Get('check-slug')
-    @ApiOperation({ summary: 'بررسی آزاد بودن آدرس کاتالوگ' })
+    @ApiOperation({ summary: 'بررسی آزاد بودن آدرس بازوی فروش' })
     @ApiQuery({ name: 'slug', required: true })
     @ApiQuery({ name: 'excludeId', required: false })
     async checkSlug(
@@ -39,7 +39,7 @@ export class CatalogController {
     }
 
     @Get('featured')
-    @ApiOperation({ summary: 'کاتالوگ‌های نمونه (عمومی)' })
+    @ApiOperation({ summary: 'بازوی فروش‌های نمونه (عمومی)' })
     async featured(@Query('limit') limit?: string) {
         return this.catalogService.getFeatured(Number(limit) || 12);
     }
@@ -47,7 +47,7 @@ export class CatalogController {
     @Get('saved/list')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'لیست کاتالوگ‌های ذخیره شده کاربر' })
+    @ApiOperation({ summary: 'لیست بازوی فروش‌های ذخیره شده کاربر' })
     async getSavedList(@CurrentUser() user: any) {
         return this.catalogService.getSavedList(user.id);
     }
@@ -56,7 +56,7 @@ export class CatalogController {
     @Post()
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'ثبت کاتالوگ جدید (روی هر کسب‌وکارِ فعال — مرجع/مشترک)' })
+    @ApiOperation({ summary: 'ثبت بازوی فروش جدید (روی هر کسب‌وکارِ فعال — مرجع/مشترک)' })
     create(@CurrentUser() user: any, @Body() dto: CreateCatalogDto) {
         return this.catalogService.create(user.id, dto);
     }
@@ -64,7 +64,7 @@ export class CatalogController {
     @Get()
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'لیست کاتالوگ‌های من' })
+    @ApiOperation({ summary: 'لیست بازوی فروش‌های من' })
     findAll(@CurrentUser() user: any) {
         return this.catalogService.findAllByUser(user.id);
     }
@@ -72,7 +72,7 @@ export class CatalogController {
     @Get('active')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'کاتالوگ فعال فعلی' })
+    @ApiOperation({ summary: 'بازوی فروش فعال فعلی' })
     getActive(@CurrentUser() user: any) {
         return this.catalogService.getActiveCatalog(user.id);
     }
@@ -80,7 +80,7 @@ export class CatalogController {
     @Get(':id')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'جزئیات یک کاتالوگ' })
+    @ApiOperation({ summary: 'جزئیات یک بازوی فروش' })
     findOne(@Param('id') id: string, @CurrentUser() user: any) {
         return this.catalogService.findOne(id, user.id);
     }
@@ -88,7 +88,7 @@ export class CatalogController {
     @Put(':id')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'ویرایش کاتالوگ' })
+    @ApiOperation({ summary: 'ویرایش بازوی فروش' })
     update(@Param('id') id: string, @CurrentUser() user: any, @Body() dto: UpdateCatalogDto) {
         return this.catalogService.update(id, user.id, dto);
     }
@@ -96,7 +96,7 @@ export class CatalogController {
     @Delete(':id')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'حذف کاتالوگ (soft delete)' })
+    @ApiOperation({ summary: 'حذف بازوی فروش (soft delete)' })
     remove(@Param('id') id: string, @CurrentUser() user: any) {
         return this.catalogService.remove(id, user.id);
     }
@@ -104,7 +104,7 @@ export class CatalogController {
     @Patch(':id/config')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'به‌روزرسانی تنظیمات کاتالوگ (واحدها و دسته‌ها)' })
+    @ApiOperation({ summary: 'به‌روزرسانی تنظیمات بازوی فروش (واحدها و دسته‌ها)' })
     async updateConfig(
         @Param('id') id: string,
         @CurrentUser() user: any,
@@ -116,7 +116,7 @@ export class CatalogController {
     @Patch(':id/visit-card')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'ذخیره/حذف مشخصات کارت ویزیت کاتالوگ (JSON) — کارت کاربر گم نشود' })
+    @ApiOperation({ summary: 'ذخیره/حذف مشخصات کارت ویزیت بازوی فروش (JSON) — کارت کاربر گم نشود' })
     async saveVisitCard(
         @Param('id') id: string,
         @CurrentUser() user: any,
@@ -128,7 +128,7 @@ export class CatalogController {
     // ─── تعاملات ───
     @Post(':catalogId/view')
     @UseGuards(OptionalJwtAuthGuard)
-    @ApiOperation({ summary: 'ثبت بازدید کاتالوگ' })
+    @ApiOperation({ summary: 'ثبت بازدید بازوی فروش' })
     async trackView(
         @Param('catalogId') catalogId: string,
         @CurrentUser() user: any,
@@ -140,7 +140,7 @@ export class CatalogController {
     @Post(':catalogId/save')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'ذخیره کاتالوگ' })
+    @ApiOperation({ summary: 'ذخیره بازوی فروش' })
     async save(@Param('catalogId') catalogId: string, @CurrentUser() user: any) {
         return this.catalogService.save(catalogId, user.id);
     }
@@ -148,34 +148,34 @@ export class CatalogController {
     @Delete(':catalogId/save')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'حذف از ذخیره کاتالوگ' })
+    @ApiOperation({ summary: 'حذف از ذخیره بازوی فروش' })
     async unsave(@Param('catalogId') catalogId: string, @CurrentUser() user: any) {
         return this.catalogService.unsave(catalogId, user.id);
     }
 
     @Get(':catalogId/saved-status')
     @UseGuards(OptionalJwtAuthGuard)
-    @ApiOperation({ summary: 'بررسی وضعیت ذخیره کاتالوگ' })
+    @ApiOperation({ summary: 'بررسی وضعیت ذخیره بازوی فروش' })
     async isSaved(@Param('catalogId') catalogId: string, @CurrentUser() user: any) {
         if (!user?.id) return { isSaved: false };
         return this.catalogService.isSaved(catalogId, user.id);
     }
 
     @Get(':catalogId/stats')
-    @ApiOperation({ summary: 'آمار کاتالوگ' })
+    @ApiOperation({ summary: 'آمار بازوی فروش' })
     async getStats(@Param('catalogId') catalogId: string) {
         return this.catalogService.getStats(catalogId);
     }
 
     @Post(':catalogId/share')
     @UseGuards(OptionalJwtAuthGuard)
-    @ApiOperation({ summary: 'ثبت اشتراک‌گذاری کاتالوگ' })
+    @ApiOperation({ summary: 'ثبت اشتراک‌گذاری بازوی فروش' })
     async trackShare(@Param('catalogId') catalogId: string, @CurrentUser() user: any) {
         return this.catalogService.trackShare(catalogId, user?.id || null);
     }
 
     @Get(':catalogId/ads')
-    @ApiOperation({ summary: 'لیست کالاهای کاتالوگ (عمومی)' })
+    @ApiOperation({ summary: 'لیست کالاهای بازوی فروش (عمومی)' })
     async getCatalogAds(
         @Param('catalogId') catalogId: string,
         @Req() req: Request,
@@ -187,13 +187,13 @@ export class CatalogController {
     }
 
     // ============================================================
-    // تیم کاتالوگ — مالک / مدیر / عضوِ فروش (فروشنده/ویزیتور) / مشتری
+    // تیم بازوی فروش — مالک / مدیر / عضوِ فروش (فروشنده/ویزیتور) / مشتری
     // ============================================================
 
     @Get('team/memberships')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'همهٔ عضویت‌های تیمی من در کاتالوگ‌ها (پروفایل/سوییچر)' })
+    @ApiOperation({ summary: 'همهٔ عضویت‌های تیمی من در بازوی فروش‌ها (پروفایل/سوییچر)' })
     async getMyTeamMemberships(@CurrentUser() user: any) {
         return this.catalogMemberService.getMyMemberships(user.id);
     }
@@ -209,7 +209,7 @@ export class CatalogController {
     @Get('team/my-pending-summary')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'شمارندهٔ درخواست‌های در انتظارِ کاتالوگ‌های مدیریتی من — بج قرمز برگهٔ اعضا' })
+    @ApiOperation({ summary: 'شمارندهٔ درخواست‌های در انتظارِ بازوی فروش‌های مدیریتی من — بج قرمز برگهٔ اعضا' })
     async getMyPendingSummary(@CurrentUser() user: any) {
         return this.catalogMemberService.getMyPendingSummary(user.id);
     }
@@ -217,7 +217,7 @@ export class CatalogController {
     @Get(':catalogId/team')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'نمای تیم کاتالوگ (مقیاس‌شده با نقش)' })
+    @ApiOperation({ summary: 'نمای تیم بازوی فروش (مقیاس‌شده با نقش)' })
     async getTeam(@Param('catalogId') catalogId: string, @CurrentUser() user: any) {
         return this.catalogMemberService.getTeam(catalogId, user.id);
     }
@@ -225,7 +225,7 @@ export class CatalogController {
     @Get(':catalogId/team/my')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'وضعیت من در تیم این کاتالوگ' })
+    @ApiOperation({ summary: 'وضعیت من در تیم این بازوی فروش' })
     async getMyTeamMembership(@Param('catalogId') catalogId: string, @CurrentUser() user: any) {
         return this.catalogMemberService.getMyMembership(catalogId, user.id);
     }
@@ -235,7 +235,7 @@ export class CatalogController {
     @Post(':catalogId/team/join')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'درخواست ارتباط تجاری با کاتالوگ (همکار فروش | خریدار | تامین‌کننده | سرویس‌دهندهٔ خدمات)' })
+    @ApiOperation({ summary: 'درخواست ارتباط تجاری با بازوی فروش (همکار فروش | خریدار | تامین‌کننده | سرویس‌دهندهٔ خدمات)' })
     async joinCoop(@Param('catalogId') catalogId: string, @CurrentUser() user: any, @Body() dto: CoopJoinDto) {
         return this.catalogMemberService.joinCoop(catalogId, user.id, dto);
     }
@@ -245,7 +245,7 @@ export class CatalogController {
     @Post(':catalogId/team/invitations/supplier')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'دعوت کاتالوگ دیگر به‌عنوان تامین‌کننده — تایید با صاحب کاتالوگ (مالک/مدیر)' })
+    @ApiOperation({ summary: 'دعوت بازوی فروش دیگر به‌عنوان تامین‌کننده — تایید با صاحب بازوی فروش (مالک/مدیر)' })
     async inviteSupplier(
         @Param('catalogId') catalogId: string,
         @CurrentUser() user: any,
@@ -257,7 +257,7 @@ export class CatalogController {
     @Post(':catalogId/team/invitations/service')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'دعوت کاتالوگ خدماتی به‌عنوان سرویس‌دهنده — تایید با صاحب کاتالوگ (مالک/مدیر)' })
+    @ApiOperation({ summary: 'دعوت بازوی فروش خدماتی به‌عنوان سرویس‌دهنده — تایید با صاحب بازوی فروش (مالک/مدیر)' })
     async inviteService(
         @Param('catalogId') catalogId: string,
         @CurrentUser() user: any,
@@ -297,7 +297,7 @@ export class CatalogController {
     @Post(':catalogId/team/suppliers/:memberId/confirm')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'تایید دعوت تامین‌کنندگی — فقط صاحبِ کاتالوگِ تامین‌کننده' })
+    @ApiOperation({ summary: 'تایید دعوت تامین‌کنندگی — فقط صاحبِ بازوی فروشِ تامین‌کننده' })
     async confirmSupplier(
         @Param('catalogId') catalogId: string,
         @Param('memberId') memberId: string,
@@ -309,7 +309,7 @@ export class CatalogController {
     @Post(':catalogId/team/suppliers/:memberId/decline')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'رد دعوت تامین‌کنندگی — فقط صاحبِ کاتالوگِ تامین‌کننده' })
+    @ApiOperation({ summary: 'رد دعوت تامین‌کنندگی — فقط صاحبِ بازوی فروشِ تامین‌کننده' })
     async declineSupplier(
         @Param('catalogId') catalogId: string,
         @Param('memberId') memberId: string,
@@ -349,7 +349,7 @@ export class CatalogController {
     @Post(':catalogId/team/services/:memberId/confirm')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'تایید دعوت تامین خدمات — فقط صاحبِ کاتالوگِ خدماتی' })
+    @ApiOperation({ summary: 'تایید دعوت تامین خدمات — فقط صاحبِ بازوی فروشِ خدماتی' })
     async confirmService(
         @Param('catalogId') catalogId: string,
         @Param('memberId') memberId: string,
@@ -361,7 +361,7 @@ export class CatalogController {
     @Post(':catalogId/team/services/:memberId/decline')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'رد دعوت تامین خدمات — فقط صاحبِ کاتالوگِ خدماتی' })
+    @ApiOperation({ summary: 'رد دعوت تامین خدمات — فقط صاحبِ بازوی فروشِ خدماتی' })
     async declineService(
         @Param('catalogId') catalogId: string,
         @Param('memberId') memberId: string,
@@ -451,7 +451,7 @@ export class CatalogController {
     @Delete(':catalogId/team/suppliers/:memberId')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'حذف تامین‌کنندهٔ فعال از کاتالوگ (مالک/مدیر)' })
+    @ApiOperation({ summary: 'حذف تامین‌کنندهٔ فعال از بازوی فروش (مالک/مدیر)' })
     async removeSupplier(
         @Param('catalogId') catalogId: string,
         @Param('memberId') memberId: string,
@@ -464,7 +464,7 @@ export class CatalogController {
     @Delete(':catalogId/team/services/:memberId')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'حذف سرویس‌دهندهٔ فعال از کاتالوگ (مالک/مدیر) — دعوتِ منتظر/ردشده هم قابل حذف' })
+    @ApiOperation({ summary: 'حذف سرویس‌دهندهٔ فعال از بازوی فروش (مالک/مدیر) — دعوتِ منتظر/ردشده هم قابل حذف' })
     async removeService(
         @Param('catalogId') catalogId: string,
         @Param('memberId') memberId: string,
@@ -477,7 +477,7 @@ export class CatalogController {
     @Delete(':catalogId/team/sellers/:memberId')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'حذف عضوِ فروش از کاتالوگ (مالک/مدیر)' })
+    @ApiOperation({ summary: 'حذف عضوِ فروش از بازوی فروش (مالک/مدیر)' })
     async removeSeller(
         @Param('catalogId') catalogId: string,
         @Param('memberId') memberId: string,
@@ -490,7 +490,7 @@ export class CatalogController {
     @Post(':catalogId/team/leave-seller')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'خروج خودِ عضوِ فروش از کاتالوگ' })
+    @ApiOperation({ summary: 'خروج خودِ عضوِ فروش از بازوی فروش' })
     async leaveAsSeller(@Param('catalogId') catalogId: string, @CurrentUser() user: any) {
         return this.catalogMemberService.leaveAsSeller(catalogId, user.id);
     }
@@ -521,12 +521,12 @@ export class CatalogController {
         return this.catalogMemberService.setSellerRole(catalogId, memberId, dto.sellerRole, user.id);
     }
 
-    // ─── نقش ادمین کاتالوگ ───
+    // ─── نقش ادمین بازوی فروش ───
 
     @Post(':catalogId/team/members/:memberId/promote-admin')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'ارتقای عضو به ادمین کاتالوگ (فقط مالک)' })
+    @ApiOperation({ summary: 'ارتقای عضو به ادمین بازوی فروش (فقط مالک)' })
     async promoteToAdmin(@Param('catalogId') catalogId: string, @Param('memberId') memberId: string, @CurrentUser() user: any) {
         return this.catalogMemberService.promoteToAdmin(catalogId, memberId, user.id);
     }
@@ -586,7 +586,7 @@ export class CatalogController {
     @Get(':catalogId/team/partner-catalogs')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'پیشنهاد/جست‌وجوی کاتالوگ‌ها برای تامین‌کنندگی/تامین خدمات — با سورت مرتبط‌سازی و فیلترها' })
+    @ApiOperation({ summary: 'پیشنهاد/جست‌وجوی بازوی فروش‌ها برای تامین‌کنندگی/تامین خدمات — با سورت مرتبط‌سازی و فیلترها' })
     @ApiQuery({ name: 'q', required: false })
     @ApiQuery({ name: 'province', required: false })
     @ApiQuery({ name: 'city', required: false })
@@ -675,7 +675,7 @@ export class CatalogController {
     @Post(':catalogId/team/leave-customer')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'خروج خودِ مشتری از کاتالوگ' })
+    @ApiOperation({ summary: 'خروج خودِ مشتری از بازوی فروش' })
     async leaveAsCustomer(@Param('catalogId') catalogId: string, @CurrentUser() user: any) {
         return this.catalogMemberService.leaveAsCustomer(catalogId, user.id);
     }

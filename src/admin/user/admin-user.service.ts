@@ -277,7 +277,7 @@ export class AdminUserService {
             });
         }
 
-        // ✅ کاتالوگ‌ها — از مسیر نهادهای کاربر (رلیشن مستقیم User→Catalog وجود ندارد)
+        // ✅ بازوی فروش‌ها — از مسیر نهادهای کاربر (رلیشن مستقیم User→Catalog وجود ندارد)
         const bizIds = user.businesses.map((b) => b.id);
         const catalogs = bizIds.length
             ? await this.prisma.catalog.findMany({
@@ -331,7 +331,7 @@ export class AdminUserService {
 
         return {
             ...user,
-            catalogs,          // ✅ کاتالوگ‌ها جداگانه تزریق می‌شوند
+            catalogs,          // ✅ بازوی فروش‌ها جداگانه تزریق می‌شوند
             allTransactions,
             credits: undefined,
             creditRequests: undefined,

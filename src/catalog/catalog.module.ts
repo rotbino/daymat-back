@@ -6,7 +6,7 @@ import { CatalogMemberService } from './catalog-member.service';
 import { CommonModule } from '../common/common.module';
 
 @Module({
-    imports: [CommonModule], // ✅ CatalogPublishService برای مهر خودکار کالاها هنگام ساخت کاتالوگ با armSlug
+    imports: [CommonModule], // ✅ CatalogPublishService برای مهر خودکار کالاها هنگام ساخت بازوی فروش با armSlug
     controllers: [CatalogController],
     providers: [CatalogService, CatalogMemberService],
     exports: [CatalogService, CatalogMemberService],

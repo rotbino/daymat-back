@@ -56,7 +56,7 @@ export class InquiryItemDto {
     @IsString()
     imageUrl?: string;
 
-    @ApiPropertyOptional({ description: 'لینک نمونه/کاتالوگ سازنده (اختیاری)', required: false })
+    @ApiPropertyOptional({ description: 'لینک نمونه/بازوی فروش سازنده (اختیاری)', required: false })
     @IsOptional()
     @IsString()
     referenceUrl?: string;
@@ -67,7 +67,7 @@ export class InquiryItemDto {
     @MaxLength(500)
     note?: string;
 
-    @ApiPropertyOptional({ description: 'بازوی خرید فعال — قلم در «درخواست‌های خرید جاری» بالای کاتالوگ می‌نشیند', required: false })
+    @ApiPropertyOptional({ description: 'بازوی خرید فعال — قلم در «درخواست‌های خرید جاری» بالای بازوی فروش می‌نشیند', required: false })
     @IsOptional()
     @IsBoolean()
     urgent?: boolean;
@@ -342,8 +342,8 @@ export class UpdateOfferDto {
 // ═══ اعضای بازوی خرید — تامین‌کننده‌های تاییدشده (شبکهٔ خرید↔فروش) ═══
 
 export class AddInquiryMemberDto {
-    @ApiProperty({ description: 'کاتالوگ قیمتِ تامین‌کننده (باید متعلق به تامین‌کننده باشد)' })
-    @IsNotEmpty({ message: 'کاتالوگ تامین‌کننده الزامی است' })
+    @ApiProperty({ description: 'بازوی فروش قیمتِ تامین‌کننده (باید متعلق به تامین‌کننده باشد)' })
+    @IsNotEmpty({ message: 'بازوی فروش تامین‌کننده الزامی است' })
     @IsString()
     catalogId: string;
 
@@ -355,8 +355,8 @@ export class AddInquiryMemberDto {
 }
 
 export class RequestInquiryAccessDto {
-    @ApiProperty({ description: 'کاتالوگ قیمت خودم که با آن درخواست عضویت می‌دهم' })
-    @IsNotEmpty({ message: 'کاتالوگ قیمت الزامی است' })
+    @ApiProperty({ description: 'بازوی فروش قیمت خودم که با آن درخواست عضویت می‌دهم' })
+    @IsNotEmpty({ message: 'بازوی فروش قیمت الزامی است' })
     @IsString()
     catalogId: string;
 
@@ -374,7 +374,7 @@ export class DecideInquiryMemberDto {
     status: 'active' | 'declined' | 'removed';
 }
 
-/** 🪪 ذخیره/حذف مشخصات کارت ویزیت بازوی خرید (JSON) — قرینهٔ کاتالوگ قیمت */
+/** 🪪 ذخیره/حذف مشخصات کارت ویزیت بازوی خرید (JSON) — قرینهٔ بازوی فروش قیمت */
 export class SaveInquiryVisitCardDto {
     /** مشخصات کامل کارت ویزیت (JSON آزاد — فشرده‌سازی تصاویر سمت کلاینت) — null = حذف کارت ذخیره‌شده */
     @ApiPropertyOptional({ description: 'مشخصات کارت ویزیت (JSON) — null برای حذف', nullable: true, type: Object })

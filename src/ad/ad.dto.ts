@@ -133,15 +133,15 @@ class CustomFieldsDto {
 // CreateAdDto
 // ═══════════════════════════════════════════════════════════════
 export class CreateAdDto {
-    // ❌ قبلاً: @IsNotEmpty — ✅ حالا اختیاری (آگهی مالِ کاتالوگ است، نه بازار)
+    // ❌ قبلاً: @IsNotEmpty — ✅ حالا اختیاری (آگهی مالِ بازوی فروش است، نه بازار)
     @ApiPropertyOptional({ example: 'barton', description: 'شناسه بازار (اختیاری — فقط اگر از مسیر بازاری ثبت شود)' })
     @IsOptional()
     @IsString()
     armSlug?: string;
 
-    // ✅ جدید — کاتالوگ مالک آگهی (الزامی در جریان جدید)
-    @ApiProperty({ description: 'شناسه کاتالوگ (Catalog) مالک آگهی' })
-    @IsNotEmpty({ message: 'کاتالوگ الزامی است' })
+    // ✅ جدید — بازوی فروش مالک آگهی (الزامی در جریان جدید)
+    @ApiProperty({ description: 'شناسه بازوی فروش (Catalog) مالک آگهی' })
+    @IsNotEmpty({ message: 'بازوی فروش الزامی است' })
     @IsString()
     catalogId: string;
 
