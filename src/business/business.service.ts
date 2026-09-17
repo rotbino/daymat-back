@@ -205,6 +205,9 @@ export class BusinessService {
                 provinceCode: dto.provinceCode || null,
                 city: dto.city || null,
                 cityCode: dto.cityCode || null,
+                // ✅ لوکیشن دقیق (اختیاری) — برای اتصال هدفمند کسب‌وکارها در آینده
+                locationLat: dto.locationLat ?? null,
+                locationLng: dto.locationLng ?? null,
                 address: dto.address?.trim() || null,
                 phone: dto.phone?.trim() || null,
                 website: dto.website?.trim() || null,
@@ -356,6 +359,9 @@ export class BusinessService {
                 ...(dto.provinceCode !== undefined ? { provinceCode: dto.provinceCode || null } : {}),
                 ...(dto.city !== undefined ? { city: dto.city || null } : {}),
                 ...(dto.cityCode !== undefined ? { cityCode: dto.cityCode || null } : {}),
+                // ✅ لوکیشن دقیق (اختیاری) — با ارسالِ null حذف می‌شود
+                ...(dto.locationLat !== undefined ? { locationLat: dto.locationLat ?? null } : {}),
+                ...(dto.locationLng !== undefined ? { locationLng: dto.locationLng ?? null } : {}),
                 ...(dto.address !== undefined ? { address: dto.address?.trim() || null } : {}),
                 ...(dto.phone !== undefined ? { phone: dto.phone?.trim() || null } : {}),
                 ...(dto.website !== undefined ? { website: dto.website?.trim() || null } : {}),

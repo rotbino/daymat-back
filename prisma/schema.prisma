@@ -159,6 +159,8 @@ model Business {
   provinceCode       String?
   city               String?
   cityCode           String?
+  locationLat        Float? // ✅ لوکیشن دقیق کسب‌وکار (اختیاری) — عرض جغرافیایی؛ برای اتصال هدفمند خریدار↔فروشنده
+  locationLng        Float? // ✅ لوکیشن دقیق کسب‌وکار (اختیاری) — طول جغرافیایی
   address            String?
   phone              String?
   website            String?

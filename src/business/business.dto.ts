@@ -7,6 +7,7 @@ import {
     MaxLength,
     IsIn,
     IsNumber, IsArray, IsBoolean,
+    Min, Max,
 } from 'class-validator';
 
 export class CreateBusinessDto {
@@ -84,6 +85,20 @@ export class CreateBusinessDto {
     @IsOptional()
     @IsString()
     cityCode?: string;
+
+    @ApiPropertyOptional({ example: 35.6892, description: 'عرض جغرافیایی لوکیشن دقیق کسب‌وکار (اختیاری)', required: false })
+    @IsOptional()
+    @IsNumber()
+    @Min(-90)
+    @Max(90)
+    locationLat?: number;
+
+    @ApiPropertyOptional({ example: 51.389, description: 'طول جغرافیایی لوکیشن دقیق کسب‌وکار (اختیاری)', required: false })
+    @IsOptional()
+    @IsNumber()
+    @Min(-180)
+    @Max(180)
+    locationLng?: number;
 
     @ApiPropertyOptional({ required: false })
     @IsOptional()
@@ -211,6 +226,20 @@ export class UpdateBusinessDto {
     @IsOptional()
     @IsString()
     cityCode?: string;
+
+    @ApiPropertyOptional({ example: 35.6892, description: 'عرض جغرافیایی لوکیشن دقیق کسب‌وکار (اختیاری) — با null حذف می‌شود', required: false })
+    @IsOptional()
+    @IsNumber()
+    @Min(-90)
+    @Max(90)
+    locationLat?: number;
+
+    @ApiPropertyOptional({ example: 51.389, description: 'طول جغرافیایی لوکیشن دقیق کسب‌وکار (اختیاری) — با null حذف می‌شود', required: false })
+    @IsOptional()
+    @IsNumber()
+    @Min(-180)
+    @Max(180)
+    locationLng?: number;
 
     @ApiPropertyOptional({ required: false })
     @IsOptional()
