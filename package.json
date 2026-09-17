@@ -34,6 +34,7 @@
     "db:reset": "npx prisma db push --force-reset",
     "db:fresh": "npm run db:reset && npm run seed:all",
     "seed:locations": "npx tsx prisma/seed/seed-locations.ts",
+    "seed:brand-categories": "npx tsx prisma/scripts/seed-brand-categories.ts",
     "seed:categories": "npx tsx prisma/seed/seed-categories.ts",
     "seed:industries": "npx tsx prisma/seed/seed-industries.ts",
     "seed:activities": "npx tsx prisma/seed/seed-activities.ts",

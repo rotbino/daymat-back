@@ -1,6 +1,6 @@
 // src/admin/brand/admin-brand.service.ts
 // ✅ مدیریت برندها برای ادمین سیستم — و در حالت scoped برای مالک بازار
-import { Injectable, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AdminUpdateBrandDto } from './admin-brand.dto';
 import { normalizeForStore, findDuplicateTitle } from '../../common/persian-text.util';
@@ -12,6 +12,8 @@ const LIST_SELECT = {
     title: true,
     slug: true,
     category: true,
+    brandCategoryId: true,
+    brandCategory: { select: { name: true } },
     logoUrl: true,
     description: true,
     keywords: true,
@@ -222,11 +224,32 @@ export class AdminBrandService {
             dto = { ...dto, title: normalized };
         }
 
+        // ✅ تغییر دسته — فقط از لیست ثابت brand_categories
+        let categoryPatch: { brandCategoryId: string; category: string } | null = null;
+        if (dto.categoryId !== undefined) {
+            if (!dto.categoryId) {
+                // ارسال categoryId خالی = حذف دسته (فقط ادمین)
+                categoryPatch = { brandCategoryId: null as any, category: null as any };
+            } else {
+                const cat = await this.prisma.brandCategory.findUnique({
+                    where: { id: dto.categoryId },
+                    select: { id: true, name: true },
+                });
+                if (!cat) {
+                    throw new BadRequestException({
+                        errorCode: 'BRAND_CATEGORY_INVALID',
+                        message: 'دستهٔ برند معتبر نیست — از لیست دسته‌ها انتخاب کنید',
+                    });
+                }
+                categoryPatch = { brandCategoryId: cat.id, category: cat.name };
+            }
+        }
+
         const updated = await this.prisma.brand.update({
             where: { id },
             data: {
                 ...(dto.title !== undefined ? { title: dto.title } : {}),
-                ...(dto.category !== undefined ? { category: dto.category || null } : {}),
+                ...(categoryPatch ? { brandCategoryId: categoryPatch.brandCategoryId, category: categoryPatch.category } : {}),
                 ...(dto.keywords !== undefined ? { keywords: dto.keywords } : {}),
                 ...(dto.logoUrl !== undefined ? { logoUrl: dto.logoUrl || null } : {}),
                 ...(dto.description !== undefined ? { description: dto.description || null } : {}),

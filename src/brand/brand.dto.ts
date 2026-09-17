@@ -1,6 +1,6 @@
 // src/brand/brand.dto.ts
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, MaxLength, IsArray, IsBoolean } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, MaxLength, IsArray, IsBoolean } from 'class-validator';
 
 export class SearchBrandDto {
     @ApiProperty({ example: 'مکنزی' })
@@ -23,15 +23,15 @@ export class CreateBrandDto {
     @MaxLength(80)
     title!: string;
 
+    @ApiProperty({ description: 'شناسهٔ دستهٔ برند — الزامی (از GET /brands/categories)' })
+    @IsString()
+    @IsNotEmpty({ message: 'دستهٔ برند الزامی است — از لیست دسته‌ها انتخاب کنید' })
+    categoryId!: string;
+
     @ApiPropertyOptional({ description: 'اسلاگ بازارِ مبدأ (وقتی از داخل یک بازار ثبت می‌شود — برای نظارت مالک بازار)' })
     @IsOptional()
     @IsString()
     armSlug?: string;
-
-    @ApiPropertyOptional({ example: 'food' })
-    @IsOptional()
-    @IsString()
-    category?: string;
 
     @ApiPropertyOptional({ type: [String] })
     @IsOptional()
@@ -57,10 +57,10 @@ export class UpdateBrandDto {
     @MaxLength(80)
     title?: string;
 
-    @ApiPropertyOptional()
+    @ApiPropertyOptional({ description: 'شناسهٔ دستهٔ برند (از GET /brands/categories)' })
     @IsOptional()
     @IsString()
-    category?: string;
+    categoryId?: string;
 
     @ApiPropertyOptional({ type: [String] })
     @IsOptional()

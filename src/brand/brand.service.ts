@@ -1,5 +1,5 @@
 // src/brand/brand.service.ts
-import {Injectable, ConflictException, NotFoundException, ForbiddenException} from '@nestjs/common';
+import {Injectable, BadRequestException, ConflictException, NotFoundException, ForbiddenException} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBrandDto, UpdateBrandDto } from './brand.dto';
 import { normalizeForStore, findDuplicateTitle } from '../common/persian-text.util';
@@ -48,6 +48,41 @@ export class BrandService {
         );
     }
 
+    // ============================================================
+    // لیست دسته‌بندی‌های برند — تاکسونومی ثابت (فقط seed)
+    // کاربر دستهٔ جدید نمی‌سازد؛ این فقط برای فیلد «دستهٔ برند» در فرم ثبت است
+    // ============================================================
+    async listCategories() {
+        return this.cache.wrap(
+            'brand-categories',
+            ['all'],
+            60_000,
+            async () =>
+                this.prisma.brandCategory.findMany({
+                    where: { isActive: true },
+                    orderBy: { order: 'asc' },
+                    select: { id: true, name: true, slug: true, order: true },
+                }),
+        );
+    }
+
+    // ============================================================
+    // اعتبارسنجی دستهٔ برند — شناسهٔ معتبر از لیست ثابت
+    // ============================================================
+    private async resolveCategory(categoryId: string) {
+        const cat = await this.prisma.brandCategory.findUnique({
+            where: { id: categoryId },
+            select: { id: true, name: true },
+        });
+        if (!cat) {
+            throw new BadRequestException({
+                errorCode: 'BRAND_CATEGORY_INVALID',
+                message: 'دستهٔ برند معتبر نیست — از لیست دسته‌ها انتخاب کنید',
+            });
+        }
+        return cat;
+    }
+
     private async runSearchQuery(options: {
         q?: string; category?: string; page: number; take: number; skip: number;
     }) {
@@ -71,6 +106,7 @@ export class BrandService {
                     id: true,
                     title: true,
                     category: true,
+                    brandCategory: { select: { name: true } },
                     logoUrl: true,
                     usageCount: true,
                     isByUser: true,
@@ -88,6 +124,7 @@ export class BrandService {
 
     // ============================================================
     // ایجاد برند جدید
+    // ✅ دستهٔ برند الزامی — از لیست ثابت brand_categories
     // ✅ جلوگیری قطعی از تکرار — نرمال‌سازی فاصله/حروف عربی-فارسی/اعداد
     // ✅ isByUser=true برای برندهای کاربر-ساخته
     // ✅ createdByUserId + armId — برای نظارت مالک بازار روی داده‌های پایهٔ بازارش
@@ -100,6 +137,9 @@ export class BrandService {
                 message: 'عنوان برند الزامی است',
             });
         }
+
+        // ✅ دستهٔ برند الزامی — باید از لیست ثابت باشد
+        const cat = await this.resolveCategory(dto.categoryId);
 
         // ✅ بررسی تکراری با نرمال‌سازی کامل (فاصله، ی/ی، ک/ك، اعداد و…)
         const existing = await findDuplicateTitle(this.prisma.brand, title);
@@ -123,12 +163,13 @@ export class BrandService {
             armId = arm?.id || null;
         }
 
-        const CREATE_SELECT = { id: true, title: true, category: true, logoUrl: true, isByUser: true } as const;
+        const CREATE_SELECT = { id: true, title: true, category: true, brandCategory: { select: { name: true } }, logoUrl: true, isByUser: true } as const;
 
         const createData = {
             title,
             slug,
-            category: dto.category || null,
+            brandCategoryId: cat.id,   // ✅ دستهٔ ثابت
+            category: cat.name,        // ✅ همگام با نام دسته (سازگاری با فیلترهای قبلی)
             keywords: dto.keywords || [],
             logoUrl: dto.logoUrl || null,
             description: dto.description || null,
@@ -220,11 +261,24 @@ export class BrandService {
             }
             dto = { ...dto, title: normalized };
         }
+        // ✅ تغییر دستهٔ برند — فقط از لیست ثابت
+        let categoryPatch: { brandCategoryId: string; category: string } | null = null;
+        if (dto.categoryId !== undefined) {
+            if (!dto.categoryId) {
+                throw new BadRequestException({
+                    errorCode: 'BRAND_CATEGORY_INVALID',
+                    message: 'دستهٔ برند نمی‌تواند خالی باشد',
+                });
+            }
+            const cat = await this.resolveCategory(dto.categoryId);
+            categoryPatch = { brandCategoryId: cat.id, category: cat.name };
+        }
+
         const updated = await this.prisma.brand.update({
             where: { id },
             data: {
                 ...(dto.title !== undefined ? { title: dto.title } : {}),
-                ...(dto.category !== undefined ? { category: dto.category } : {}),
+                ...(categoryPatch ? { brandCategoryId: categoryPatch.brandCategoryId, category: categoryPatch.category } : {}),
                 ...(dto.keywords !== undefined ? { keywords: dto.keywords } : {}),
                 ...(dto.logoUrl !== undefined ? { logoUrl: dto.logoUrl } : {}),
                 ...(dto.description !== undefined ? { description: dto.description } : {}),

@@ -12,6 +12,13 @@ import { CurrentUser } from '../common/decorators/custom.decorators';
 export class BrandController {
     constructor(private brandService: BrandService) {}
 
+    // ✅ لیست دسته‌بندی‌های برند — تاکسونومی ثابت برای فیلد «دستهٔ برند»
+    @Get('categories')
+    @ApiOperation({ summary: 'لیست دسته‌بندی‌های برند (تاکسونومی ثابت — فقط خواندنی)' })
+    async listCategories() {
+        return this.brandService.listCategories();
+    }
+
     // ✅ جستجوی برند — با pagination
     // ✅ حداقل ۲ حرف برای سرچ
     // ✅ بدون سرچ: ۱۰ برند پراستفاده

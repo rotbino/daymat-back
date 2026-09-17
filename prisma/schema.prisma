@@ -1427,10 +1427,32 @@ model SearchLog {
 }
 
 // ============================================================
+// دسته‌بندی برند — BrandCategory
+// ------------------------------------------------------------
+// تاکسونومی ثابت و سطح‌بالای برندها (حداکثر ۳۰ دسته) — فقط با
+// seed پر می‌شود و کاربر دستهٔ جدید نمی‌سازد. هر برند هنگام
+// ثبت باید به یکی از این دسته‌ها وصل شود تا بعداً بشود برندهای
+// هر بازو را محدود و تخصصی کرد (مثلاً فقط «مواد غذایی و نوشیدنی»).
+// ============================================================
+model BrandCategory {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  name      String   @unique
+  slug      String   @unique
+  order     Int      @default(0)
+  isActive  Boolean  @default(true)
+  brands    Brand[]  @relation("BrandBrandCategory")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("brand_categories")
+}
+
+// ============================================================
 // برند — Brand
 // ------------------------------------------------------------
-// برندهای کالاها. هر برند یک category داره (مواد غذایی، نوشیدنی، شوینده...)
-// تا موقع سرچ فقط برندهای هم‌صنف بیان.
+// برندهای کالاها. هر برند هنگام ثبت باید دستهٔ سطح‌بالای خودش را
+// از لیست ثابت BrandCategory انتخاب کند (brandCategoryId).
+// فیلد category (متن آزاد قدیمی) هم‌زمان با نام دسته همگام می‌ماند.
 // کاربران می‌تونن برند جدید بسازن → confirmed=false تا ادمین بررسی کنه.
 // ============================================================
 model Brand {
@@ -1438,6 +1460,8 @@ model Brand {
   title           String             @unique
   slug            String             @unique
   category        String?
+  brandCategoryId String?            @db.ObjectId // ✅ دستهٔ سطح‌بالای برند — از لیست ثابت brand_categories
+  brandCategory   BrandCategory?     @relation("BrandBrandCategory", fields: [brandCategoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   categoryPath    String[]           @default([])
   logoUrl         String?
   description     String?
@@ -1455,6 +1479,7 @@ model Brand {
   products        ProductReference[] @relation("ProductRefBrand")
 
   @@index([category])
+  @@index([brandCategoryId])
   @@index([isActive])
   @@index([usageCount])
   @@index([confirmed])

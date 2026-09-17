@@ -14,10 +14,10 @@ export class AdminUpdateBrandDto {
     @MaxLength(80)
     title?: string;
 
-    @ApiPropertyOptional({ description: 'دستهٔ برند' })
+    @ApiPropertyOptional({ description: 'شناسهٔ دستهٔ برند (از GET /brands/categories)' })
     @IsOptional()
     @IsString()
-    category?: string;
+    categoryId?: string;
 
     @ApiPropertyOptional({ type: [String], description: 'کلمات کلیدی' })
     @IsOptional()
