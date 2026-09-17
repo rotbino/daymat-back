@@ -492,7 +492,7 @@ export class InquiryService implements OnModuleInit {
 
         // ✅ گیت خصوصی نسخهٔ جدید (تصمیم مالک): لیست برای همه قابل دیدن است؛
         //    فقط ثبت پیشنهاد محدود به تامین‌کننده‌های تاییدشده است (گیت در addOffer).
-        //    فلگ limited به فرانت می‌گوید دکمهٔ قیمت را برای غیرعضو به «درخواست همکاری» تبدیل کند.
+        //    فلگ limited به فرانت می‌گوید دکمهٔ قیمت را برای غیرعضو به «پیشنهاد تامین» تبدیل کند.
         let isMember = false;
         let limitedView = false;
         if (!isOwner && inquiry.visibility === 'private') {
@@ -501,7 +501,7 @@ export class InquiryService implements OnModuleInit {
         }
 
         // ✅ آمار صفحهٔ عمومی — تامین‌کننده‌های فعال + ذخیره‌ها + وضعیت رابطهٔ من با این بازو
-        //    accessState برای دکمهٔ «ارسال درخواست تامین» سه‌حالته (خواستهٔ مالک — هم عمومی هم خصوصی)
+        //    accessState برای دکمهٔ «ارسال پیشنهاد تامین» سه‌حالته (خواستهٔ مالک — هم عمومی هم خصوصی)
         const [memberRow, suppliersCount, savesCount] = await Promise.all([
             userId
                 ? (this.prisma.inquiryMember as any).findFirst({
@@ -944,7 +944,7 @@ export class InquiryService implements OnModuleInit {
         if (inquiry.visibility === 'private' && !(await this.isActiveMember(inquiryId, userId))) {
             throw new ForbiddenException({
                 errorCode: 'PRIVATE_INQUIRY',
-                message: 'این بازوی خرید خصوصیه — اول به خریدار درخواست همکاری بده؛ بعد از تایید او، همیشه می‌تونی به درخواست‌های قیمتش پیشنهاد بدي',
+                message: 'این بازوی خرید خصوصیه — اول به خریدار پیشنهاد تامین بده؛ بعد از تایید او، همیشه می‌تونی به درخواست‌های قیمتش پیشنهاد بدي',
             });
         }
         if (dto.itemId && !this.isValidObjectId(dto.itemId)) {
@@ -1178,7 +1178,7 @@ export class InquiryService implements OnModuleInit {
     }
 
     /**
-     * جست‌وجوی کاتالوگ قیمت برای «درخواست همکاری» تامین‌کننده (مالک بازو)
+     * جست‌وجوی کاتالوگ قیمت برای «درخواست تامین» (مالک بازو)
      * ✅ فیلتر استان/شهر/صنف (خواستهٔ مالک: خریدار اکثراً می‌خواهد از شهر خودش تامین کند)
      *    + اطلاعات تصمیم‌گیری زیر هر کاتالوگ: نام بیزینس، صنف، شهر
      * ✅ همکارهای فعال (active) هرگز برنمی‌گردند؛ درخواست‌های در انتظار (pending) با فلگ pending
@@ -1285,12 +1285,12 @@ export class InquiryService implements OnModuleInit {
                 },
             });
         }
-        // 🔔 به تامین‌کننده — درخواست همکاری خریدار
+        // 🔔 به تامین‌کننده — درخواست تامین خریدار
         void this.notification.notify({
             userIds: [member.userId],
             type: 'inquiry_member_invite',
-            title: 'درخواست همکاری خریدار',
-            body: `خریدارِ بازوی خرید «${inquiry.title}» به تو درخواست همکاری داده`,
+            title: 'درخواست تامین خریدار',
+            body: `خریدارِ بازوی خرید «${inquiry.title}» به تو درخواست تامین داده`,
             actorUserId: userId,
             href: '/my-catalogs?tab=leads',
             businessId: inquiry.businessId ?? null,
@@ -1344,14 +1344,14 @@ export class InquiryService implements OnModuleInit {
         if (autoActivate) {
             await this.syncCatalogCustomerSide(catalog.id, inquiry);
         }
-        // 🔔 به خریدار — اتصال/درخواست تامین‌کنندگی
+        // 🔔 به خریدار — اتصال/پیشنهاد تامین
         void this.notification.notify({
             userIds: [inquiry.ownerUserId],
             type: 'inquiry_member_request',
-            title: autoActivate ? 'تامین‌کنندهٔ جدید' : 'درخواست همکاری تامین‌کننده',
+            title: autoActivate ? 'تامین‌کنندهٔ جدید' : 'پیشنهاد تامین',
             body: autoActivate
                 ? `«${catalog.name}» با کاتالوگش به بازوی خرید «${inquiry.title}» متصل شد`
-                : `«${catalog.name}» درخواست همکاری در بازوی خرید «${inquiry.title}» را دارد`,
+                : `«${catalog.name}» پیشنهاد تامین در بازوی خرید «${inquiry.title}» را دارد`,
             actorUserId: userId,
             href: '/my-inquiries?tab=members',
             businessId: inquiry.businessId ?? null,
@@ -1402,7 +1402,7 @@ export class InquiryService implements OnModuleInit {
             void this.notification.notify({
                 userIds: [member.userId],
                 type: 'inquiry_member_approved',
-                title: 'درخواست همکاری‌ات تایید شد',
+                title: 'پیشنهاد تامینت پذیرفته شد',
                 body: `در بازوی خرید «${inquiry.title}» همکار تامین‌کننده شدی — اقلامش را می‌بینی`,
                 actorUserId: userId,
                 href: '/my-catalogs?tab=leads',
@@ -1413,7 +1413,7 @@ export class InquiryService implements OnModuleInit {
                 userIds: [inquiry.ownerUserId],
                 type: 'inquiry_member_confirmed',
                 title: 'تامین‌کنندهٔ جدید',
-                body: `تامین‌کننده درخواست همکاری شما را برای «${inquiry.title}» پذیرفت`,
+                body: `تامین‌کننده درخواست تامین شما را برای «${inquiry.title}» پذیرفت`,
                 actorUserId: userId,
                 href: '/my-inquiries?tab=members',
                 businessId: inquiry.businessId ?? null,

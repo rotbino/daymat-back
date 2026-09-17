@@ -246,7 +246,7 @@ export class InquiryController {
     @Get(':id/supplier-candidates')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'جست‌وجوی کاتالوگ قیمت برای درخواست همکاری تامین‌کننده (مالک) — با فیلتر استان/شهر/صنف' })
+    @ApiOperation({ summary: 'جست‌وجوی کاتالوگ قیمت برای درخواست تامین (مالک) — با فیلتر استان/شهر/صنف' })
     supplierCandidates(
         @Param('id') id: string,
         @CurrentUser() user: any,

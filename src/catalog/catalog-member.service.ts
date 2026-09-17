@@ -98,7 +98,7 @@ export class CatalogMemberService {
 
     private CONN_TYPE_LABEL: Record<string, string> = {
         customer: 'بازوی خرید',
-        supplier: 'درخواست تامین‌کنندگی',
+        supplier: 'پیشنهاد تامین',
         service: 'درخواست تامین خدمات',
         seller: 'دعوت به همکاری در فروش',
     };
@@ -1365,7 +1365,9 @@ export class CatalogMemberService {
             type === 'seller' ? 'همکاری در فروش'
             : type === 'buyer' ? 'تامین‌شوندگی (خرید)'
             : type === 'service' ? 'تامین خدمات'
-            : 'تامین‌کنندگی';
+            : 'پیشنهاد تامین';
+        // ✅ واژگان (خواستهٔ مالک): درخواستِ تامین‌کننده «پیشنهاد تامین» است — «درخواست پیشنهاد» نمی‌گوییم
+        const phrase = type === 'supplier' ? 'پیشنهاد تامین' : `درخواست ${label}`;
         // ✅ اطلاع‌رسانی به مدیران کاتالوگ — اعلان + پایهٔ شمارندهٔ قرمز
         //    درخواست خریدار → تب «خریداران»؛ بقیه → تب «تیم فروش»
         const requesterName = await this.userName(userId);
@@ -1373,11 +1375,11 @@ export class CatalogMemberService {
             catalog,
             userId,
             'catalog_coop_request',
-            `درخواست ${label} جدید از ${requesterName}`,
+            `${phrase} جدید از ${requesterName}`,
             dto?.note || undefined,
             type === 'buyer' ? 'customers' : 'team',
         );
-        return { success: true, requestType: type, message: `درخواست ${label} ثبت شد — در انتظار تایید مدیر کاتالوگ` };
+        return { success: true, requestType: type, message: `${phrase} ثبت شد — در انتظار تایید مدیر کاتالوگ` };
     }
 
     /** تایید درخواست همکار فروش — مالک/مدیر؛ نقش بیزینسی (فروشنده/بازاریاب-ویزیتور) اینجا تعیین می‌شود */
@@ -1529,7 +1531,7 @@ export class CatalogMemberService {
         await this.notifier.notify({
             userIds: [row.userId],
             type: 'catalog_coop_approved',
-            title: `درخواست تامین‌کنندگی شما تایید شد`,
+            title: `پیشنهاد تامینت پذیرفته شد`,
             body: `کالاهای کاتالوگ شما حالا در «${catalog.name}» عرضه می‌شوند`,
             actorUserId: actorId,
             href: catalog.slug ? `/${catalog.slug}` : `/my-catalogs?tab=team&cat=${catalog.id}`,
@@ -1556,8 +1558,8 @@ export class CatalogMemberService {
         await this.notifier.notify({
             userIds: [row.userId],
             type: 'catalog_coop_rejected',
-            title: `درخواست تامین‌کنندگی شما رد شد`,
-            body: reason || `مدیر کاتالوگ «${catalog.name}» درخواست شما را رد کرد`,
+            title: `پیشنهاد تامینت رد شد`,
+            body: reason || `مدیر کاتالوگ «${catalog.name}» پیشنهادت را رد کرد`,
             actorUserId: actorId,
             href: catalog.slug ? `/${catalog.slug}` : null,
             catalogId: catalog.id,
@@ -1672,13 +1674,13 @@ export class CatalogMemberService {
         await this.notifier.notify({
             userIds: [src.ownerUserId],
             type: 'catalog_lane_invite',
-            title: `درخواست تامین‌کنندگی از «${catalog.name}»`,
+            title: `دعوت به تامین‌کنندگی از «${catalog.name}»`,
             body: dto?.note || 'کاتالوگ شما را به‌عنوان تامین‌کننده ثبت کرده — تایید یا رد کن',
             actorUserId: actorId,
             href: '/my-catalogs?tab=team',
             catalogId: catalog.id,
         });
-        return { success: true, message: 'درخواست تامین‌کنندگی ارسال شد — در انتظار پذیرش تامین‌کننده', quota: charge };
+        return { success: true, message: 'دعوت تامین‌کنندگی ارسال شد — در انتظار پذیرش تامین‌کننده', quota: charge };
     }
 
     /** دعوت کاتالوگِ خدماتی به‌عنوان سرویس‌دهنده — مالک/مدیر؛ تایید با صاحبِ کاتالوگِ خدماتی */

@@ -426,7 +426,7 @@ export class CatalogController {
     @Post(':catalogId/team/suppliers/:memberId/approve')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'تایید درخواست تامین‌کننده (مالک/مدیر)' })
+    @ApiOperation({ summary: 'تایید پیشنهاد تامین (مالک/مدیر)' })
     async approveSupplier(
         @Param('catalogId') catalogId: string,
         @Param('memberId') memberId: string,
@@ -438,7 +438,7 @@ export class CatalogController {
     @Post(':catalogId/team/suppliers/:memberId/reject')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'رد درخواست تامین‌کننده (مالک/مدیر)' })
+    @ApiOperation({ summary: 'رد پیشنهاد تامین (مالک/مدیر)' })
     async rejectSupplier(
         @Param('catalogId') catalogId: string,
         @Param('memberId') memberId: string,
