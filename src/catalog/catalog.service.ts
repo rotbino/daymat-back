@@ -10,8 +10,6 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateCatalogDto, UpdateCatalogDto } from './catalog.dto';
 import { CatalogRole } from '../common/enums/prisma-enums';
 import { CacheHelper } from '../common/services/cache.helper';
-import { CatalogPublishService } from '../common/services/catalog-publish.service';
-import { checkMarketTypeMismatch } from '../common/utils/arm.utils';
 import { RESERVED_SLUGS } from '../common/reserved-slugs';
 
 /** عمر کش لیست‌های عمومی بازوی فروش — ۵ دقیقه */
@@ -30,7 +28,6 @@ export class CatalogService {
     constructor(
         private prisma: PrismaService,
         private cache: CacheHelper,
-        private catalogPublish: CatalogPublishService,
     ) {}
 
     // ─── اسلاگ ───
@@ -175,39 +172,13 @@ export class CatalogService {
             }
         }
 
-        // ✅ ناوردی بازار — «قبل از هر نوشتنی» چک می‌شود تا بازوی فروش یتیم نسازد:
-        //    • عضویتِ فعال با بازوی فروشِ واقعیِ دیگر → خطا (بدون ساخت بازوی فروش)
-        //    • ارجاعِ یتیم (بازوی فروش حذف/بسته شده) → مانع نیست؛ عضویت با بازوی فروش تازه repoint می‌شود
-        let armCtx: { id: string; categoryTree: any } | null = null;
-        if (dto.armSlug) {
-            const arm = await this.prisma.arm.findUnique({
-                where: { slug: dto.armSlug },
-                select: { id: true, categoryTree: true, config: true },
-            });
-            if (arm) {
-                const existing = await this.prisma.armMembership.findUnique({
-                    where: { armId_userId: { armId: arm.id, userId } },
-                    select: { catalogId: true },
-                });
-                if (existing?.catalogId) {
-                    const existingCat = await this.prisma.catalog.findUnique({
-                        where: { id: existing.catalogId },
-                        select: { status: true },
-                    });
-                    if (existingCat?.status === 'active') {
-                        throw new ConflictException({
-                            errorCode: 'BUSINESS_HAS_OTHER_CATALOG',
-                            message: 'شما در این بازار با بازوی فروش دیگری فعال هستید — ابتدا آن بازوی فروش را حذف یا اتصالش را از پنل بازار قطع کنید',
-                        });
-                    }
-                }
-                const typeMismatch = checkMarketTypeMismatch(arm, dto.salesType === 'retail' ? 'retail' : 'wholesale');
-                if (typeMismatch) {
-                    throw new BadRequestException({ errorCode: 'MARKET_TYPE_MISMATCH', message: typeMismatch });
-                }
-                armCtx = { id: arm.id, categoryTree: arm.categoryTree };
-            }
-        }
+        // ✅ فیکسِ بنر جشنِ کاذب: ساختِ بازوی فروش دیگر عضویتِ فروشندگیِ خودکار نمی‌سازد.
+        //    قبلاً armSlug (آخرین بازاری که کاربر دیده بود — از redux-persist!) می‌آمد و بی‌اجازهٔ
+        //    مدیرِ بازار، عضویتِ seller فعال+published ساخته می‌شد → بنر «محصولات شما در بازار X
+        //    قرار گرفت!» بی‌دلیل ظاهر می‌شد و کالاها هم بی‌اجازه مهرِ بازار می‌خوردند.
+        //    حالا ورودِ بازوی فروش به بازار فقط با تصمیمِ مدیر (owner_add) یا تاییدِ
+        //    درخواستِ عضویت (membership_request) اتفاق می‌افتد.
+        //    نکتهٔ سازگاری: فیلد armSlug در DTO می‌ماند (کلاینت‌های قدیمی ۴۰۰ نگیرند) ولی نادیده گرفته می‌شود.
 
         // ✅ همهٔ نوشته‌ها در یک تراکنش — یا همه ثبت می‌شود یا هیچ‌کدام؛ خطای وسطِ راه دیگر بازوی فروش یتیم جا نمی‌گذارد
         const catalog = await this.prisma.$transaction(async (tx) => {
@@ -275,34 +246,7 @@ export class CatalogService {
                 },
             });
 
-            if (armCtx) {
-                await tx.armMembership.upsert({
-                    where: { armId_userId: { armId: armCtx.id, userId } },
-                    create: {
-                        armId: armCtx.id,
-                        userId,
-                        businessId: cat.businessId,
-                        catalogId: cat.id,
-                        role: 'arm_member',
-                        roleType: 'seller',
-                        status: 'active',
-                        publishState: 'published',
-                        source: 'manual',
-                    },
-                    update: {
-                        catalogId: cat.id,
-                        status: 'active',
-                        publishState: 'published',
-                        roleType: 'seller',
-                        businessId: cat.businessId,
-                    },
-                });
-                // ✅ انتشار پیش‌فرض: همهٔ آگهی‌های بازوی فروش تازه به این بازار مهر می‌خورند
-                await tx.ad.updateMany({
-                    where: { catalogId: cat.id, status: 'active', publishToMarket: false },
-                    data: { publishToMarket: true },
-                });
-            }
+            // ✅ دیگر عضویتِ بازار و مهرِ کالاها اینجا انجام نمی‌شود — فقط با اددِ مدیر یا تاییدِ درخواست
 
             if (refUserId) {
                 const me = await tx.user.findUnique({
@@ -319,15 +263,6 @@ export class CatalogService {
 
             return cat;
         });
-
-        // ✅ مهرِ دسته‌بندی آگهی‌ها — سرویسِ جدا و غیربحرانی؛ بعد از commit اجرا می‌شود
-        if (armCtx) {
-            try {
-                await this.catalogPublish.stampCatalogAds(armCtx as any, catalog.id, undefined, userId);
-            } catch (err) {
-                console.error(`catalog create: stampCatalogAds failed for arm ${armCtx.id}:`, err);
-            }
-        }
 
         // ✅ سینک تیم کسب‌وکار → بازوی فروش تازه — اعضای فعال تیم در صف تاییدِ همکاری در فروش می‌نشینند
         try {

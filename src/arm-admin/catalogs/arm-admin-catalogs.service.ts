@@ -442,6 +442,9 @@ export class ArmAdminCatalogsService {
 
         // ✅ آپدیت یا ساخت membership
         // نکته: role رو دست نمی‌زنیم — اگه arm_owner بوده، arm_owner می‌مونه
+        // ✅ اگر عضویت قبلی بازوی فروش نداشته (خریدارِ ساده بوده) → joinedAt تازه ثبت می‌شود
+        //    تا بنر جشنِ «محصولات شما در بازار قرار گرفت» در ۴۸ ساعت اول بدرستین نشان داده شود
+        const becameSellerNow = !existing?.catalogId;
         const membership = existing
             ? await this.prisma.armMembership.update({
                 where: { id: existing.id },
@@ -454,6 +457,7 @@ export class ArmAdminCatalogsService {
                     rejectionReason: null,
                     selfRemovedCatalog: false, // ✅ افزودن مجدد آگاهانه — ردِ خروج اختیاری پاک می‌شود
                     leftAt: null,
+                    ...(becameSellerNow ? { joinedAt: new Date() } : {}),
                     reviewedByUserId: null,
                     reviewedAt: null,
                     source: 'owner_add',

@@ -412,6 +412,7 @@ export class ArmService {
                     leftVia: true,
                     selfRemovedCatalog: true,
                     roleType: true,
+                    source: true, // ✅ مبدأ عضویت — فرانت جشن را فقط برای اددِ مدیر/تاییدِ درخواست می‌گیرد
                     catalogId: true,
                     catalog: {
                         select: { id: true, name: true, type: true },
@@ -511,6 +512,7 @@ export class ArmService {
                 // ✅ درخواست لغویِ در انتظارِ تاییدِ مالک — بج در پنل بازوی فروش/کسب‌وکار
                 pendingLeaveRequest: pendingLeaveMap.get(m.arm.id) ?? null,
                 roleType: m.roleType,
+                source: m.source ?? null,
                 acceptedCatalogTypes: m.arm.acceptedCatalogTypes || [],
                 catalog: m.catalog
                     ? { id: m.catalog.id, name: m.catalog.name, type: m.catalog.type }
