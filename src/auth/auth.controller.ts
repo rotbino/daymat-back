@@ -1,7 +1,8 @@
 // src/auth/auth.controller.ts
 
-import {Controller, Post, Body, UseInterceptors, Put, UseGuards, Get, Query} from '@nestjs/common';
+import {Controller, Post, Body, UseInterceptors, Put, UseGuards, Get, Query, Req} from '@nestjs/common';
 import {ApiTags, ApiOperation, ApiResponse, ApiBody, ApiBearerAuth, ApiQuery} from '@nestjs/swagger';
+import type { FastifyRequest } from 'fastify';
 import { AuthService } from './auth.service';
 import {
     RegisterDto,
@@ -30,8 +31,8 @@ export class AuthController {
     @ApiBody({ type: RegisterDto })
     @ApiResponse({ status: 201, description: 'ثبت‌نام موفق', type: AuthResponseDto })
     @ApiResponse({ status: 400, description: 'خطا در داده‌های ورودی' })
-    register(@Body() dto: RegisterDto, @CurrentLocale() locale: string) {
-        return this.authService.register(dto, locale);
+    register(@Body() dto: RegisterDto, @CurrentLocale() locale: string, @Req() req: FastifyRequest) {
+        return this.authService.register(dto, locale, req);
     }
 
     // ============================================================
@@ -42,8 +43,8 @@ export class AuthController {
     @ApiBody({ type: LoginDto })
     @ApiResponse({ status: 200, description: 'ورود موفق', type: AuthResponseDto })
     @ApiResponse({ status: 401, description: 'شماره موبایل یا رمز عبور اشتباه است' })
-    login(@Body() dto: LoginDto, @CurrentLocale() locale: string) {
-        return this.authService.login(dto, locale);
+    login(@Body() dto: LoginDto, @CurrentLocale() locale: string, @Req() req: FastifyRequest) {
+        return this.authService.login(dto, locale, req);
     }
 
     // ============================================================

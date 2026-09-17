@@ -93,6 +93,11 @@ model User {
   createdAt                DateTime               @default(now())
   updatedAt                DateTime               @updatedAt
   lastLoginAt              DateTime?
+  // ── متادیتای سیستمی ثبت‌نام/ورود — پشت‌صحنه و بدون هیچ اجازه‌ای از کاربر ──
+  //    مرورگر/OS/نوع دیوایس (پارس User-Agent واقعی سرور)، IP و جستجوی جغرافیاییِ IP (لوکیشن غیردقیق)
+  //    و مشخصات خام کلاینت (صفحه، زبان، تایم‌زون، رم، شبکه) — برای گزارشِ دیوایس‌ها و پراکندگی جغرافیایی
+  signupMeta               Json?
+  lastLoginMeta            Json?
   membershipTier           String                 @default("free")
   // ── لاگ‌اوت واقعی: با هر خروج/تغییر رمز یکی زیاد می‌شود؛
   //    jwt.strategy نسخهٔ توکن را با این فیلد می‌سنجد → توکن‌های قدیمی فوراً باطل

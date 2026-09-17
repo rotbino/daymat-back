@@ -46,6 +46,14 @@ export class RegisterDto {
     @IsString()
     @MaxLength(16)
     refCode?: string;
+
+    @ApiPropertyOptional({
+        description: 'متادیتای سیستمی کلاینت (پشت‌صحنه) — صفحه/زبان/تایم‌زون/رم/شبکه؛ سرور UA و IP و جستجوی جغرافیایی IP را اضافه می‌کند',
+        required: false,
+    })
+    @IsOptional()
+    @IsObject({ message: 'متادیتای ثبت‌نام نامعتبر است' })
+    signupMeta?: Record<string, any>;
 }
 
 // ============================================================
@@ -67,6 +75,14 @@ export class LoginDto {
     @IsNotEmpty({ message: 'رمز عبور الزامی است' })
     @MinLength(6, { message: 'رمز عبور باید حداقل ۶ کاراکتر باشد' })
     password: string;
+
+    @ApiPropertyOptional({
+        description: 'متادیتای سیستمی کلاینت (پشت‌صحنه) — آخرین دیوایس/مرورگر/IP کاربر برای گزارش‌ها',
+        required: false,
+    })
+    @IsOptional()
+    @IsObject({ message: 'متادیتای ورود نامعتبر است' })
+    loginMeta?: Record<string, any>;
 }
 
 // ============================================================

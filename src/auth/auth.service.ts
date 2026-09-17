@@ -16,6 +16,8 @@ import { SystemRole } from "../common/enums/prisma-enums";
 import { CacheHelper } from '../common/services/cache.helper';
 // ✅ NEW — ابزار رفرال مشترک
 import { generateReferralCode, normalizeReferralCode, isReferralCollision } from '../common/utils/referral';
+// ✅ NEW — متادیتای سیستمی ثبت‌نام/ورود (دویایس/مرورگر/IP/جستجوی جغرافیایی IP — پشت‌صحنه)
+import { buildAuthMeta, lookupIpGeo } from '../common/utils/device-meta';
 
 /** عمر کش پروفایل — با هر ویرایشِ مسیرهای شناخته‌شده فوراً باطل می‌شود */
 const PROFILE_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -120,7 +122,7 @@ export class AuthService {
     // ============================================================
     // ✅ ورود کاربر
     // ============================================================
-    async login(dto: LoginDto, locale?: string) {
+    async login(dto: LoginDto, locale?: string, req?: any) {
         const user = await this.prisma.user.findUnique({
             where: { phone: dto.phone },
         });
@@ -144,6 +146,15 @@ export class AuthService {
             where: { id: user.id },
             data: { lastLoginAt: new Date() },
         });
+
+        // ✅ آخرین دیوایس/مرورگر/IP کاربر — پشت‌صحنه؛ جستجوی جغرافیایی fire-and-forget، هرگز ورود را مسدود نمی‌کند
+        const loginMeta = buildAuthMeta(req, dto.loginMeta);
+        void lookupIpGeo(typeof loginMeta.ip === 'string' ? loginMeta.ip : null)
+            .then((geo) => {
+                const data = geo ? { ...loginMeta, geo } : loginMeta;
+                return this.prisma.user.update({ where: { id: user.id }, data: { lastLoginMeta: data } });
+            })
+            .catch(() => {});
 
         const profile = await this.getProfile(user.id);
 
@@ -182,7 +193,7 @@ export class AuthService {
     // ============================================================
     // ✅ ثبت‌نام کاربر
     // ============================================================
-    async register(dto: RegisterDto, locale?: string) {
+    async register(dto: RegisterDto, locale?: string, req?: any) {
         // ۱. بررسی تکراری نبودن شماره
         const existing = await this.prisma.user.findUnique({
             where: { phone: dto.phone },
@@ -212,6 +223,11 @@ export class AuthService {
 
         const hashed = await bcrypt.hash(dto.password, 10);
 
+        // ۳.خ متادیتای سیستمی ثبت‌نام — پشت‌صحنه؛ مرورگر/OS/دیوایس از UA واقعی سرور، IP از هدرهای پروکسی
+        //    جستجوی جغرافیاییِ IP (لوکیشن غیردقیق) fire-and-forget است — هرگز ثبت‌نام را کند/خراب نمی‌کند
+        const signupMeta = buildAuthMeta(req, dto.signupMeta);
+        const ipForGeo = typeof signupMeta.ip === 'string' ? signupMeta.ip : null;
+
         // ۴. ثبت کاربر — انتساب دعوت‌کننده داخل همین create، نه با update جدا
         //    ⚠️ در مونگو فیلدِ غایب با فیلتر null پرزما match نمی‌شود؛
         //    updateMany بعد از create بی‌صدا no-op می‌شد (باگ تأییدشده)
@@ -229,6 +245,8 @@ export class AuthService {
                             locale: locale || 'fa',
                             isPhoneVerified: false,
                             referralCode: generateReferralCode(),
+                            // ✅ متادیتای سیستمی لحظهٔ ثبت‌نام (بدون geo — بعداً fire-and-forget غنی می‌شود)
+                            signupMeta,
                             // ✅ first-touch — در همان لحظهٔ تولد سند
                             ...(referrerId ? {
                                 referredByUserId: referrerId,
@@ -262,6 +280,17 @@ export class AuthService {
             }
         }
         if (!newUser) throw lastError;
+
+        // ۵.خ غنی‌سازی جغرافیاییِ پشت‌صحنه — اگر رسید، سندِ کاربر آپدیت می‌شود؛ خطا/تاخیر بی‌اثر
+        void lookupIpGeo(ipForGeo)
+            .then((geo) => {
+                if (!geo) return;
+                return this.prisma.user.update({
+                    where: { id: newUser!.id },
+                    data: { signupMeta: { ...signupMeta, geo } },
+                });
+            })
+            .catch(() => {});
 
         const profile = await this.getProfile(newUser.id);
 
