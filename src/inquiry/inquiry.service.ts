@@ -157,7 +157,7 @@ export class InquiryService implements OnModuleInit {
                 title: 'قلم فوری',
                 body: `«${itemName}» — در بازوی خرید ${inquiry.title}`,
                 actorUserId: inquiry.ownerUserId,
-                href: `/${inquiry.slug || inquiry.id}`,
+                href: `/i/${inquiry.slug || inquiry.id}`,
             });
         } catch { /* اعلان هرگز جریان اصلی را نمی‌شکند */ }
     }
@@ -172,7 +172,8 @@ export class InquiryService implements OnModuleInit {
     }
 
     /** اسلاگ خودکار از عنوان + پسوند کوتاه رندم (چون عنوان فارسی ممکن است نرمال‌سازی شود)
-     *  ✅ فضای اسلاگ سراسری است: بازوی فروش قیمت + بازار + صفحهٔ اعلان خرید همه روی ریشه بالا می‌آیند.
+     *  ✅ فضای اسلاگ سراسری است: بازوی فروش قیمت + بازار روی ریشه، صفحهٔ اعلان خرید روی /i —
+     *  یکتایی سراسری حفظ می‌شود تا هر اسلاگ فقط یک صاحب داشته باشد.
      *  اسلاگ دلخواهِ رد شده (تکراری/رزرو/کوتاه) استثنا می‌دهد؛ خودکار پسوند می‌گیرد. */
     private async buildUniqueSlug(title: string, custom?: string): Promise<string> {
         const customNormalized = this.normalizeSlug(custom ?? '');
@@ -1010,7 +1011,7 @@ export class InquiryService implements OnModuleInit {
             title: 'پیشنهاد قیمت جدید',
             body: `${offerer?.fullName || 'تامین‌کننده'} برای «${itemName || inquiry.title}» قیمت پیشنهاد داد`,
             actorUserId: userId,
-            href: `/${inquiry.slug || inquiry.id}`,
+            href: `/i/${inquiry.slug || inquiry.id}`,
             businessId: inquiry.businessId ?? null,
         });
         return offer;
@@ -1065,7 +1066,7 @@ export class InquiryService implements OnModuleInit {
                     title: dto.saleStatus === 'sold' ? 'فروش نهایی شد 🎉' : 'فروش نهایی نشد',
                     body: `پیشنهاد «${offer.itemName || inquiry.title}» — معامله ${dto.saleStatus === 'sold' ? 'با فروش به پایان رسید' : 'به فروش نرسید'}`,
                     actorUserId: userId,
-                    href: `/${inquiry.slug || inquiry.id}`,
+                    href: `/i/${inquiry.slug || inquiry.id}`,
                     businessId: inquiry.businessId ?? null,
                 });
             }
@@ -1118,7 +1119,7 @@ export class InquiryService implements OnModuleInit {
                     title: 'پیشنهاد قیمت ویرایش شد',
                     body: `${offer.itemName || inquiry.title} — پیشنهاد تامین‌کننده به‌روز شد`,
                     actorUserId: userId,
-                    href: `/${inquiry.slug || inquiry.id}`,
+                    href: `/i/${inquiry.slug || inquiry.id}`,
                     businessId: inquiry.businessId ?? null,
                 });
             }
@@ -1136,7 +1137,7 @@ export class InquiryService implements OnModuleInit {
                 title: dto.status === 'accepted' ? 'پیشنهادت پذیرفته شد' : 'پیشنهادت رد شد',
                 body: inquiry.title ? `بازوی خرید «${inquiry.title}»` : undefined,
                 actorUserId: userId,
-                href: `/${inquiry.slug || offer.inquiryId}`,
+                href: `/i/${inquiry.slug || offer.inquiryId}`,
                 businessId: inquiry.businessId ?? null,
             });
         }
