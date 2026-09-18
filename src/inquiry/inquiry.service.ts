@@ -1546,6 +1546,8 @@ export class InquiryService implements OnModuleInit {
                         select: {
                             id: true, name: true, slug: true, logoUrl: true, city: true, cityCode: true, industryName: true,
                             business: { select: { name: true, verificationTier: true } },
+                            // ✅ نام صاحب بازوی فروش — خواستهٔ مالک: «نام کسب‌وکار و نام صاحب بازو»
+                            owner: { select: { fullName: true } },
                         },
                     },
                 },
@@ -1564,16 +1566,17 @@ export class InquiryService implements OnModuleInit {
                     industryName: ad.catalog?.industryName ?? null,
                     businessName: ad.catalog?.business?.name ?? null,
                     verificationTier: ad.catalog?.business?.verificationTier ?? null,
+                    ownerName: ad.catalog?.owner?.fullName ?? null,
                     minPrice: ad.unitPrice,
                     unitTitle: ad.unit?.title ?? null,
                     sameCity: !!(inquiry.cityCode && ad.cityCode && inquiry.cityCode === ad.cityCode),
                 });
             }
 
-            // همان‌شهری‌ها اول، بعد ارزان‌تر — حداکثر ۵ پیشنهاد برای شلوغ نشدن
+            // همان‌شهری‌ها اول، بعد ارزان‌تر — مدالِ «فروشندگان این کالا» تا ۸ بازوی فروش نشان می‌دهد
             const suppliers = Array.from(byCatalog.values())
                 .sort((a, b) => (b.sameCity ? 1 : 0) - (a.sameCity ? 1 : 0) || a.minPrice - b.minPrice)
-                .slice(0, 5);
+                .slice(0, 8);
             suggestionsCount += suppliers.length;
             result.push({ itemId: item.id, name: item.name, suppliers });
         }

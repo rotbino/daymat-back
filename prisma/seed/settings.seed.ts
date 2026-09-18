@@ -52,6 +52,58 @@ export async function seedSettings() {
         },
 
         // ============================================================
+        // تنظیمات بازوها (Arms) — رایگان/پولی و اقتصادِ مچینگ دوطرفه
+        // ============================================================
+        {
+            key: 'arms.enforceMatchLimits',
+            value: false,
+            scope: 'system',
+            scopeId: 'system',
+            group: 'arms',
+            description: 'اعمال سقف/اعتبار در مچینگ — فعلاً خاموش تا کاربر چیزی از مالی نداند',
+        },
+        {
+            key: 'arms.matchFreeRevealsDaily',
+            value: 3,
+            scope: 'system',
+            scopeId: 'system',
+            group: 'arms',
+            description: 'تعداد رایگانِ روزانه برداشتن شماره از مچینگ',
+        },
+        {
+            key: 'arms.matchMaxRevealsDaily',
+            value: 10,
+            scope: 'system',
+            scopeId: 'system',
+            group: 'arms',
+            description: 'حداکثر روزانه برداشتن شماره از مچینگ (با اعتبار)',
+        },
+        {
+            key: 'arms.creditPriceToman',
+            value: 1000,
+            scope: 'system',
+            scopeId: 'system',
+            group: 'arms',
+            description: 'قیمت هر اعتبار به تومان — سراسری و ثابت',
+        },
+        {
+            key: 'arms.freeProductsPerCatalog',
+            value: 20,
+            scope: 'system',
+            scopeId: 'system',
+            group: 'arms',
+            description: 'تعداد کالای رایگان هر بازوی فروش',
+        },
+        {
+            key: 'arms.packages',
+            value: [],
+            scope: 'system',
+            scopeId: 'system',
+            group: 'arms',
+            description: 'بسته‌های پولی بازوها — برای آینده',
+        },
+
+        // ============================================================
         // تنظیمات عمومی (General)
         // ============================================================
         {

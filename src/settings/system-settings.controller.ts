@@ -24,6 +24,18 @@ export class SystemSettingsController {
         return this.systemSettings.updateCreditSettings(data);
     }
 
+    @Get('arms')
+    @ApiOperation({ summary: 'دریافت تنظیمات بازوها — سهمیه رایگان/سقف روزانه/قیمت اعتبار (فقط ادمین)' })
+    async getArmsSettings() {
+        return this.systemSettings.getArmsSettings();
+    }
+
+    @Put('arms')
+    @ApiOperation({ summary: 'به‌روزرسانی تنظیمات بازوها (فقط ادمین)' })
+    async updateArmsSettings(@Body() data: any) {
+        return this.systemSettings.updateArmsSettings(data);
+    }
+
     @Get(':key')
     @ApiOperation({ summary: 'دریافت یک تنظیمات (فقط ادمین)' })
     async get(@Param('key') key: string) {
