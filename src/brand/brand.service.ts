@@ -106,10 +106,14 @@ export class BrandService {
                     id: true,
                     title: true,
                     category: true,
-                    brandCategory: { select: { name: true } },
+                    // ✅ id دسته هم برمی‌گردد تا فرم ویرایش، دستهٔ انتخاب‌شده را prefill کند
+                    brandCategory: { select: { id: true, name: true } },
                     logoUrl: true,
                     usageCount: true,
                     isByUser: true,
+                    // ✅ گیت ویرایش فرانت: فقط سازندهٔ برند و فقط تا قبل از تأیید ادمین
+                    confirmed: true,
+                    createdByUserId: true,
                 },
                 orderBy: { usageCount: 'desc' },
                 take,
@@ -163,7 +167,7 @@ export class BrandService {
             armId = arm?.id || null;
         }
 
-        const CREATE_SELECT = { id: true, title: true, category: true, brandCategory: { select: { name: true } }, logoUrl: true, isByUser: true } as const;
+        const CREATE_SELECT = { id: true, title: true, category: true, brandCategory: { select: { id: true, name: true } }, logoUrl: true, isByUser: true, confirmed: true, createdByUserId: true } as const;
 
         const createData = {
             title,
