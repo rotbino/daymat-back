@@ -159,7 +159,8 @@ export class ProformaService {
         });
 
         // 🔔 خبر به خریدار — با href مستقیم به پیشنهادهای همان بازوی خرید
-        const href = inquiryId ? `/my-inquiries/${inquiryId}?tab=offers` : '/my-inquiries';
+        // ⚠️ قالب لینک عمیقِ پنل بازوی خرید «?catalog=<id>» است، نه مسیر /my-inquiries/<id>
+        const href = inquiryId ? `/my-inquiries?catalog=${inquiryId}&tab=offers` : '/my-inquiries';
         await this.notification.notify({
             userIds: [buyerUserId],
             type: 'proforma_received',
@@ -234,7 +235,10 @@ export class ProformaService {
             title: `پیش‌فاکتور ${proforma.number} تایید شد ✅`,
             body: `«${proforma.buyerName}» معامله را داخل دیمت تایید کرد — برای هماهنگی ارسال تماس بگیر`,
             actorUserId: userId,
-            href: proforma.inquiryId ? `/my-inquiries/${proforma.inquiryId}?tab=offers` : '/my-catalogs?tab=leads',
+            // خریدارِ بازوی خرید مالکِ اعلام خرید است؛ مقصد درستِ فروشنده = سرنخ‌های بازوی فروش خودش
+            href: proforma.sellerCatalogId
+                ? `/my-catalogs?catalog=${proforma.sellerCatalogId}&tab=leads`
+                : '/my-catalogs?tab=leads',
         });
 
         return updated;
@@ -261,7 +265,10 @@ export class ProformaService {
             title: `پیش‌فاکتور ${proforma.number} تایید نشد`,
             body: 'خریدار این پیش‌فاکتور را نپذیرفت — می‌توانی پیشنهاد جدیدی بدهی',
             actorUserId: userId,
-            href: proforma.inquiryId ? `/my-inquiries/${proforma.inquiryId}?tab=offers` : '/my-catalogs?tab=leads',
+            // مقصد درستِ فروشنده = سرنخ‌های بازوی فروش خودش (اعلام خرید متعلق به خریدار است)
+            href: proforma.sellerCatalogId
+                ? `/my-catalogs?catalog=${proforma.sellerCatalogId}&tab=leads`
+                : '/my-catalogs?tab=leads',
         });
 
         return updated;
