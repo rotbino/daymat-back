@@ -4,7 +4,7 @@ import {
     IsNotEmpty, IsString, IsNumber, IsOptional, IsBoolean,
     Min, Max, IsEnum, ValidateNested, IsObject, IsArray, MaxLength,
 } from 'class-validator';
-import { Transform, Type } from 'class-transformer';
+import { Transform, Type, plainToInstance } from 'class-transformer';
 
 // ═══════════════════════════════════════════════════════════════
 // DTOهای شرایط فروش
@@ -691,7 +691,7 @@ export class ExtendAdDto {
     bumpDurationHours?: number;
 }
 // ═══════════════════════════════════════════════════════════════
-// ایمپورت گروهی لیست قیمت — چسباندن از متن واتساپ/Excel
+// ایمپورت گروهی لیست قیمت — چندمنبعی: متن / اکسل / گرید / خروجی هوش مصنوعی
 // ═══════════════════════════════════════════════════════════════
 export class ImportParseDto {
     @ApiProperty({ description: 'شناسهٔ بازوی فروش مقصد' })
@@ -699,11 +699,16 @@ export class ImportParseDto {
     @IsString()
     catalogId: string;
 
-    @ApiProperty({ description: 'متن خام لیست قیمت — هر قلم یک خط' })
-    @IsNotEmpty({ message: 'متن لیست قیمت خالی است' })
+    @ApiProperty({ description: 'متن خام لیست قیمت یا JSON خروجی هوش مصنوعی — هر قلم یک خط' })
+    @IsNotEmpty({ message: 'چیزی برای خواندن نیست' })
     @IsString()
-    @MaxLength(60000)
+    @MaxLength(200000)
     text: string;
+
+    @ApiProperty({ description: 'منبع متن — text: لیست ساده هر خط یک قلم | json: خروجی هوش مصنوعی/گرید', required: false, enum: ['text', 'json'] })
+    @IsOptional()
+    @IsString()
+    source?: 'text' | 'json';
 }
 
 export class ImportCommitItemDto {
@@ -722,6 +727,24 @@ export class ImportCommitItemDto {
     @IsOptional()
     @IsString()
     referenceId?: string;
+
+    @ApiProperty({ description: 'واحد فروش این ردیف — مثل کارتن/بسته/عدد (اختیاری)', required: false })
+    @IsOptional()
+    @IsString()
+    @MaxLength(40)
+    unitTitle?: string;
+
+    @ApiProperty({ description: 'تعداد در واحد — مثل ۱۲ برای کارتن ۱۲تایی (اختیاری)', required: false })
+    @IsOptional()
+    @IsNumber()
+    @Min(0)
+    unitQty?: number;
+
+    @ApiProperty({ description: 'برند این کالا — نبود خودکار ساخته می‌شود (اختیاری)', required: false })
+    @IsOptional()
+    @IsString()
+    @MaxLength(60)
+    brandTitle?: string;
 }
 
 export class ImportCommitDto {
@@ -737,6 +760,25 @@ export class ImportCommitDto {
 
     @ApiProperty({ type: [ImportCommitItemDto], description: 'ردیف‌های تاییدشدهٔ پیش‌نمایش' })
     @IsArray()
+    // ✅ تحمل ورودیِ کاملِ پیش‌نمایش — فیلدهای اضافی (valid/warnings/…) حذف و قیمت‌های متنی عدد می‌شوند
+    //    (خروجی Transform باید نمونهٔ واقعی کلاس باشد وگرنه ValidateNested «unknown value» می‌دهد)
+    @Transform(({ value }) => Array.isArray(value)
+        ? plainToInstance(ImportCommitItemDto, value.map((it: any) => {
+            const num = (v: any) => {
+                if (v == null || v === '') return undefined;
+                const n = Number(String(v).replace(/[^\d.\-]/g, ''));
+                return Number.isFinite(n) ? n : undefined;
+            };
+            return {
+                name: it?.name,
+                price: num(it?.price) ?? 0,
+                referenceId: it?.referenceId || undefined,
+                unitTitle: it?.unitTitle || undefined,
+                unitQty: num(it?.unitQty),
+                brandTitle: it?.brandTitle || undefined,
+            };
+        }))
+        : value)
     @ValidateNested({ each: true })
     @Type(() => ImportCommitItemDto)
     items: ImportCommitItemDto[];

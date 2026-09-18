@@ -8,6 +8,7 @@ import {
     Body,
     Param,
     Query,
+    Req,
     UseGuards,
     BadRequestException, HttpCode,
 } from '@nestjs/common';
@@ -49,15 +50,46 @@ export class AdController {
     @Post('import/parse')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'پیش‌نمایش ایمپورت — متن خام لیست قیمت را ردیف‌به‌ردیف می‌خواند' })
+    @ApiOperation({ summary: 'پیش‌نمایش ایمپورت — متن خام یا JSON هوش مصنوعی را ردیف‌به‌ردیف می‌خواند' })
     async importParse(@CurrentUser() user: any, @Body() dto: ImportParseDto) {
         return this.adImport.parse(user.id, dto);
+    }
+
+    @Post('import/parse-file')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'پیش‌نمایش ایمپورت از فایل اکسل/CSV — multipart (فایل + catalogId)' })
+    async importParseFile(@CurrentUser() user: any, @Req() req: any) {
+        if (!req.isMultipart?.()) {
+            throw new BadRequestException({ errorCode: 'NOT_MULTIPART', message: 'فایل ارسال نشده است' });
+        }
+        const fields: Record<string, string> = {};
+        let fileBuffer: Buffer | null = null;
+        let fileName = '';
+        for await (const part of req.parts({ limits: { fileSize: 8 * 1024 * 1024 } })) {
+            if (part.type === 'file') {
+                fileName = part.filename || '';
+                const chunks: Buffer[] = [];
+                for await (const chunk of part.file) chunks.push(chunk as Buffer);
+                fileBuffer = Buffer.concat(chunks);
+            } else {
+                fields[part.fieldname] = String(part.value ?? '');
+            }
+        }
+        const catalogId = fields.catalogId;
+        if (!catalogId) {
+            throw new BadRequestException({ errorCode: 'VALIDATION_ERROR', message: 'بازوی فروش مقصد مشخص نیست', field: 'catalogId' });
+        }
+        if (!fileBuffer || !fileBuffer.length) {
+            throw new BadRequestException({ errorCode: 'FILE_MISSING', message: 'فایلی پیدا نشد — دوباره انتخاب کن' });
+        }
+        return this.adImport.parseExcelFile(user.id, catalogId, fileBuffer, fileName);
     }
 
     @Post('import/commit')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'ثبت نهایی ایمپورت — ساخت آگهی‌ها از ردیف‌های تاییدشدهٔ پیش‌نمایش' })
+    @ApiOperation({ summary: 'ثبت نهایی ایمپورت — ساخت آگهی‌ها + ساخت خودکار واحد/برند/کالای مرجع + گزارش کامل' })
     async importCommit(@CurrentUser() user: any, @Body() dto: ImportCommitDto) {
         return this.adImport.commit(user.id, dto);
     }
