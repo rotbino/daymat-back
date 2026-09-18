@@ -144,7 +144,7 @@ async function printStats() {
 // ═══════════════════════════════════════════
 
 async function main() {
-    logSection('🚀 Daymat — فرآیند استقرار و سید');
+    logSection('🚀 iMach — فرآیند استقرار و سید');
 
     // ۱. بررسی وضعیت
     if (isAlreadySeeded()) {

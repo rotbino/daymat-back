@@ -186,7 +186,7 @@ export class SettingsService {
             { key: 'general.appName', value: 'دِیمَت', group: 'general', description: 'نام برنامه' },
             { key: 'general.defaultLocale', value: 'fa', group: 'general', description: 'زبان پیش‌فرض' },
             { key: 'general.supportPhone', value: '09123456789', group: 'general', description: 'شماره پشتیبانی' },
-            { key: 'general.supportEmail', value: 'support@daymat.com', group: 'general', description: 'ایمیل پشتیبانی' },
+            { key: 'general.supportEmail', value: 'support@imach.com', group: 'general', description: 'ایمیل پشتیبانی' },
             { key: 'security.maxLoginAttempts', value: 5, group: 'security', description: 'حداکثر تلاش برای ورود' },
             { key: 'security.sessionTimeout', value: 3600, group: 'security', description: 'مدت زمان نشست' },
             { key: 'security.requireEmailVerification', value: false, group: 'security', description: 'نیاز به تأیید ایمیل' },

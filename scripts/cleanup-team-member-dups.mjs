@@ -1,6 +1,6 @@
 // scripts/cleanup-team-member-dups.mjs — حذف رکوردهای TeamMember تکراری/آزمایشی پیش از بازسازی ایندکس یونیک
 import { createRequire } from 'module';
-const require = createRequire('/home/z/my-project/repos/daymat-back/package.json');
+const require = createRequire('/home/z/my-project/repos/imach-back/package.json');
 const { PrismaClient } = require('@prisma/client');
 
 const prisma = new PrismaClient();

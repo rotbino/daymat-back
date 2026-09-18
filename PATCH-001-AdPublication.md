@@ -40,13 +40,13 @@
 
 ### ۱) Pull
 ```bash
-cd daymat-back && git pull origin main
-cd daymat-web && git pull origin main
+cd imach-back && git pull origin main
+cd imach-web && git pull origin main
 ```
 
 ### ۲) Push schema به دیتابیس
 ```bash
-cd daymat-back
+cd imach-back
 npx prisma db push
 npx prisma generate
 ```

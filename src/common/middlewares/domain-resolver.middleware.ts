@@ -11,7 +11,7 @@ export class DomainResolverMiddleware implements NestMiddleware {
         const host = req.headers.host?.split(':')[0]; // حذف پورت
 
         // دامنه‌های لوکال و اصلی از slug عادی استفاده می‌کنند
-        const localDomains = ['localhost', '127.0.0.1', 'daymat.com'];
+        const localDomains = ['localhost', '127.0.0.1', 'imach.com'];
         if (!host || localDomains.includes(host)) {
             return next();
         }

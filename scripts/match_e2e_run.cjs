@@ -3,7 +3,7 @@ const { PrismaClient } = require('@prisma/client');
 const jwt = require('jsonwebtoken');
 
 const prisma = new PrismaClient();
-const JWT_SECRET = 'daymat-local-build-secret';
+const JWT_SECRET = 'imach-local-build-secret';
 const BASE = 'http://localhost:3011';
 
 async function api(method, path, token, body) {

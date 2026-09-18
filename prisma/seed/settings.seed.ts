@@ -132,7 +132,7 @@ export async function seedSettings() {
         },
         {
             key: 'general.supportEmail',
-            value: 'support@daymat.com',
+            value: 'support@imach.com',
             scope: 'system',
             scopeId: 'system',
             group: 'general',

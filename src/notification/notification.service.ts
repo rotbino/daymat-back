@@ -22,7 +22,7 @@ export class NotificationService {
         if (publicKey && privateKey) {
             try {
                 webpush.setVapidDetails(
-                    this.config?.get<string>('VAPID_SUBJECT') || 'mailto:support@daymat.ir',
+                    this.config?.get<string>('VAPID_SUBJECT') || 'mailto:support@imach.ir',
                     publicKey,
                     privateKey,
                 );

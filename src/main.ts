@@ -70,8 +70,8 @@ async function bootstrap() {
     // لیست سفید ثابت + CORS_EXTRA_ORIGINS (کاما-جدا) + پترن دامنه‌های پیش‌نمایش سندباکس
     // ============================================================
     const allowedOrigins: string[] = [
-        'https://www.daymat.ir',
-        'https://daymat.vercel.app',
+        'https://www.imach.ir',
+        'https://imach.vercel.app',
         'https://sarnakh.vercel.app',
         'https://uniqu.vercel.app',
         'https://uniqu.ir',
@@ -108,7 +108,7 @@ async function bootstrap() {
     // Swagger Documentation
     // ============================================================
     const config = new DocumentBuilder()
-        .setTitle('Daymat API')
+        .setTitle('iMach API')
         .setDescription('B2B specialized market platform')
         .setVersion('1.0')
         .addBearerAuth(
@@ -124,7 +124,7 @@ async function bootstrap() {
     // ============================================================
     const port = process.env.PORT || 3011;
     await app.listen(port, '0.0.0.0');
-    console.log(`🚀 Daymat API running on: http://localhost:${port}`);
+    console.log(`🚀 iMach API running on: http://localhost:${port}`);
     console.log(`📚 Swagger docs: http://localhost:${port}/api/docs`);
 }
 
