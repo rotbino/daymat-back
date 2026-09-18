@@ -14,13 +14,13 @@ export class ContactController {
     constructor(private contactService: ContactService) {}
 
     @Post('sync')
-    @ApiOperation({ summary: 'همگام‌سازی مخاطبین تلفن — نرمال + تطبیق با اعضای دیمت + ذخیره (۵۰۰تا در هر درخواست)' })
+    @ApiOperation({ summary: 'همگام‌سازی مخاطبین تلفن — نرمال + تطبیق با اعضای دی مچ + ذخیره (۵۰۰تا در هر درخواست)' })
     sync(@CurrentUser() user: any, @Body() dto: SyncContactsDto) {
         return this.contactService.sync(user.id, dto);
     }
 
     @Get()
-    @ApiOperation({ summary: 'دفترچهٔ من — جستجو با نام/شماره + مشخصاتِ مخاطب‌های عضو دیمت' })
+    @ApiOperation({ summary: 'دفترچهٔ من — جستجو با نام/شماره + مشخصاتِ مخاطب‌های عضو دی مچ' })
     list(@CurrentUser() user: any, @Query('q') q?: string, @Query('limit') limit?: string, @Query('offset') offset?: string) {
         return this.contactService.list(user.id, q, Number(limit) || 500, Number(offset) || 0);
     }

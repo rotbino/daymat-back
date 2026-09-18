@@ -1744,7 +1744,7 @@ export class CatalogMemberService {
         await this.assertTeamManager(catalog, actorId);
         const target = await this.prisma.user.findUnique({ where: { id: dto.userId }, select: { id: true, fullName: true, phone: true } });
         if (!target) {
-            throw new NotFoundException({ errorCode: 'USER_NOT_FOUND', message: 'این کاربر در دیمت پیدا نشد' });
+            throw new NotFoundException({ errorCode: 'USER_NOT_FOUND', message: 'این کاربر در دی مچ پیدا نشد' });
         }
         if (target.id === catalog.ownerUserId) {
             throw new BadRequestException({ errorCode: 'IS_CATALOG_OWNER', message: 'مالک بازوی فروش از قبل همکار فروش است' });

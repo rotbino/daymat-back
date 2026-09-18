@@ -316,7 +316,7 @@ export class RequestBusinessVerificationDto {
 export class AddBusinessMemberDto {
     @ApiPropertyOptional({
         example: '09123456789',
-        description: 'شماره موبایل کاربر (باید در دیمت ثبت‌نام کرده باشد) — یا userId بدهید',
+        description: 'شماره موبایل کاربر (باید در دی مچ ثبت‌نام کرده باشد) — یا userId بدهید',
         required: false,
     })
     @IsOptional()

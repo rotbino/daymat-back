@@ -1,8 +1,8 @@
 // src/proforma/proforma.service.ts
-// 🧾 پیش‌فاکتور — مُهرِ سبک معامله داخل دیمت
+// 🧾 پیش‌فاکتور — مُهرِ سبک معامله داخل دی مچ
 //    فروشنده می‌فرستد ← خریدار داخل پلتفرم تایید/رد می‌کند.
 //    تایید = پیشنهادِ مبدأ «فروش نهایی شد» می‌شود + پایهٔ شمارش «معامله‌های موفق» اعتماد.
-//    هیچ پرداختی در کار نیست — فقط یک سند مشترک که معامله را داخل دیمت ثبت می‌کند.
+//    هیچ پرداختی در کار نیست — فقط یک سند مشترک که معامله را داخل دی مچ ثبت می‌کند.
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -165,7 +165,7 @@ export class ProformaService {
             userIds: [buyerUserId],
             type: 'proforma_received',
             title: `پیش‌فاکتور ${number} از «${proforma.sellerName}» رسید`,
-            body: 'قیمت‌ها و اقلام را ببین و اگر موافقی داخل دیمت تاییدش کن',
+            body: 'قیمت‌ها و اقلام را ببین و اگر موافقی داخل دی مچ تاییدش کن',
             actorUserId: userId,
             href,
         });
@@ -202,7 +202,7 @@ export class ProformaService {
         return proforma;
     }
 
-    /** تایید خریدار — معامله داخل دیمت مُهر می‌شود */
+    /** تایید خریدار — معامله داخل دی مچ مُهر می‌شود */
     async confirm(userId: string, id: string) {
         const proforma = await this.prisma.proforma.findUnique({ where: { id } });
         if (!proforma) throw new NotFoundException({ errorCode: 'PROFORMA_NOT_FOUND', message: 'پیش‌فاکتور یافت نشد' });
@@ -233,7 +233,7 @@ export class ProformaService {
             userIds: [proforma.sellerUserId],
             type: 'proforma_confirmed',
             title: `پیش‌فاکتور ${proforma.number} تایید شد ✅`,
-            body: `«${proforma.buyerName}» معامله را داخل دیمت تایید کرد — برای هماهنگی ارسال تماس بگیر`,
+            body: `«${proforma.buyerName}» معامله را داخل دی مچ تایید کرد — برای هماهنگی ارسال تماس بگیر`,
             actorUserId: userId,
             // خریدارِ بازوی خرید مالکِ اعلام خرید است؛ مقصد درستِ فروشنده = سرنخ‌های بازوی فروش خودش
             href: proforma.sellerCatalogId

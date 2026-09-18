@@ -62,7 +62,7 @@ export class BusinessController {
     @Get('search-users')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'جستجوی کاربر ثبت‌نام‌شدهٔ دیمت برای افزودن به تیم — با نام یا شماره موبایل' })
+    @ApiOperation({ summary: 'جستجوی کاربر ثبت‌نام‌شدهٔ دی مچ برای افزودن به تیم — با نام یا شماره موبایل' })
     searchTeamUsers(@Query('q') q?: string) {
         return this.businessService.searchTeamUsers(q || '');
     }

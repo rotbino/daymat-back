@@ -1,9 +1,9 @@
 // src/contact/contact.service.ts
 // 📱 دفترچهٔ مخاطبین کاربر — کشف ارتباطات + اشتراک‌گذاری مستقیم
-//    • sync: نرمال‌سازی شماره‌ها → حذف تکراری → تطبیق با کاربران ثبت‌نام‌شدهٔ دیمت → ذخیره
-//    • list: جستجو با نام/شماره + اطلاعات کاربرِ تطبیق‌یافته (آواتار/نام در دیمت)
-//    • کشف ارتباطات: matchedUserId نشان می‌دهد این شماره در دیمت عضو است —
-//      خوراکِ آیندهٔ پیشنهادها (مثلاً «۳ نفر از مخاطبینت در دیمت هستند»)
+//    • sync: نرمال‌سازی شماره‌ها → حذف تکراری → تطبیق با کاربران ثبت‌نام‌شدهٔ دی مچ → ذخیره
+//    • list: جستجو با نام/شماره + اطلاعات کاربرِ تطبیق‌یافته (آواتار/نام در دی مچ)
+//    • کشف ارتباطات: matchedUserId نشان می‌دهد این شماره در دی مچ عضو است —
+//      خوراکِ آیندهٔ پیشنهادها (مثلاً «۳ نفر از مخاطبینت در دی مچ هستند»)
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { BusinessService } from '../business/business.service';
@@ -56,7 +56,7 @@ export class ContactService {
             return { saved: 0, created: 0, updated: 0, invalid, matched: await this.countMatched(userId), total: existingTotal, skippedByCap };
         }
 
-        // ۳) تطبیق با کاربران دیمت — کشف ارتباطات (دسته‌بندی‌شده برای کوئری‌های $in بزرگ)
+        // ۳) تطبیق با کاربران دی مچ — کشف ارتباطات (دسته‌بندی‌شده برای کوئری‌های $in بزرگ)
         const matchMap = new Map<string, string>();
         for (const grp of chunk(phones, MAX_MATCH_BATCH)) {
             const users = await this.prisma.user.findMany({
@@ -115,7 +115,7 @@ export class ContactService {
         };
     }
 
-    /** دفترچهٔ من — جستجو با نام یا شماره + اطلاعاتِ دیمتِ مخاطب‌های تطبیق‌یافته */
+    /** دفترچهٔ من — جستجو با نام یا شماره + اطلاعاتِ دی مچِ مخاطب‌های تطبیق‌یافته */
     async list(userId: string, q?: string, limit = 500, offset = 0) {
         const where: { ownerId: string; OR?: object[] } = { ownerId: userId };
         const term = (q || '').trim();

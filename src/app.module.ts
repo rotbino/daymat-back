@@ -55,7 +55,7 @@ import {ProformaModule} from "./proforma/proforma.module";
     ProductReferenceModule,
     InquiryModule,   // ✅ بازوی خرید (استعلام قیمت)
     MatchModule,     // ✅ مچینگ دوطرفهٔ خریدار↔تامین‌کننده — فروشندگان/خریدارانِ هر کالا
-    ProformaModule,  // ✅ پیش‌فاکتور — مُهر سبک معامله داخل دیمت
+    ProformaModule,  // ✅ پیش‌فاکتور — مُهر سبک معامله داخل دی مچ
     ActivityModule,
     SettingsModule,
     ArmAdminModule,

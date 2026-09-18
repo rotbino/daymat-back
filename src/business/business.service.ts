@@ -538,7 +538,7 @@ export class BusinessService {
         };
     }
 
-    /** جستجوی کاربرِ ثبت‌نام‌شدهٔ دیمت برای افزودن به تیم — با نام یا شماره موبایل */
+    /** جستجوی کاربرِ ثبت‌نام‌شدهٔ دی مچ برای افزودن به تیم — با نام یا شماره موبایل */
     async searchTeamUsers(rawQ: string) {
         const q = (rawQ || '').trim();
         if (q.length < 3) return { items: [] };
@@ -582,7 +582,7 @@ export class BusinessService {
             if (!byId) {
                 throw new NotFoundException({
                     errorCode: 'USER_NOT_FOUND',
-                    message: 'کاربر یافت نشد — باید اول در دیمت ثبت‌نام کند',
+                    message: 'کاربر یافت نشد — باید اول در دی مچ ثبت‌نام کند',
                 });
             }
             targetUserId = byId.id;
@@ -598,7 +598,7 @@ export class BusinessService {
             if (!target) {
                 throw new NotFoundException({
                     errorCode: 'USER_NOT_FOUND',
-                    message: 'این شماره هنوز در دیمت ثبت‌نام نکرده — لینک دعوت را برایش بفرست',
+                    message: 'این شماره هنوز در دی مچ ثبت‌نام نکرده — لینک دعوت را برایش بفرست',
                 });
             }
             targetUserId = target.id;

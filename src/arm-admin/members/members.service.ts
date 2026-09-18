@@ -678,7 +678,7 @@ export class MembersService {
         if (!user) {
             throw new NotFoundException({
                 errorCode: 'USER_NOT_FOUND',
-                message: 'کاربری با این شماره موبایل یافت نشد — ابتدا باید در دیمت ثبت‌نام کند',
+                message: 'کاربری با این شماره موبایل یافت نشد — ابتدا باید در دی مچ ثبت‌نام کند',
             });
         }
 
