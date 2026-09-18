@@ -1612,3 +1612,56 @@ model ConnectionRequestLog {
   @@index([catalogId, createdAt])
   @@index([referrerUserId, referrerSettled])
 }
+
+// ─────────────────────────────────────────────────────────────
+// پیش‌فاکتور — مُهرِ سبک معامله داخل دیمت
+//   فروشنده (تامین‌کننده) بعد از پذیرش پیشنهاد، پیش‌فاکتور می‌فرستد؛
+//   خریدار داخل پلتفرم تایید/رد می‌کند. تایید = یک «معاملهٔ موفق» ثبت می‌شود
+//   (پایهٔ شمارش اعتماد) و نتیجهٔ فروشِ پیشنهاد هم «sold» می‌شود.
+//   عمداً بدون relation سنگین — نام طرفین اسنپ‌شات می‌شود تا سند همیشه معتبر بماند.
+// ─────────────────────────────────────────────────────────────
+model Proforma {
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  number          String    @unique // PF-YYMM-XXXX — قابل ارجاع در تماس‌ها
+  sellerUserId    String    @db.ObjectId
+  buyerUserId     String    @db.ObjectId
+  sellerCatalogId String?   @db.ObjectId // بازوی فروشِ صادرکننده (برای شمارش معاملهٔ موفق)
+  sellerName      String    // اسنپ‌شات نام فروشنده/بازوی فروش
+  buyerName       String    // اسنپ‌شات نام خریدار/کسب‌وکار
+  inquiryId       String?   @db.ObjectId // بازوی خریدِ مبدأ (در صورت وجود)
+  inquiryTitle    String?
+  offerId         String?   @db.ObjectId // پیشنهادِ پذیرفته‌شدهٔ مبدأ
+  items           Json      // [{ name, quantity, unit, unitPrice }]
+  totalAmount     Float
+  currency        String    @default("IRT") // تومان
+  deliveryDays    Int?
+  notes           String?
+  status          String    @default("sent") // sent | confirmed | rejected | canceled
+  decidedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([sellerUserId, status])
+  @@index([buyerUserId, status])
+  @@index([sellerCatalogId, status])
+  @@index([inquiryId])
+  @@index([offerId])
+  @@map("proformas")
+}
+
+// ─────────────────────────────────────────────────────────────
+// اشتراک PWA Push — برای اعلان فوری «شبیه واتساپ»
+//   هر مرورگر/دستگاه یک ردیف؛ endpoint یکتا است.
+// ─────────────────────────────────────────────────────────────
+model PushSubscription {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("push_subscriptions")
+}

@@ -1,17 +1,47 @@
 // src/notification/notification.service.ts
-// 🔔 اعلان‌های درون‌برنامه‌ای — رویدادهای عضویت/ارتباط تجاری
-//    هر رویدادِ مهمِ چرخهٔ عضویت یک اعلان می‌سازد؛ href آمادهٔ کلیک در فرانت است.
-import { Injectable, Logger } from '@nestjs/common';
+// 🔔 اعلان‌های درون‌برنامه‌ای + پوش واقعی PWA
+//    هر رویدادِ مهم یک اعلان دیتابیسی می‌سازد و — اگر کاربر اشتراک پوش داده باشد —
+//    همان لحظه web-push به دستگاهش می‌رود (شبیه پیام واتساپ، بدون بازکردن پنل).
+//    پوش هرگز جریان اصلی را نمی‌شکند: بی‌صدا شکست می‌خورد و اشتراک‌های مُرده پاک می‌شوند.
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import * as webpush from 'web-push';
 
 @Injectable()
 export class NotificationService {
     private readonly logger = new Logger(NotificationService.name);
+    private pushConfigured = false;
 
-    constructor(private prisma: PrismaService) {}
+    constructor(
+        private prisma: PrismaService,
+        @Optional() private config?: ConfigService,
+    ) {
+        const publicKey = this.config?.get<string>('VAPID_PUBLIC_KEY');
+        const privateKey = this.config?.get<string>('VAPID_PRIVATE_KEY');
+        if (publicKey && privateKey) {
+            try {
+                webpush.setVapidDetails(
+                    this.config?.get<string>('VAPID_SUBJECT') || 'mailto:support@daymat.ir',
+                    publicKey,
+                    privateKey,
+                );
+                this.pushConfigured = true;
+            } catch (err) {
+                this.logger.warn(`web-push init failed: ${err?.message}`);
+            }
+        } else {
+            this.logger.warn('VAPID keys missing — پوش غیرفعال است (فقط اعلان درون‌برنامه‌ای)');
+        }
+    }
+
+    /** کلید عمومی VAPID برای فرانت — null یعنی سرور پوش ندارد */
+    get publicKey(): string | null {
+        return this.pushConfigured ? this.config?.get<string>('VAPID_PUBLIC_KEY') ?? null : null;
+    }
 
     /**
-     * ساخت اعلان برای چند گیرنده — بی‌صدا شکست می‌خورد (اعلان هرگز نباید جریان اصلی را بشکند)
+     * ساخت اعلان برای چند گیرنده + ارسال پوش — بی‌صدا شکست می‌خورد
      * notify({ userIds, type, title, body, actorUserId, href, catalogId, businessId })
      */
     async notify(input: {
@@ -41,6 +71,72 @@ export class NotificationService {
             });
         } catch (err) {
             this.logger.warn(`notify(${input.type}) failed: ${err?.message}`);
+        }
+
+        // 🚀 پوش فوری — مستقل از دیتابیس اعلان؛ هر خطا بی‌صدا
+        if (this.pushConfigured) {
+            void this.pushToUsers(uniq, { title: input.title, body: input.body || '', href: input.href || null, type: input.type });
+        }
+    }
+
+    /** اشتراک‌گذاری دستگاه از فرانت — upsert بر اساس endpoint */
+    async subscribe(userId: string, dto: { endpoint: string; keys: { p256dh: string; auth: string }; userAgent?: string }) {
+        if (!dto?.endpoint || !dto?.keys?.p256dh || !dto?.keys?.auth) {
+            this.logger.warn('subscribe: incomplete payload');
+            return { success: false };
+        }
+        await this.prisma.pushSubscription.upsert({
+            where: { endpoint: dto.endpoint },
+            update: { p256dh: dto.keys.p256dh, auth: dto.keys.auth, userId, userAgent: dto.userAgent ?? null },
+            create: {
+                userId,
+                endpoint: dto.endpoint,
+                p256dh: dto.keys.p256dh,
+                auth: dto.keys.auth,
+                userAgent: dto.userAgent ?? null,
+            },
+        });
+        return { success: true };
+    }
+
+    /** خروج از پوش — فرانت خودش subscription را unsubscribe می‌کند، ما فقط ردیف را پاک می‌کنیم */
+    async unsubscribe(userId: string, endpoint: string) {
+        await this.prisma.pushSubscription.deleteMany({ where: { endpoint, userId } });
+        return { success: true };
+    }
+
+    /** ارسال پوش به همهٔ دستگاه‌های چند کاربر — fire-and-forget */
+    private async pushToUsers(userIds: string[], payload: { title: string; body: string; href: string | null; type: string }) {
+        try {
+            const subs = await this.prisma.pushSubscription.findMany({
+                where: { userId: { in: userIds } },
+            });
+            if (!subs.length) return;
+
+            const body = JSON.stringify({ title: payload.title, body: payload.body, href: payload.href, type: payload.type });
+            const deadIds: string[] = [];
+
+            await Promise.allSettled(
+                subs.map(async (sub) => {
+                    try {
+                        await webpush.sendNotification(
+                            { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } } as any,
+                            body,
+                            { TTL: 3600 },
+                        );
+                    } catch (err: any) {
+                        // 404/410 = اشتراک مُرده — پاکش کن تا ارسال‌های بعدی هدر نرود
+                        if (err?.statusCode === 404 || err?.statusCode === 410) deadIds.push(sub.id);
+                        else this.logger.warn(`push failed (${err?.statusCode}): ${err?.message}`);
+                    }
+                }),
+            );
+
+            if (deadIds.length) {
+                await this.prisma.pushSubscription.deleteMany({ where: { id: { in: deadIds } } }).catch(() => undefined);
+            }
+        } catch (err) {
+            this.logger.warn(`pushToUsers failed: ${err?.message}`);
         }
     }
 

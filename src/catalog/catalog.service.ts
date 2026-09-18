@@ -715,12 +715,20 @@ export class CatalogService {
         const ownerAvatarFile = ownerUser?.files?.[0];
         const bizVerification = (catalog.business as any)?.verifications?.[0];
 
+        // ✅ سیگنال اعتماد — تعداد معامله‌های موفقِ ثبت‌شده (پیش‌فاکتورهای تاییدشده)
+        const successfulDeals = await this.prisma.proforma.count({
+            where: { sellerCatalogId: catalog.id, status: 'confirmed' },
+        });
+
         return {
             ...catalog,
             activities: (catalog.business as any)?.activities?.map((ba: any) => ba.activity) ?? [],
             // ✅ تیک از نهاد — شکل قدیمی برای فرانت
             verificationTier: bizVerification?.tier ?? null,
             verificationStatus: bizVerification?.status ?? null,
+            // ✅ سیگنال‌های اعتماد — عضو از کِی + چند معاملهٔ موفق ثبت کرده
+            memberSince: catalog.createdAt,
+            successfulDeals,
             owner: ownerUser ? {
                 id: ownerUser.id,
                 fullName: ownerUser.fullName,

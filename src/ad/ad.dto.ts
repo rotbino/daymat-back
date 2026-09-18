@@ -690,3 +690,54 @@ export class ExtendAdDto {
     @Min(24)
     bumpDurationHours?: number;
 }
+// ═══════════════════════════════════════════════════════════════
+// ایمپورت گروهی لیست قیمت — چسباندن از متن واتساپ/Excel
+// ═══════════════════════════════════════════════════════════════
+export class ImportParseDto {
+    @ApiProperty({ description: 'شناسهٔ بازوی فروش مقصد' })
+    @IsNotEmpty({ message: 'بازوی فروش مقصد مشخص نیست' })
+    @IsString()
+    catalogId: string;
+
+    @ApiProperty({ description: 'متن خام لیست قیمت — هر قلم یک خط' })
+    @IsNotEmpty({ message: 'متن لیست قیمت خالی است' })
+    @IsString()
+    @MaxLength(60000)
+    text: string;
+}
+
+export class ImportCommitItemDto {
+    @ApiProperty({ example: 'پفک مینو' })
+    @IsNotEmpty({ message: 'نام کالا الزامی است' })
+    @IsString()
+    @MaxLength(120)
+    name: string;
+
+    @ApiProperty({ example: 480000 })
+    @IsNumber()
+    @Min(0)
+    price: number;
+
+    @ApiProperty({ description: 'کالای مرجع انتخابی کاربر (اختیاری)', required: false })
+    @IsOptional()
+    @IsString()
+    referenceId?: string;
+}
+
+export class ImportCommitDto {
+    @ApiProperty({ description: 'شناسهٔ بازوی فروش مقصد' })
+    @IsNotEmpty({ message: 'بازوی فروش مقصد مشخص نیست' })
+    @IsString()
+    catalogId: string;
+
+    @ApiProperty({ description: 'واحد مشترک همهٔ ردیف‌ها — خالی = «عدد»', required: false })
+    @IsOptional()
+    @IsString()
+    unitId?: string;
+
+    @ApiProperty({ type: [ImportCommitItemDto], description: 'ردیف‌های تاییدشدهٔ پیش‌نمایش' })
+    @IsArray()
+    @ValidateNested({ each: true })
+    @Type(() => ImportCommitItemDto)
+    items: ImportCommitItemDto[];
+}

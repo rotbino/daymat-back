@@ -26,6 +26,7 @@ import {HealthModule} from "./health/health.module";
 import {NotificationModule} from "./notification/notification.module";
 import {ContactModule} from "./contact/contact.module";
 import {InquiryModule} from "./inquiry/inquiry.module";
+import {ProformaModule} from "./proforma/proforma.module";
 
 
 @Global()
@@ -52,6 +53,7 @@ import {InquiryModule} from "./inquiry/inquiry.module";
     BrandModule,
     ProductReferenceModule,
     InquiryModule,   // ✅ بازوی خرید (استعلام قیمت)
+    ProformaModule,  // ✅ پیش‌فاکتور — مُهر سبک معامله داخل دیمت
     ActivityModule,
     SettingsModule,
     ArmAdminModule,

@@ -7,6 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { CreateInquiryDto, UpdateInquiryDto, CreateOfferDto, UpdateOfferDto, InquiryItemDto, UpdateInquiryItemDto, InquiryUnitDto, AddInquiryMemberDto, RequestInquiryAccessDto } from './inquiry.dto';
 import { RESERVED_SLUGS } from '../common/reserved-slugs';
+import { normalizeForCompare } from '../common/persian-text.util';
 
 const PUBLIC_LIST_SELECT = {
     id: true, title: true, description: true, slug: true, status: true,
@@ -1468,6 +1469,115 @@ export class InquiryService implements OnModuleInit {
         } catch {
             // عضویت متقابل جانبی است — ساکت رد شود
         }
+    }
+
+    /**
+     * ✅ پیشنهاد تامین‌کنندهٔ مرتبط — وعدهٔ «دیمت شبکه‌ت را گسترش می‌دهد» بدون جست‌وجو:
+     *    برای هر قلم فعال، بازوهای فروشی که همین کالای مرجع را با قیمت فعال دارند (همان شهر اول).
+     *    فقط برای مالک بازوی خرید؛ تامین‌کننده‌های عضو و خودِ خریدار حذف می‌شوند.
+     */
+    async supplierSuggestions(inquiryId: string, userId: string) {
+        await this.assertOwner(inquiryId, userId);
+
+        const inquiry = await this.prisma.inquiry.findUnique({
+            where: { id: inquiryId },
+            select: {
+                id: true, cityCode: true, city: true,
+                items: { where: { urgent: true }, orderBy: { urgentAt: 'desc' }, take: 20 },
+            },
+        });
+        if (!inquiry) throw new NotFoundException({ errorCode: 'INQUIRY_NOT_FOUND', message: 'بازوی خرید یافت نشد' });
+
+        const urgentItems = inquiry.items;
+        if (!urgentItems.length) return { items: [], suggestionsCount: 0 };
+
+        // اعضای فعلی + بازوهای فروشِ خودِ خریدار — هیچ‌کدام پیشنهاد نمی‌شوند
+        const members = await this.prisma.inquiryMember.findMany({
+            where: { inquiryId, status: { in: ['pending', 'active'] } },
+            select: { catalogId: true },
+        });
+        const excludedCatalogIds = new Set(members.map((m) => m.catalogId));
+        const myCatalogs = await this.prisma.catalog.findMany({
+            where: { ownerUserId: userId, status: 'active' },
+            select: { id: true },
+        });
+        for (const c of myCatalogs) excludedCatalogIds.add(c.id);
+
+        // قلم‌های بدون کالای مرجع — تطبیق دقیقِ عنوان نرمال‌شده (در JS، سازگار با Prisma+Mongo)
+        const itemsWithoutRef = urgentItems.filter((it) => !it.referenceItemId);
+        const refByNormalizedName = new Map<string, string>();
+        if (itemsWithoutRef.length) {
+            const firstWords = Array.from(new Set(itemsWithoutRef.map((it) => it.name.trim().split(/\s+/)[0]).filter((w) => w.length >= 2)));
+            if (firstWords.length) {
+                const candidates = await this.prisma.productReference.findMany({
+                    where: { isActive: true, OR: firstWords.map((w) => ({ title: { contains: w } })) },
+                    select: { id: true, title: true },
+                    take: 300,
+                });
+                for (const ref of candidates) {
+                    const key = normalizeForCompare(ref.title);
+                    if (key && !refByNormalizedName.has(key)) refByNormalizedName.set(key, ref.id);
+                }
+            }
+        }
+
+        const result: any[] = [];
+        let suggestionsCount = 0;
+
+        for (const item of urgentItems) {
+            const refId = item.referenceItemId || refByNormalizedName.get(normalizeForCompare(item.name)) || null;
+            if (!refId) {
+                result.push({ itemId: item.id, name: item.name, suppliers: [] });
+                continue;
+            }
+
+            // آگهی‌های فعالِ این کالای مرجع — ارزان‌ترین اول؛ بهترینِ هر بازوی فروش می‌ماند
+            const ads = await this.prisma.ad.findMany({
+                where: { productReferenceId: refId, status: 'active' },
+                orderBy: { unitPrice: 'asc' },
+                take: 60,
+                select: {
+                    catalogId: true,
+                    unitPrice: true,
+                    unit: { select: { title: true, shortCode: true } },
+                    cityCode: true,
+                    catalog: {
+                        select: {
+                            id: true, name: true, slug: true, logoUrl: true, city: true, cityCode: true, industryName: true,
+                            business: { select: { name: true, verificationTier: true } },
+                        },
+                    },
+                },
+            });
+
+            const byCatalog = new Map<string, any>();
+            for (const ad of ads) {
+                if (excludedCatalogIds.has(ad.catalogId)) continue;
+                if (byCatalog.has(ad.catalogId)) continue; // orderBy asc → اولین = ارزان‌ترین
+                byCatalog.set(ad.catalogId, {
+                    catalogId: ad.catalogId,
+                    name: ad.catalog?.name ?? null,
+                    slug: ad.catalog?.slug ?? null,
+                    logoUrl: ad.catalog?.logoUrl ?? null,
+                    city: ad.catalog?.city ?? null,
+                    industryName: ad.catalog?.industryName ?? null,
+                    businessName: ad.catalog?.business?.name ?? null,
+                    verificationTier: ad.catalog?.business?.verificationTier ?? null,
+                    minPrice: ad.unitPrice,
+                    unitTitle: ad.unit?.title ?? null,
+                    sameCity: !!(inquiry.cityCode && ad.cityCode && inquiry.cityCode === ad.cityCode),
+                });
+            }
+
+            // همان‌شهری‌ها اول، بعد ارزان‌تر — حداکثر ۵ پیشنهاد برای شلوغ نشدن
+            const suppliers = Array.from(byCatalog.values())
+                .sort((a, b) => (b.sameCity ? 1 : 0) - (a.sameCity ? 1 : 0) || a.minPrice - b.minPrice)
+                .slice(0, 5);
+            suggestionsCount += suppliers.length;
+            result.push({ itemId: item.id, name: item.name, suppliers });
+        }
+
+        return { items: result, suggestionsCount };
     }
 
     /**

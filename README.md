@@ -1,3 +1,31 @@
+# دیمت — بک‌اند (NestJS + Prisma + MongoDB)
+
+> سند کامل پروژه (ایده، معماری، واژگان قفل) در ریپوی فرانت‌اند است: `daymat-web/README.md`
+> این فایل فقط ماژول‌های بک را خلاصه می‌کند.
+
+## ماژول‌های کلیدی
+
+| ماژول | توضیح |
+|---|---|
+| `auth` | موبایل+رمز، JWT، هدیه ۵۰ اعتبار، متادیتای دستگاه |
+| `catalog` / `ad` | بازوی فروش (کاتالوگ قیمت) + آگهی‌ها؛ تازگی قیمت با `priceUpdatedAt` |
+| `ad-import` | 📥 ایمپورت گروهی لیست قیمت — `POST /ad/import/parse` (پیش‌نمایش) و `POST /ad/import/commit` (ثبت)؛ پارس «هر خط یک قلم، آخرین عدد = قیمت»، ارقام فارسی، حذف سرستون، تشخیص تکراری، ساخت/اتصال خودکار کالای مرجع (کاربرساخته = تاییدنشده)، مهر خودکار روی بازارهای عضو، بدون انقضا (`validityHours: 0`) |
+| `inquiry` | بازوی خرید — قلم‌ها، پیشنهادها، اعضا، انتشار؛ `GET /inquiry/:id/supplier-suggestions` 🤝 پیشنهاد تامین‌کننده بر پایهٔ کالای مرجع (همان‌شهری اول، حداکثر ۵) |
+| `proforma` | 🧾 پیش‌فاکتور — مُهر سبک معامله: فروشنده می‌فرستد (`POST /proforma`)، خریدار تایید/رد می‌کند (`/proforma/:id/confirm|reject`)؛ تایید = `saleStatus='sold'` خودکار + شمارش «معامله موفق» برای اعتماد |
+| `notification` | 🔔 اعلان درون‌برنامه‌ای + پوش واقعی PWA با `web-push` — `GET /notification/push-public-key`، `POST /notification/subscribe|unsubscribe`؛ اشتراک‌های مُرده (404/410) خودکار پاک می‌شوند |
+| `catalog` (اعتماد) | `GET /catalog/slug/:slug` شامل `successfulDeals` (پیش‌فاکتورهای تاییدشده) و `memberSince` |
+
+## متغیرهای محیطی پوش
+
+```
+VAPID_PUBLIC_KEY=...      # npx web-push generate-vapid-keys
+VAPID_PRIVATE_KEY=...
+VAPID_SUBJECT=mailto:...
+```
+اگر ست نباشند پوش غیرفعال است و فقط اعلان درون‌برنامه‌ای ساخته می‌شود (بدون خطا).
+
+---
+
 # daymat-back
 
 

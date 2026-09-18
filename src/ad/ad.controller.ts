@@ -19,11 +19,14 @@ import {
 } from '@nestjs/swagger';
 import { ObjectId } from 'mongodb';
 import { AdService } from './ad.service';
+import { AdImportService } from './ad-import.service';
 import {
     CreateAdDto,
     UpdateAdDto,
     AdListQueryDto,
     ExtendAdDto,
+    ImportParseDto,
+    ImportCommitDto,
 } from './ad.dto';
 import { CurrentUser } from '../common/decorators/custom.decorators';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -36,8 +39,28 @@ import {SearchLogDto} from "./search-log.dto";
 export class AdController {
     constructor(
         private adService: AdService,
+        private adImport: AdImportService,
         private prisma: PrismaService,
     ) {}
+
+    // ============================================================
+    // 0. ایمپورت گروهی لیست قیمت — باید قبل از روت‌های :id باشد
+    // ============================================================
+    @Post('import/parse')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'پیش‌نمایش ایمپورت — متن خام لیست قیمت را ردیف‌به‌ردیف می‌خواند' })
+    async importParse(@CurrentUser() user: any, @Body() dto: ImportParseDto) {
+        return this.adImport.parse(user.id, dto);
+    }
+
+    @Post('import/commit')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'ثبت نهایی ایمپورت — ساخت آگهی‌ها از ردیف‌های تاییدشدهٔ پیش‌نمایش' })
+    async importCommit(@CurrentUser() user: any, @Body() dto: ImportCommitDto) {
+        return this.adImport.commit(user.id, dto);
+    }
 
     // ============================================================
     // 1. ثبت آگهی جدید

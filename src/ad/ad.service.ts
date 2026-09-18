@@ -750,6 +750,7 @@ export class AdService {
                         type: true,
                         city: true,
                         phone: true,
+                        createdAt: true,
                         business: { select: { verificationTier: true } },
                     },
                 },
@@ -798,6 +799,17 @@ export class AdService {
 
         // ✅ category را از publication این بازار بگیر، نه از Ad snapshot
         // (قیمت‌ها همیشه داخل کش کامل می‌مانند؛ nullکردن per-user در getVitrine انجام می‌شود)
+        // ✅ سیگنال اعتماد — معامله‌های موفق هر بازوی فروش (یک groupBy برای کل صفحه)
+        const vitrineCatalogIds = Array.from(new Set(ads.map((a: any) => a.catalogId).filter(Boolean)));
+        const dealsRows = vitrineCatalogIds.length
+            ? await this.prisma.proforma.groupBy({
+                  by: ['sellerCatalogId'],
+                  where: { sellerCatalogId: { in: vitrineCatalogIds }, status: 'confirmed' },
+                  _count: { _all: true },
+              })
+            : [];
+        const dealsByCatalog = new Map(dealsRows.map((r) => [r.sellerCatalogId as string, r._count?._all ?? 0]));
+
         const adsWithCustomLabel = ads.map((ad: any) => {
             const pub = pubMap.get(ad.id);
             const pubCategoryId = pub?.categoryId || null;
@@ -808,6 +820,8 @@ export class AdService {
                 categoryId: pubCategoryId,
                 categoryPath: pub?.categoryPath || [],
                 verificationTier: (ad.catalog as any)?.business?.verificationTier ?? null,
+                catalogMemberSince: ad.catalog?.createdAt ?? null,
+                catalogSuccessfulDeals: dealsByCatalog.get(ad.catalogId) ?? 0,
                 categoryTitle: selection?.customLabel || selection?.title || pubCategoryId || '',
                 unitBaseTitle: selection?.baseUnitTitle || ad.unitBaseTitle || null,
             };

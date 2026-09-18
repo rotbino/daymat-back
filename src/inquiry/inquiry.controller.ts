@@ -258,6 +258,14 @@ export class InquiryController {
         return this.inquiryService.supplierCandidates(id, user.id, { q, provinceCode, cityCode, industry });
     }
 
+    @Get(':id/supplier-suggestions')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'پیشنهاد تامین‌کننده برای اقلام فعال (مالک) — بر پایهٔ کالای مرجع' })
+    supplierSuggestions(@Param('id') id: string, @CurrentUser() user: any) {
+        return this.inquiryService.supplierSuggestions(id, user.id);
+    }
+
     @Post(':id/members')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
