@@ -5,7 +5,7 @@ import {
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { CatalogService } from './catalog.service';
 import { CatalogMemberService } from './catalog-member.service';
-import { CreateCatalogDto, UpdateCatalogDto, SaveVisitCardDto } from './catalog.dto';
+import { CreateCatalogDto, UpdateCatalogDto, SaveVisitCardDto, UpdateCatalogConfigDto } from './catalog.dto';
 import { CoopJoinDto, AddCustomerDto, AssignCustomerDto, RejectCoopDto, DeclineCustomerDto, RegionDto, ApproveSellerDto, ApproveBuyerDto, SellerRoleDto, InviteSupplierDto, InviteServiceDto, InviteSellerDto } from './catalog-member.dto';
 import { CurrentUser } from '../common/decorators/custom.decorators';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -104,11 +104,11 @@ export class CatalogController {
     @Patch(':id/config')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
-    @ApiOperation({ summary: 'به‌روزرسانی تنظیمات بازوی فروش (واحدها و دسته‌ها)' })
+    @ApiOperation({ summary: 'به‌روزرسانی تنظیمات بازوی فروش (واحدها، دسته‌ها، تم و واحد پول)' })
     async updateConfig(
         @Param('id') id: string,
         @CurrentUser() user: any,
-        @Body() dto: { units?: any[]; categoryTree?: any[] },
+        @Body() dto: UpdateCatalogConfigDto,
     ) {
         return this.catalogService.updateConfig(id, user.id, dto);
     }

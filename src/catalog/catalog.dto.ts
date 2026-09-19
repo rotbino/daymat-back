@@ -268,6 +268,28 @@ export class UpdateCatalogDto {
 }
 
 
+export class UpdateCatalogConfigDto {
+    @ApiPropertyOptional({ type: [Object], description: 'واحدهای منتخب بازوی فروش', required: false })
+    @IsOptional()
+    @IsArray()
+    units?: any[];
+
+    @ApiPropertyOptional({ type: [Object], description: 'درخت دسته‌های بازوی فروش', required: false })
+    @IsOptional()
+    @IsArray()
+    categoryTree?: any[];
+
+    @ApiPropertyOptional({ example: { color: '#0f7b52' }, description: 'تم بازوی فروش — رنگ برند (hex ۶ رقمی یا null = پیش‌فرض دیمت)', required: false })
+    @IsOptional()
+    @IsObject()
+    theme?: { color?: string | null };
+
+    @ApiPropertyOptional({ example: 'toman', description: 'واحد پول نمایشی — toman | usd | eur | afn | tjs | aed | try (ریال نداریم)', required: false })
+    @IsOptional()
+    @IsIn(['toman', 'usd', 'eur', 'afn', 'tjs', 'aed', 'try', null])
+    currency?: string | null;
+}
+
 export class RequestVerificationDto {
     @ApiProperty({ enum: ['blue', 'silver', 'gold'] })
     @IsNotEmpty()

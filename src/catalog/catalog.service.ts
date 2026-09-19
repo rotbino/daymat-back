@@ -7,7 +7,7 @@ import {
     ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateCatalogDto, UpdateCatalogDto } from './catalog.dto';
+import { CreateCatalogDto, UpdateCatalogDto, UpdateCatalogConfigDto } from './catalog.dto';
 import { CatalogRole } from '../common/enums/prisma-enums';
 import { CacheHelper } from '../common/services/cache.helper';
 import { RESERVED_SLUGS } from '../common/reserved-slugs';
@@ -765,15 +765,24 @@ export class CatalogService {
         });
     }
 
-    async updateConfig(id: string, userId: string, dto: { units?: any[]; categoryTree?: any[] }) {
+    async updateConfig(id: string, userId: string, dto: UpdateCatalogConfigDto & { units?: any[]; categoryTree?: any[] }) {
         const owned = await this.getOwnedCatalog(id, userId);
 
         const catalog = await this.prisma.catalog.findUnique({ where: { id }, select: { config: true } });
         const currentConfig = (catalog?.config as any) || {};
+        // 🎨 تم و واحد پول — برندبوکِ بازوی فروش؛ ادغام‌شونده تا فیلدهای دیگر پرت نشوند
+        const nextTheme = dto.theme !== undefined
+            ? {
+                ...(currentConfig.theme || {}),
+                ...(dto.theme?.color !== undefined ? { color: dto.theme.color || null } : {}),
+            }
+            : currentConfig.theme;
         const newConfig = {
             ...currentConfig,
             ...(dto.units !== undefined ? { units: dto.units } : {}),
             ...(dto.categoryTree !== undefined ? { categoryTree: dto.categoryTree } : {}),
+            ...(nextTheme !== undefined ? { theme: nextTheme } : {}),
+            ...(dto.currency !== undefined ? { currency: dto.currency || null } : {}),
         };
 
         await this.prisma.catalog.update({

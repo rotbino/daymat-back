@@ -711,10 +711,20 @@ export class InquiryService implements OnModuleInit {
             const taken = await this.slugTakenAnywhere(normalized, id);
             if (taken) throw new BadRequestException({ errorCode: 'SLUG_TAKEN', message: 'این آدرس قبلاً گرفته شده' });
         }
-        const { items, slug, deadline, businessId, units, ...rest } = dto;
+        const { items, slug, deadline, businessId, units, themeColor, currency, ...rest } = dto;
         const data: any = { ...rest };
         if (slug) data.slug = this.normalizeSlug(slug);
         if (deadline !== undefined) data.deadline = deadline ? new Date(deadline) : null;
+        // 🎨 تم و واحد پول بازوی خرید — ادغام در metadata (کارت ویزیت و بقیهٔ کلیدها پرت نشوند)
+        if (themeColor !== undefined || currency !== undefined) {
+            const prevMeta = (inquiry.metadata as any) || {};
+            const nextMeta: any = { ...prevMeta };
+            if (themeColor !== undefined) {
+                nextMeta.theme = { ...(prevMeta.theme || {}), ...(themeColor ? { color: themeColor } : { color: null }) };
+            }
+            if (currency !== undefined) nextMeta.currency = currency;
+            data.metadata = nextMeta;
+        }
         // ✅ واحدهای اختصاصی — جایگزینی کامل (فقط unitIdهای موجود در مرجع)
         if (units !== undefined) {
             data.units = await this.cleanUnits(units);

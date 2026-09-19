@@ -4,7 +4,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
     IsNotEmpty, IsOptional, IsString, MaxLength, IsIn, IsNumber, IsBoolean,
-    IsArray, IsISO8601, ArrayMaxSize, ValidateNested, IsObject,
+    IsArray, IsISO8601, ArrayMaxSize, ValidateNested, IsObject, Matches,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -229,6 +229,12 @@ export class UpdateInquiryDto {
     @IsOptional() @IsBoolean() allowNonUrgentOffers?: boolean;
     @ApiPropertyOptional({ description: 'نمایش شمارهٔ تماس خریدار به بازدیدکنندگان (دکمهٔ تماس و ذخیرهٔ مخاطب)', required: false })
     @IsOptional() @IsBoolean() showContactPhone?: boolean;
+
+    @ApiPropertyOptional({ description: 'رنگ برند بازوی خرید — hex ۶ رقمی یا null = پیش‌فرض دیمت (در metadata ذخیره می‌شود)', required: false })
+    @IsOptional() @Matches(/^#[0-9a-fA-F]{6}$/) @IsString() themeColor?: string | null;
+
+    @ApiPropertyOptional({ description: 'واحد پول نمایشی — toman | usd | eur | afn | tjs | aed | try (ریال نداریم)', required: false })
+    @IsOptional() @IsIn(['toman', 'usd', 'eur', 'afn', 'tjs', 'aed', 'try']) @IsString() currency?: string;
 }
 
 export class CreateOfferDto {

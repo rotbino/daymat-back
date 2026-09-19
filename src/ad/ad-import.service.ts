@@ -132,6 +132,7 @@ export class AdImportService {
         const rawRows = dto.source === 'json'
             ? this.parseJsonItems(dto.text)
             : this.parsePriceListText(dto.text);
+        this.applyPriceCurrency(rawRows, dto.priceCurrency);
 
         if (!rawRows.length) {
             throw new BadRequestException({ errorCode: 'IMPORT_EMPTY', message: 'چیزی برای خواندن پیدا نکردیم — شکل خط‌ها را با نمونه مقایسه کن' });
@@ -145,7 +146,7 @@ export class AdImportService {
     }
 
     /** پارس فایل اکسل/CSV — کنترلر فایل را می‌آورد، اینجا جدول می‌شود */
-    async parseExcelFile(userId: string, catalogId: string, fileBuffer: Buffer, fileName: string) {
+    async parseExcelFile(userId: string, catalogId: string, fileBuffer: Buffer, fileName: string, priceCurrency?: 'toman' | 'rial') {
         await this.assertCatalogAccess(catalogId, userId);
         const lower = (fileName || '').toLowerCase();
         const isCsv = lower.endsWith('.csv') || lower.endsWith('.txt');
@@ -165,6 +166,8 @@ export class AdImportService {
             throw new BadRequestException({ errorCode: 'FILE_UNREADABLE', message: 'فایل خوانده نشد — فرمت اکسل یا CSV معتبر بفرست' });
         }
 
+        this.applyPriceCurrency(rawRows, priceCurrency);
+
         if (!rawRows.length) {
             throw new BadRequestException({ errorCode: 'IMPORT_EMPTY', message: 'در فایل هیچ ردیفی پیدا نکردیم — ستون «نام کالا» و «قیمت» را چک کن' });
         }
@@ -174,6 +177,20 @@ export class AdImportService {
 
         const items = await this.enrich(catalogId, rawRows);
         return { items, summary: this.buildSummary(items) };
+    }
+
+    /**
+     * تبدیل ریال → تومان — اگر کاربر گفت قیمت‌های فایل/خروجی به ریال است، همهٔ قیمت‌ها ده‌تا یکی می‌شوند.
+     * خنثی اگر toman یا نامشخص — همان قاعدهٔ پیش‌فرض.
+     */
+    private applyPriceCurrency(
+        rows: { price: number }[],
+        priceCurrency?: 'toman' | 'rial',
+    ) {
+        if (priceCurrency !== 'rial') return;
+        for (const r of rows) {
+            if (r.price && r.price > 0) r.price = Math.round(r.price / 10);
+        }
     }
 
     // ════════════════════════════════════════════════════════════
@@ -192,9 +209,21 @@ export class AdImportService {
 
         const catalog = await this.prisma.catalog.findUnique({
             where: { id: dto.catalogId },
-            select: { id: true, name: true, city: true, province: true, countryCode: true, provinceCode: true, cityCode: true, config: true },
+            select: {
+                id: true, name: true, city: true, province: true, countryCode: true, provinceCode: true, cityCode: true, config: true,
+                // ✅ استان/شهر کالاها از کسب‌وکارِ بازوی فروش — محل واقعیِ انبار/فروش
+                business: { select: { province: true, provinceCode: true, city: true, cityCode: true, countryCode: true } },
+            },
         });
         if (!catalog) throw new BadRequestException({ errorCode: 'INVALID_CATALOG', message: 'بازوی فروش یافت نشد' });
+        const biz = catalog.business;
+        const loc = {
+            province: biz?.province || catalog.province || '',
+            provinceCode: biz?.provinceCode ?? catalog.provinceCode ?? null,
+            city: biz?.city || catalog.city || '',
+            cityCode: biz?.cityCode ?? catalog.cityCode ?? null,
+            countryCode: biz?.countryCode || catalog.countryCode || 'IR',
+        };
 
         // ── دیکشنری واحد — همه در حافظه (تعداد کم) ──
         const allUnits = await this.prisma.unit.findMany({ select: { id: true, title: true, shortCode: true, containsQty: true } });
@@ -252,6 +281,7 @@ export class AdImportService {
         const createdBrands: string[] = [];
         const createdReferences: string[] = [];
         const failed: { name: string; reason: string }[] = [];
+        let needsCompletionCount = 0; // 🏷️ برچسب «نیاز به تکمیل» — تا ویرایش و تکمیل، از کاتالوگ عمومی پنهان‌اند
         const now = new Date();
 
         for (const item of items) {
@@ -281,8 +311,18 @@ export class AdImportService {
             let reference = item.referenceId ? validRefById.get(item.referenceId) ?? null : null;
             if (!reference) reference = await this.resolveReference(storeTitle, brand?.id ?? null, unit?.title ?? null, refCache, userId, createdReferences);
 
-            const qty = Number.isFinite(item.unitQty) && item.unitQty >= 2 ? Math.floor(item.unitQty) : null;
-            const singlePrice = qty ? Math.round(item.price / qty) : null;
+            const qty = Number.isFinite(item.unitQty) && item.unitQty >= 2 ? Math.floor(item.unitQty) : 1;
+            // ✅ قیمتِ واردشده = قیمت عمدهٔ «یک عدد» — نه قیمتِ کارتن؛
+            //    قیمت واحد فروش (مثلاً کارتن) = قیمتِ یک عدد × تعداد در واحد
+            const singlePrice = Math.round(item.price);
+            const unitPrice = singlePrice * qty;
+
+            // 🏷️ کالای ایمپورت‌شده تا تکمیل‌شدن پنهان می‌ماند — با ویرایش (ذخیرهٔ فرم کالا) آزاد می‌شود
+            const customFields: Record<string, unknown> = {
+                needsCompletion: true,
+                importSource: 'list',
+                importedAt: now.toISOString(),
+            };
 
             const ad = await this.prisma.ad.create({
                 data: {
@@ -298,31 +338,31 @@ export class AdImportService {
                     productReferenceId: reference?.id ?? null,
                     brandId: brand?.id ?? null,
                     paymentMethods: null,
-                    customFields: {},
+                    customFields: customFields as any,
                     description: '',
-                    unitPrice: item.price,
-                    singleUnitPrice: singlePrice, // قیمت تکی — کارتن ÷ تعداد
+                    unitPrice: unitPrice, // قیمت واحد فروش — کارتن = قیمت یک عدد × تعداد
+                    singleUnitPrice: singlePrice, // قیمت عمدهٔ یک عدد — همان که کاربر وارد کرد
                     consumerPrice: null,
-                    filterPrice: singlePrice ?? item.price, // فیلتر بازار روی قیمت تکی مؤثر است
+                    filterPrice: singlePrice, // فیلتر بازار روی قیمت تکی مؤثر است
                     hasCheque: false,
                     chequeMinDays: null,
                     chequeMaxDays: null,
                     minQuantity: 1,
                     availableQuantity: null,
                     availableQuantityBucket: null,
-                    city: catalog.city || '',
-                    province: catalog.province || '',
-                    countryCode: catalog.countryCode || 'IR',
-                    provinceCode: catalog.provinceCode ?? null,
-                    cityCode: catalog.cityCode ?? null,
+                    city: loc.city,
+                    province: loc.province,
+                    countryCode: loc.countryCode,
+                    provinceCode: loc.provinceCode,
+                    cityCode: loc.cityCode,
                     locationDetail: '',
                     validityHours: 0, // ✅ لیست قیمت — بدون انقضا؛ فقط با آپدیت بعدی تازه می‌شود
                     expiresAt: null,
                     priceUpdatedAt: now,
                     isAnonymous: false,
-                    publishToMarket: true,
-                    ...(qty ? { unitQty: qty, unitBaseTitle: 'عدد' } : {}),
-                    priceHistory: [{ price: item.price, updatedAt: now.toISOString(), note: 'ورود با لیست' }],
+                    publishToMarket: false, // 🏷️ تا تکمیل، روی تابلوی بازار هم نمی‌رود
+                    ...(qty >= 2 ? { unitQty: qty, unitBaseTitle: 'عدد' } : {}),
+                    priceHistory: [{ price: unitPrice, updatedAt: now.toISOString(), note: 'ورود با لیست' }],
                     status: 'active',
                     source: 'import',
                     unitIsVariableQty: false,
@@ -330,6 +370,7 @@ export class AdImportService {
                 select: { id: true, title: true },
             });
             createdAds.push(ad);
+            needsCompletionCount++;
             catalogAdByKey.set(nameKey, ad.id); // تکرار داخل همان لیست هم رد شود
 
             if (item.unitTitle?.trim()) usedUnits.set(unit.id, { id: unit.id, containsQty: qty });
@@ -356,8 +397,10 @@ export class AdImportService {
             }
         }
 
-        // ── مهر خودکار روی همهٔ بازارهای منتشرِ این بازوی فروش ──
-        if (createdAds.length) {
+        // ── مهر خودکار روی بازارهای منتشرِ این بازوی فروش ──
+        // ⚠️ کالاهای «نیاز به تکمیل» مهر نمی‌خورند — بعد از ویرایش و تکمیل، با ذخیرهٔ فرم کالا
+        //    خودکار به بازارها برمی‌گردند (re-stamp در ad.service.update)
+        if (createdAds.length && needsCompletionCount < createdAds.length) {
             const memberships = await this.prisma.armMembership.findMany({
                 where: { catalogId: catalog.id, status: 'active', publishState: 'published' },
                 select: { armId: true },
@@ -378,6 +421,10 @@ export class AdImportService {
             await this.cache.bust('prod-search').catch(() => undefined);
             await this.cache.bust(VITRINE_CACHE_PREFIX).catch(() => undefined);
         }
+        if (createdAds.length) {
+            // کالاهای ناقص هم در جست‌وجوی عمومیِ خودِ بازوی فروش دیده نشوند
+            await this.cache.bust('prod-search').catch(() => undefined);
+        }
 
         return {
             created: createdAds.length,
@@ -386,6 +433,7 @@ export class AdImportService {
             createdUnits,
             createdBrands,
             createdReferences,
+            needsCompletion: needsCompletionCount,
             ads: createdAds,
         };
     }
@@ -673,16 +721,67 @@ export class AdImportService {
     }
 
     /**
-     * پارس متن لیست قیمت — ساده و شفاف:
-     * هر خط = یک قلم؛ آخرین عددِ خط = قیمت؛ متن قبلش = نام کالا.
+     * پارس متن لیست قیمت — دو شکل خط:
+     * ۱) ساختاریافته با جداکنندهٔ «|» یا «؛» یا تب:
+     *      نام کالا | برند | واحد | تعداد در واحد | قیمت عمدهٔ یک عدد
+     *    از راست پر می‌شود: آخرین بخش = قیمت، قبلش اگر عدد بود = تعداد، قبلش واحد، قبلش برند.
+     *    «ندارد»/«-» یعنی بدون برند. فیلدهای خالی جای خودشان می‌مانند.
+     * ۲) ساده: هر خط یک قلم؛ آخرین عددِ خط = قیمت؛ متن قبلش = نام کالا.
      * سرستون‌های معمول لیست‌ها خودکار حذف می‌شوند.
      */
-    private parsePriceListText(rawText: string): { name: string; price: number; valid: boolean; reason?: string }[] {
+    private parsePriceListText(rawText: string): { name: string; price: number; valid: boolean; reason?: string; unitTitle?: string | null; unitQty?: number | null; brandTitle?: string | null }[] {
         const lines = (rawText || '').split(/\r?\n/);
-        const rows: { name: string; price: number; valid: boolean; reason?: string }[] = [];
+        const rows: { name: string; price: number; valid: boolean; reason?: string; unitTitle?: string | null; unitQty?: number | null; brandTitle?: string | null }[] = [];
         const seenNames = new Set<string>();
+        const NOT_HAVE = /^(ندارد|نیست|-|–|—|x|✗)$/i; // «ندارد» برای برند/واحد
 
         for (const rawLine of lines) {
+            // ─── شکل ساختاریافته — جداکنندهٔ «|» یا «؛» یا تب ───
+            const hasSep = /\t|｜|\||؛/.test(rawLine);
+            if (hasSep) {
+                const segs = rawLine.split(/\t|｜|\||؛/).map((s) => s.trim());
+                if (segs.length >= 2 && segs[segs.length - 1] !== '') {
+                    const price = looseNumber(segs[segs.length - 1]);
+                    let idx = segs.length - 1;
+                    let qty: number | null = null;
+                    let unitTitle: string | null = null;
+                    let brandTitle: string | null = null;
+                    idx--; // قیمت خورده شد
+                    if (idx >= 1) {
+                        const q = looseNumber(segs[idx]);
+                        if (q != null && q > 0) { qty = Math.floor(q); idx--; }
+                    }
+                    if (idx >= 1) {
+                        const u = segs[idx];
+                        if (u && !NOT_HAVE.test(u)) unitTitle = u;
+                        idx--;
+                    }
+                    if (idx >= 1) {
+                        const b = segs[idx];
+                        if (b && !NOT_HAVE.test(b)) brandTitle = b;
+                        idx--;
+                    }
+                    const rawName = segs.slice(0, idx + 1).join(' ').trim() || segs[0].trim();
+                    const cleanName = normalizeForStore(rawName);
+                    if (!cleanName || cleanName.replace(/[^A-Za-z\u0600-\u06FF]/g, '').length < 2) {
+                        rows.push({ name: rawName || cleanName, price: price ?? 0, valid: false, reason: 'نام کالا واضح نیست' });
+                        continue;
+                    }
+                    if (price == null || price <= 0) {
+                        rows.push({ name: cleanName, price: 0, valid: false, reason: 'قیمت معتبر نیست', unitTitle, unitQty: null, brandTitle });
+                        continue;
+                    }
+                    const key = normalizeItemName(cleanName);
+                    if (seenNames.has(key)) {
+                        rows.push({ name: cleanName, price, valid: false, reason: 'در همین لیست تکرار شده', unitTitle, unitQty: null, brandTitle });
+                        continue;
+                    }
+                    seenNames.add(key);
+                    rows.push({ name: cleanName, price, valid: true, unitTitle, unitQty: qty, brandTitle });
+                    continue;
+                }
+            }
+
             const line = toLatinDigits(rawLine ?? '')
                 // جداکنندهٔ هزارگان فارسی/عربی/لاتین بین ارقام
                 .replace(/(?<=\d)[٬،,](?=\d{3}(\D|$))/g, '')

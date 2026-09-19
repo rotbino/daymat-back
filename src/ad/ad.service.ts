@@ -263,10 +263,26 @@ export class AdService {
                 consumerPrice: true,
                 paymentMethods: true,
                 productReferenceId: true,  // ✅ برای همگام‌سازی تصویر مرجع
+                publishToMarket: true,
+                customFields: true, // 🏷️ برچسب «نیاز به تکمیل» — با ویرایش آزاد می‌شود
             },
         });
         if (!ad) {
             throw new NotFoundException({ errorCode: 'AD_NOT_FOUND', message: 'آگهی یافت نشد' });
+        }
+
+        // 🏷️ کالای ایمپورت‌شدهٔ «نیاز به تکمیل» — با ذخیرهٔ فرم ویرایش، برچسب برداشته می‌شود
+        //    و کالا به کاتالوگ و تابلوی بازار برمی‌گردد (مهر بازارها هم دوباره می‌خورد)
+        const wasIncomplete = !!((ad.customFields as any)?.needsCompletion);
+        if (wasIncomplete) {
+            const cf = { ...((ad.customFields as any) || {}) };
+            delete cf.needsCompletion;
+            delete cf.importSource;
+            delete cf.importedAt;
+            (dto as any).customFields = Object.keys(cf).length ? cf : {};
+            if (dto.publishToMarket === undefined && !ad.publishToMarket) {
+                (dto as any).publishToMarket = true;
+            }
         }
 
         // ✅ مالکیت از مسیر نهاد — یا تیمِ واگذارشده
@@ -397,6 +413,28 @@ export class AdService {
         // ✅ هر ویرایش آگهی (قیمت/شرایط فروش/وضعیت) باید فوری در تابلو بیفتد — کش ویترین می‌شکند
         //    (re-stamp دسته هم خودش bust می‌زند؛ اینجا برای بقیهٔ تغییرات)
         await this.cache.bust(VITRINE_CACHE_PREFIX);
+
+        // 🏷️ تکمیل شد — کالا تازه وارد تابلو می‌شود؛ مهرِ بازارهای عضوِ بازوی فروش دوباره می‌خورد
+        if (wasIncomplete) {
+            try {
+                const memberships = await this.prisma.armMembership.findMany({
+                    where: { catalogId: ad.catalogId, status: 'active', publishState: 'published' },
+                    select: { armId: true },
+                });
+                const arms = memberships.length
+                    ? await this.prisma.arm.findMany({ where: { id: { in: memberships.map((m) => m.armId) }, status: 'active' }, select: { id: true, categoryTree: true } })
+                    : [];
+                for (const arm of arms) {
+                    try {
+                        await this.catalogPublish.stampCatalogAds(arm, ad.catalogId, [id], userId);
+                    } catch (err: any) {
+                        console.error(`completion re-stamp failed for arm ${arm.id}:`, err?.message);
+                    }
+                }
+            } catch (err: any) {
+                console.error('completion re-stamp failed:', err?.message);
+            }
+        }
 
         // ─── اگر دستهٔ بازوی فروش عوض شد → دستهٔ بازاری در همه بازارها بازمحاسبه ───
         if (dto.categoryId !== undefined) {

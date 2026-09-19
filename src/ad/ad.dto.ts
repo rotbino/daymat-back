@@ -2,7 +2,7 @@
 import {ApiProperty, ApiPropertyOptional} from '@nestjs/swagger';
 import {
     IsNotEmpty, IsString, IsNumber, IsOptional, IsBoolean,
-    Min, Max, IsEnum, ValidateNested, IsObject, IsArray, MaxLength,
+    Min, Max, IsEnum, ValidateNested, IsObject, IsArray, MaxLength, IsIn,
 } from 'class-validator';
 import { Transform, Type, plainToInstance } from 'class-transformer';
 
@@ -709,6 +709,11 @@ export class ImportParseDto {
     @IsOptional()
     @IsString()
     source?: 'text' | 'json';
+
+    @ApiProperty({ description: 'واحد پول قیمت‌های ورودی — toman (پیش‌فرض) | rial: موقع پارس ده‌تا یکی می‌شود', required: false, enum: ['toman', 'rial'] })
+    @IsOptional()
+    @IsIn(['toman', 'rial'])
+    priceCurrency?: 'toman' | 'rial';
 }
 
 export class ImportCommitItemDto {
