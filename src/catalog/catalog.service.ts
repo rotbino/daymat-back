@@ -9,8 +9,22 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCatalogDto, UpdateCatalogDto, UpdateCatalogConfigDto } from './catalog.dto';
 import { CatalogRole } from '../common/enums/prisma-enums';
-import { CacheHelper } from '../common/services/cache.helper';
+import { CacheHelper, VITRINE_CACHE_PREFIX } from '../common/services/cache.helper';
 import { RESERVED_SLUGS } from '../common/reserved-slugs';
+import { CatalogPublishService } from '../common/services/catalog-publish.service';
+import { CatalogAccessService } from '../common/services/catalog-access.service';
+import { normalizeForCompare, normalizeForStore } from '../common/persian-text.util';
+
+/** نرمال‌سازی نام کالا برای مقایسهٔ تکراری‌ها — همان قاعدهٔ ایمپورت */
+const FA_DIGITS: Record<string, string> = {
+    '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4', '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9',
+    '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4', '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',
+};
+const normalizeItemName = (s: string): string =>
+    normalizeForCompare((s ?? '').replace(/[۰-۹٠-٩]/g, (d) => FA_DIGITS[d] ?? d)).trim().toLowerCase();
+
+/** سقف کپی در هر درخواست */
+const MAX_COPY_ITEMS = 500;
 
 /** عمر کش لیست‌های عمومی بازوی فروش — ۵ دقیقه */
 const PUBLIC_LIST_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -28,6 +42,8 @@ export class CatalogService {
     constructor(
         private prisma: PrismaService,
         private cache: CacheHelper,
+        private catalogPublish: CatalogPublishService,
+        private catalogAccess: CatalogAccessService,
     ) {}
 
     // ─── اسلاگ ───
@@ -783,6 +799,8 @@ export class CatalogService {
             ...(dto.categoryTree !== undefined ? { categoryTree: dto.categoryTree } : {}),
             ...(nextTheme !== undefined ? { theme: nextTheme } : {}),
             ...(dto.currency !== undefined ? { currency: dto.currency || null } : {}),
+            // 📋 اجازهٔ کپی محصولات — صاحب بازو هر وقت بخواهد روشن/خاموش می‌کند
+            ...(dto.allowCopy !== undefined ? { allowCopy: dto.allowCopy } : {}),
         };
 
         await this.prisma.catalog.update({
@@ -964,5 +982,330 @@ export class CatalogService {
         return this.prisma.catalogInteraction.create({
             data: { catalogId, userId: userId || null, type: 'share' },
         });
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // 📋 کپی کالاها از بازوی فروش دیگر — «موتور رشد تیم‌های فروش»
+    //    یک نفر لیست را یک‌بار وارد می‌کند؛ بقیهٔ تیم در چند ثانیه کپی می‌کنند.
+    //    شرط: صاحب بازو در تنظیماتش تیک «اجازهٔ کپی محصولات» را روشن کرده باشد
+    //    (config.allowCopy) — هر وقت خواست برمی‌دارد. اگر خود کاربر به بازوی مبدأ
+    //    دسترسی مدیریت داشته باشد، بدون تیک هم می‌تواند کپی کند (کاتالوگ خودی).
+    // ════════════════════════════════════════════════════════════
+
+    /**
+     * جست‌وجوی کسب‌وکار/بازوی فروش برای کپی — با نام بازو یا نام کسب‌وکار.
+     * بازوهای خودی (مدیریت‌پذیر) حذف می‌شوند — کپی بین بازوهای خودی از پنل خودش.
+     * وضعیت اجازهٔ کپی هر بازو برمی‌گردد تا حتی غیرقابل‌کپی‌ها هم (برای تماس با صاحبش) دیده شوند.
+     */
+    async copySearch(userId: string, query: string) {
+        const q = (query || '').trim().replace(/\s+/g, ' ');
+        if (q.length < 2) return { items: [] };
+
+        const candidates = await this.prisma.catalog.findMany({
+            where: {
+                status: 'active',
+                OR: [
+                    { name: { contains: q } },
+                    { business: { name: { contains: q } } },
+                ],
+            },
+            select: {
+                id: true, name: true, slug: true, logoUrl: true, config: true,
+                business: { select: { name: true, phone: true, logoUrl: true, verificationStatus: true } },
+                _count: { select: { ads: { where: { status: { not: 'deleted' } } } } },
+            },
+            take: 60,
+            orderBy: { createdAt: 'desc' },
+        });
+
+        // بازوهای خودی حذف — مالک یا ادمین، بدون نیاز به تیک از پنل خودش کپی می‌کند
+        const [ownedIds, adminIds] = await Promise.all([
+            this.prisma.catalog.findMany({
+                where: { ownerUserId: userId, status: 'active', id: { in: candidates.map((c) => c.id) } },
+                select: { id: true },
+            }),
+            this.prisma.catalogMember.findMany({
+                where: { catalogId: { in: candidates.map((c) => c.id) }, userId, role: 'catalog_admin', status: 'active' },
+                select: { catalogId: true },
+            }),
+        ]);
+        const mine = new Set([...ownedIds.map((o) => o.id), ...adminIds.map((a) => a.catalogId)]);
+
+        const items = candidates
+            .filter((c) => !mine.has(c.id))
+            .map((c) => ({
+                id: c.id,
+                name: c.name,
+                slug: c.slug,
+                logoUrl: c.logoUrl || c.business?.logoUrl || null,
+                businessName: c.business?.name || null,
+                verified: c.business?.verificationStatus === 'approved',
+                phone: c.business?.phone || null,
+                productCount: c._count?.ads ?? 0,
+                copyAllowed: (c.config as any)?.allowCopy === true,
+            }))
+            .sort((a, b) => Number(b.copyAllowed) - Number(a.copyAllowed) || b.productCount - a.productCount)
+            .slice(0, 20);
+
+        return { items };
+    }
+
+    /** آیا این بازو برای این کاربر قابل‌کپی است؟ (مدیریت‌پذیر = همیشه، غیره فقط با تیک اجازه) */
+    private async assertCopyable(catalogId: string, userId: string) {
+        const catalog = await this.prisma.catalog.findUnique({
+            where: { id: catalogId },
+            select: { id: true, name: true, ownerUserId: true, status: true, config: true },
+        });
+        if (!catalog || catalog.status !== 'active') {
+            throw new BadRequestException({ errorCode: 'INVALID_CATALOG', message: 'بازوی فروش مبدأ یافت نشد' });
+        }
+        if (catalog.ownerUserId === userId) return catalog;
+        const admin = await this.prisma.catalogMember.findFirst({
+            where: { catalogId, userId, role: 'catalog_admin', status: 'active' },
+            select: { id: true },
+        });
+        if (admin) return catalog;
+        if ((catalog.config as any)?.allowCopy !== true) {
+            throw new ForbiddenException({
+                errorCode: 'COPY_NOT_ALLOWED',
+                message: 'صاحب این بازوی فروش فعلاً اجازهٔ کپی نداده — از او بخواه در تنظیمات، «اجازهٔ کپی محصولات» را روشن کند',
+            });
+        }
+        return catalog;
+    }
+
+    /** لیست کالاهای کاملِ بازوی مبدأ برای تیک‌زدن — کالاهای «نیاز به تکمیل» کپی نمی‌شوند */
+    async copyProducts(sourceCatalogId: string, userId: string) {
+        const catalog = await this.assertCopyable(sourceCatalogId, userId);
+        const ads = await this.prisma.ad.findMany({
+            where: { catalogId: catalog.id, status: 'active' },
+            select: {
+                id: true, title: true, productType: true, description: true,
+                unitPrice: true, singleUnitPrice: true, consumerPrice: true, filterPrice: true,
+                unitQty: true, unitBaseTitle: true, customFields: true,
+                unit: { select: { title: true } },
+                brand: { select: { title: true } },
+                files: { where: { fieldKey: { startsWith: 'ad-image', not: 'ad-image-ref' } }, select: { path: true, thumbnailPath: true, fieldKey: true }, orderBy: { fieldKey: 'asc' } },
+            },
+            orderBy: { title: 'asc' },
+            take: 1000,
+        });
+        const items = ads
+            .filter((a) => (a.customFields as any)?.needsCompletion !== true)
+            .map((a) => ({
+                id: a.id,
+                title: a.title,
+                price: a.singleUnitPrice ?? a.unitPrice, // قیمت عمدهٔ یک عدد
+                unitPrice: a.unitPrice,                  // قیمت واحد فروش (کارتن = تکی × تعداد)
+                unitTitle: a.unit?.title || null,
+                unitQty: a.unitQty ?? null,
+                unitBaseTitle: a.unitBaseTitle ?? null,
+                brandTitle: a.brand?.title || null,
+                image: a.files?.[0]?.thumbnailPath || a.files?.[0]?.path || null,
+            }));
+        return { catalog: { id: catalog.id, name: catalog.name }, items };
+    }
+
+    /**
+     * ثبت کپی — کالاهای تیک‌خوردهٔ بازوی مبدأ به بازوی مقصد اضافه می‌شوند.
+     * همه‌چیز با هم می‌آید: قیمت تکی/واحد فروش، تعداد در بسته، برند، کالای مرجع، توضیح و عکس‌ها.
+     * تکراری‌های مقصد رد می‌شوند و در گزارش می‌آیند؛ استان/شهر کالاها = کسب‌وکارِ مقصد.
+     */
+    async copyProductsCommit(
+        userId: string,
+        dto: { sourceCatalogId: string; targetCatalogId: string; adIds: string[] },
+    ) {
+        const adIds = (dto.adIds || []).filter((v) => !!v).slice(0, MAX_COPY_ITEMS);
+        if (!adIds.length) {
+            throw new BadRequestException({ errorCode: 'COPY_EMPTY', message: 'حداقل یک کالا را تیک بزن' });
+        }
+        // مقصد — باید بتوانی در آن محصول اضافه کنی
+        const target = await this.prisma.catalog.findUnique({
+            where: { id: dto.targetCatalogId },
+            select: {
+                id: true, city: true, province: true, countryCode: true, provinceCode: true, cityCode: true, config: true,
+                business: { select: { province: true, provinceCode: true, city: true, cityCode: true, countryCode: true } },
+            },
+        });
+        if (!target) throw new BadRequestException({ errorCode: 'INVALID_CATALOG', message: 'بازوی فروش مقصد یافت نشد' });
+        await this.catalogAccess.assertCanManageCatalog(target.id, userId, {
+            errorCode: 'FORBIDDEN_CATALOG',
+            message: 'به این بازوی فروش دسترسی نداری',
+        });
+
+        // مبدأ — تیک اجازه یا دسترسی مدیریت
+        const source = await this.assertCopyable(dto.sourceCatalogId, userId);
+        if (source.id === target.id) {
+            throw new BadRequestException({ errorCode: 'COPY_SAME_CATALOG', message: 'کپی از خودِ این بازو به خودش معنی ندارد' });
+        }
+
+        const sourceAds = await this.prisma.ad.findMany({
+            where: { id: { in: adIds }, catalogId: source.id, status: 'active' },
+            include: {
+                unit: { select: { id: true, title: true } },
+                files: { where: { fieldKey: { startsWith: 'ad-image', not: 'ad-image-ref' } }, orderBy: { fieldKey: 'asc' } },
+            },
+        });
+
+        // تکراری‌های مقصد — یک کوئری، تطبیق در حافظه (همان قاعدهٔ ایمپورت)
+        const targetAds = await this.prisma.ad.findMany({
+            where: { catalogId: target.id, status: { not: 'deleted' } },
+            select: { id: true, productType: true, title: true },
+            take: 3000,
+        });
+        const existingKeys = new Set<string>();
+        for (const a of targetAds) {
+            const k = normalizeItemName(a.productType || a.title || '');
+            if (k) existingKeys.add(k);
+        }
+
+        const loc = {
+            province: target.business?.province || target.province || '',
+            provinceCode: target.business?.provinceCode ?? target.provinceCode ?? null,
+            city: target.business?.city || target.city || '',
+            cityCode: target.business?.cityCode ?? target.cityCode ?? null,
+            countryCode: target.business?.countryCode || target.countryCode || 'IR',
+        };
+
+        const createdAds: { id: string; title: string }[] = [];
+        const failed: { name: string; reason: string }[] = [];
+        const usedUnits = new Map<string, { id: string; containsQty: number | null }>();
+        const now = new Date();
+
+        for (const src of sourceAds) {
+            const storeTitle = normalizeForStore(src.productType || src.title || '');
+            if (!storeTitle) { failed.push({ name: src.title, reason: 'نام کالا خالی است' }); continue; }
+            const key = normalizeItemName(storeTitle);
+            if (existingKeys.has(key)) { failed.push({ name: storeTitle, reason: 'این کالا را از قبل داشتی — کپی نشد' }); continue; }
+
+            const srcCustom = (src.customFields as any) || {};
+            const customFields: Record<string, unknown> = { ...srcCustom };
+            delete customFields.needsCompletion; // کپی کامل است — پنهان نمی‌شود
+            customFields.importSource = 'copy';
+            customFields.copiedFromCatalogId = source.id;
+            customFields.copiedFromAdId = src.id;
+            customFields.copiedAt = now.toISOString();
+
+            const ad = await this.prisma.ad.create({
+                data: {
+                    armId: null,
+                    catalogId: target.id,
+                    createdByUserId: userId,
+                    catalogCategoryId: null, // دستهٔ خصوصیِ مبدأ به مقصد منتقل نمی‌شود — خودت دسته‌بندی کن
+                    categoryId: src.categoryId ?? null,
+                    categoryPath: [...(src.categoryPath ?? [])],
+                    unitId: src.unitId,
+                    title: storeTitle,
+                    productType: storeTitle,
+                    productReferenceId: src.productReferenceId ?? null,
+                    brandId: src.brandId ?? null,
+                    paymentMethods: (src.paymentMethods as any) ?? null,
+                    customFields: customFields as any,
+                    description: src.description ?? '',
+                    unitPrice: src.unitPrice,
+                    singleUnitPrice: src.singleUnitPrice ?? null,
+                    consumerPrice: src.consumerPrice ?? null,
+                    filterPrice: src.filterPrice ?? null,
+                    hasCheque: src.hasCheque,
+                    chequeMinDays: src.chequeMinDays ?? null,
+                    chequeMaxDays: src.chequeMaxDays ?? null,
+                    minQuantity: src.minQuantity ?? 1,
+                    availableQuantity: src.availableQuantity ?? null,
+                    availableQuantityBucket: src.availableQuantityBucket ?? null,
+                    giftPrice: src.giftPrice ?? null,
+                    volumeTiers: (src.volumeTiers as any) ?? undefined,
+                    unitQty: src.unitQty ?? undefined,
+                    unitIsVariableQty: src.unitIsVariableQty,
+                    unitBaseTitle: src.unitBaseTitle ?? undefined,
+                    city: loc.city,
+                    province: loc.province,
+                    countryCode: loc.countryCode,
+                    provinceCode: loc.provinceCode,
+                    cityCode: loc.cityCode,
+                    locationDetail: '',
+                    validityHours: 0, // لیست قیمت — بدون انقضا
+                    expiresAt: null,
+                    priceUpdatedAt: now,
+                    isAnonymous: false,
+                    publishToMarket: true, // کپی کامل است — مستحقِ تابلوی بازار
+                    priceHistory: [{ price: src.unitPrice, updatedAt: now.toISOString(), note: 'کپی از بازوی فروش دیگر' }],
+                    status: 'active',
+                    source: 'copy',
+                },
+                select: { id: true, title: true },
+            });
+            createdAds.push(ad);
+            existingKeys.add(key); // تکرار داخل همین بچ هم رد شود
+            if (src.unitQty && src.unitQty >= 2) {
+                usedUnits.set(src.unitId, { id: src.unitId, containsQty: src.unitQty });
+            }
+
+            // 🖼️ عکس‌های کالا — فایل فیزیکی همان است، فقط رکوردِ مالکیتِ تازه برای مقصد ساخته می‌شود
+            for (const f of src.files ?? []) {
+                try {
+                    await this.prisma.file.create({
+                        data: {
+                            userId,
+                            name: f.name,
+                            mimeType: f.mimeType,
+                            size: f.size,
+                            path: f.path,
+                            thumbnailPath: f.thumbnailPath ?? null,
+                            relatedModel: 'Ad',
+                            relatedId: ad.id,
+                            fieldKey: f.fieldKey,
+                            metadata: (f.metadata as any) ?? undefined,
+                        },
+                    });
+                } catch { /* عکس حیاتی نیست — کالا بدون عکس هم ثبت بماند */ }
+            }
+        }
+
+        // ── واحدهای تازه‌استفاده‌شده → واحدهای منتخب بازوی مقصد (config.units) ──
+        if (usedUnits.size) {
+            try {
+                const cfg = (target.config as any) || {};
+                const existing: any[] = Array.isArray(cfg.units) ? cfg.units : [];
+                const existingIds = new Set(existing.map((u) => u?.unitId));
+                const additions = Array.from(usedUnits.values())
+                    .filter((u) => !existingIds.has(u.id))
+                    .map((u) => ({ unitId: u.id, containsQty: u.containsQty ?? null, qtyIsFixed: false }));
+                if (additions.length) {
+                    await this.prisma.catalog.update({
+                        where: { id: target.id },
+                        data: { config: { ...cfg, units: [...existing, ...additions] } as any, updatedAt: new Date() },
+                    });
+                }
+            } catch { /* غیرحیاتی */ }
+        }
+
+        // ── مهر خودکار روی بازارهای منتشرِ بازوی مقصد — کپی‌ها کامل‌اند ──
+        if (createdAds.length) {
+            const memberships = await this.prisma.armMembership.findMany({
+                where: { catalogId: target.id, status: 'active', publishState: 'published' },
+                select: { armId: true },
+            });
+            if (memberships.length) {
+                const arms = await this.prisma.arm.findMany({
+                    where: { id: { in: memberships.map((m) => m.armId) }, status: 'active' },
+                    select: { id: true, categoryTree: true },
+                });
+                for (const arm of arms) {
+                    try {
+                        await this.catalogPublish.stampCatalogAds(arm, target.id, createdAds.map((a) => a.id), userId);
+                    } catch { /* مهر حیاتی نیست */ }
+                }
+            }
+            await this.cache.bust('prod-search').catch(() => undefined);
+            await this.cache.bust(VITRINE_CACHE_PREFIX).catch(() => undefined);
+        }
+
+        return {
+            copied: createdAds.length,
+            skipped: failed.length,
+            failed,
+            ads: createdAds,
+            targetCatalogId: target.id,
+        };
     }
 }

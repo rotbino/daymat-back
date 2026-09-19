@@ -52,6 +52,27 @@ export class CatalogController {
         return this.catalogService.getSavedList(user.id);
     }
 
+    // ─── 📋 کپی کالاها از بازوی فروش دیگر ───
+    @Get('copy/search')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'جست‌وجوی کسب‌وکار/بازوی فروش برای کپی کالاها — وضعیت اجازهٔ کپی همراه نتایج' })
+    @ApiQuery({ name: 'query', required: true })
+    async copySearch(@CurrentUser() user: any, @Query('query') query: string) {
+        return this.catalogService.copySearch(user.id, query ?? '');
+    }
+
+    @Post('copy')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'کپی کالاهای تیک‌خورده از بازوی مبدأ به بازوی مقصد (نیازمند اجازهٔ صاحب مبدأ)' })
+    async copyCommit(
+        @CurrentUser() user: any,
+        @Body() dto: { sourceCatalogId: string; targetCatalogId: string; adIds: string[] },
+    ) {
+        return this.catalogService.copyProductsCommit(user.id, dto);
+    }
+
     // ─── احراز هویت‌دار ───
     @Post()
     @UseGuards(JwtAuthGuard)
@@ -172,6 +193,14 @@ export class CatalogController {
     @ApiOperation({ summary: 'ثبت اشتراک‌گذاری بازوی فروش' })
     async trackShare(@Param('catalogId') catalogId: string, @CurrentUser() user: any) {
         return this.catalogService.trackShare(catalogId, user?.id || null);
+    }
+
+    @Get(':catalogId/copy/products')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'لیست کالاهای قابل‌کپی یک بازوی فروش (فقط با اجازهٔ صاحب بازو یا دسترسی مدیریت)' })
+    async getCopyProducts(@Param('catalogId') catalogId: string, @CurrentUser() user: any) {
+        return this.catalogService.copyProducts(catalogId, user.id);
     }
 
     @Get(':catalogId/ads')

@@ -288,6 +288,11 @@ export class UpdateCatalogConfigDto {
     @IsOptional()
     @IsIn(['toman', 'usd', 'eur', 'afn', 'tjs', 'aed', 'try', null])
     currency?: string | null;
+
+    @ApiPropertyOptional({ example: false, description: 'اجازهٔ کپی محصولات این بازوی فروش توسط دیگران — صاحب بازو هر وقت بخواهد روشن/خاموش می‌کند', required: false })
+    @IsOptional()
+    @IsBoolean()
+    allowCopy?: boolean;
 }
 
 export class RequestVerificationDto {
