@@ -14,6 +14,7 @@ import { RESERVED_SLUGS } from '../common/reserved-slugs';
 import { CatalogPublishService } from '../common/services/catalog-publish.service';
 import { CatalogAccessService } from '../common/services/catalog-access.service';
 import { normalizeForCompare, normalizeForStore } from '../common/persian-text.util';
+import { canCreateSalesArmRole, canCreateSalesArmSector } from '../common/constants/market-roles';
 
 /** نرمال‌سازی نام کالا برای مقایسهٔ تکراری‌ها — همان قاعدهٔ ایمپورت */
 const FA_DIGITS: Record<string, string> = {
@@ -151,13 +152,32 @@ export class CatalogService {
         }
         const biz = await this.prisma.business.findUnique({
             where: { id: dto.businessId },
-            select: { id: true, status: true, name: true },
+            select: { id: true, status: true, name: true, businessRole: true, businessSector: true },
         });
         if (!biz) {
             throw new NotFoundException({ errorCode: 'BUSINESS_NOT_FOUND', message: 'کسب‌وکار یافت نشد' });
         }
         if (biz.status !== 'active') {
             throw new BadRequestException({ errorCode: 'BUSINESS_INACTIVE', message: 'این کسب‌وکار فعال نیست' });
+        }
+
+        // ✅ گیتِ بازوی فروش (فلسفهٔ نوی مالک — بازنویسی بازوها):
+        //    بازوی خرید برای همه؛ بازوی فروشِ عمده فقط برای لایه‌های بالادستی زنجیره
+        //    (تولید / بازرگانی / توزیع‌وپخش). خرده‌فروش و خدمات فقط خریدار عمده‌اند —
+        //    بازوی فروشِ بی‌مصرف، پیشنهاد تامینِ بی‌معنا و هرج‌ومرجِ بازار می‌سازد.
+        //    در این نسخه وارد بازارِ فروشِ خدمات هم نمی‌شویم.
+        //    مقادیرِ خالی/قدیمی محدود نمی‌شوند (سازگاری با داده‌های قبل).
+        if (biz.businessRole && !canCreateSalesArmRole(biz.businessRole)) {
+            throw new ForbiddenException({
+                errorCode: 'SALES_ARM_NOT_ALLOWED',
+                message: 'برای کسب‌وکارهای خرده‌فروشی و خدمات، بازوی فروش عمده ساخته نمی‌شود — بازوی خرید شما فعال است',
+            });
+        }
+        if (biz.businessSector && !canCreateSalesArmSector(biz.businessSector)) {
+            throw new ForbiddenException({
+                errorCode: 'SALES_ARM_NOT_ALLOWED',
+                message: 'برای کسب‌وکارهای خرده‌فروشی و خدمات، بازوی فروش عمده ساخته نمی‌شود — بازوی خرید شما فعال است',
+            });
         }
 
         // ✅ نام تکراری — در بازوی فروش‌های خودِ کاربر (نه کسب‌وکار؛ کسب‌وکار مشترک است)

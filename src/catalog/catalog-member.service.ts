@@ -9,6 +9,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CacheHelper } from '../common/services/cache.helper';
 import { NotificationService } from '../notification/notification.service';
+import { BUYER_SECTORS_BY_SELLER } from '../common/constants/market-roles';
 
 // ─── فیلدهای مشترکِ پیشنهادهای ارتباط — کسب‌وکار / بازوی فروش ───
 const CONN_BIZ_SELECT = {
@@ -488,6 +489,55 @@ export class CatalogMemberService {
      * ✅ لِین خریدارِ «خودِ متقاضی» — سازگار با ردیف‌های قدیمی (customerVia=null که قبل از معرفیِ فیلد ثبت شده‌اند)
      *    درخواستِ خودِ متقاضی (self_request) را مدیر تایید می‌کند؛ owner_add را صاحبِ کسب‌وکار
      */
+    /**
+     * ✅ آینهٔ پیشنهاد تامین روی بازوهای خریدِ خریدار (رفع باگ مالک — ۱۴۰۴/۰۶):
+     *    وقتی بازوی فروش «پیشنهاد تامین» می‌دهد (addCustomer)، سابقاً فقط ردیف CatalogMember
+     *    سمتِ فروشنده ساخته می‌شد و خریدار باید از کارت my-catalogs?tab=team تایید می‌کرد —
+     *    کارتی که خریدارِ بدون بازوی فروش هرگز نمی‌دید («من کلید ندارم»). حالا همین
+     *    پیشنهاد به‌صورت InquiryMember (via=supplier_request, status=pending) در تب
+     *    «تامین‌کنندگان»ِ بازوی خریدِ خریدار هم می‌نشیند تا همان‌جا قبول/رد کند.
+     *    جانبی و بی‌خطر — هر خطایی ثبتِ سمت فروشنده را شکست نمی‌دهد.
+     * خروجی: تعداد بازوهای خریدِ همگام‌شده (برای انتخاب مقصدِ اعلان) یا null.
+     */
+    private async mirrorInquirySide(
+        catalogId: string,
+        businessId: string | null | undefined,
+        actorId: string,
+        status: 'pending' | 'active' | 'declined' | 'removed',
+    ): Promise<number | null> {
+        try {
+            if (!businessId) return null;
+            const inquiries = await this.prisma.inquiry.findMany({
+                where: { businessId, status: { not: 'archived' } },
+                select: { id: true },
+                orderBy: { createdAt: 'desc' },
+                take: 10,
+            });
+            for (const inq of inquiries) {
+                const im = await this.prisma.inquiryMember.findUnique({
+                    where: { inquiryId_catalogId: { inquiryId: inq.id, catalogId } },
+                });
+                // اتصال فعالِ همان بازوی فروش را به‌جز حذف، پایین نیاور
+                if (im?.status === 'active' && status !== 'active' && status !== 'removed') continue;
+                if (im) {
+                    if (im.status !== status) {
+                        await this.prisma.inquiryMember.update({
+                            where: { id: im.id },
+                            data: { status, via: 'supplier_request', userId: actorId },
+                        });
+                    }
+                } else if (status === 'pending' || status === 'active') {
+                    await this.prisma.inquiryMember.create({
+                        data: { inquiryId: inq.id, catalogId, userId: actorId, status, via: 'supplier_request' },
+                    });
+                }
+            }
+            return inquiries.length;
+        } catch {
+            return null;
+        }
+    }
+
     private selfCustomer(row: any): boolean {
         return row.customerVia === 'self_request' || !row.customerVia;
     }
@@ -2200,6 +2250,11 @@ export class CatalogMemberService {
         }
         const mine = await this.myConnectionProfile(catalog);
 
+        // ✅ ماتریس فروش عمده (فلسفهٔ نوی مالک): هر فروشنده فقط «پایین‌دستِ» واقعی را به‌عنوان
+        //    خریدار می‌بیند — مثلاً شرکت پخش، پخشِ دیگر را کنار سوپرمارکت‌ها نمی‌بیند؛
+        //    تولیدکننده/بازرگانی به همه لایه‌ها (حتی تولیدِ دیگر — مواد اولیه) می‌فروشد.
+        const allowedBuyerSectors = BUYER_SECTORS_BY_SELLER[mine?.businessSector] ?? null;
+
         // کسانی که قبلاً مشتری/فروشندهٔ این بازوی فروش هستند — خارج از پیشنهادها
         const existing = await this.prisma.catalogMember.findMany({
             where: { catalogId: catalog.id, customerStatus: { in: ['active', 'pending'] } },
@@ -2216,7 +2271,10 @@ export class CatalogMemberService {
         if (!term && !city && !province && !sector && !role) {
             // پیشنهادِ مرتبط‌ترین‌ها — اولین صفحه
             const pool = await this.prisma.business.findMany({
-                where: { status: 'active', id: { notIn: [...takenBizIds, catalog.businessId] } },
+                where: {
+                    status: 'active', id: { notIn: [...takenBizIds, catalog.businessId] },
+                    ...(allowedBuyerSectors ? { businessSector: { in: allowedBuyerSectors } } : {}),
+                },
                 select: CONN_BIZ_SELECT,
                 take: 150,
                 orderBy: { createdAt: 'desc' },
@@ -2227,7 +2285,14 @@ export class CatalogMemberService {
         const where: any = { status: 'active', id: { notIn: [...takenBizIds, catalog.businessId] } };
         if (city) where.city = city;
         if (province) where.province = province;
-        if (sector) where.businessSector = sector;
+        if (allowedBuyerSectors) {
+            // ✅ محدودهٔ مجاز فروش — فیلترِ دستیِ کاربر هم فقط داخلِ همین محدوده معنا دارد
+            where.businessSector = sector
+                ? (allowedBuyerSectors.includes(sector) ? sector : { in: [] })
+                : { in: allowedBuyerSectors };
+        } else if (sector) {
+            where.businessSector = sector;
+        }
         if (role) where.businessRole = role;
         if (term) {
             where.OR = [
@@ -2526,21 +2591,30 @@ export class CatalogMemberService {
             assignedSellerUserId,
         });
         await this.bustUsersCache([bizResponsible, actorId]);
-        // ✅ اطلاع‌رسانی به مسئول کسب‌وکارِ مشتری — تایید/رد از کارت «در انتظار تایید شما»
+        // ✅ آینه در بازوی خریدِ خریدار — پیشنهاد تامین در تب «تامین‌کنندگان» می‌نشیند
+        const mirroredInquiries = await this.mirrorInquirySide(catalog.id, biz.id, actorId, 'pending');
+        const inquiryHref = mirroredInquiries && mirroredInquiries > 0 ? '/my-inquiries?tab=members' : null;
+        // ✅ اطلاع‌رسانی به مسئول کسب‌وکارِ مشتری — مقصدِ درست:
+        //    اگر بازوی خرید دارد → تب «تامین‌کنندگان» (قبول/رد همان‌جا)؛
+        //    وگرنه کارت تایید my-catalogs (مسیر قدیمیِ سازگاری)
         await this.notifier.notify({
             userIds: [bizResponsible],
             type: 'catalog_customer_added',
-            title: `«${catalog.name}» شما را خریدار ثبت کرده`,
-            body: 'این ثبت را تایید یا رد کن — تا قبل از تایید، تماس شما مسیریابی نمی‌شود',
+            title: `«${catalog.name}» پیشنهاد تامین داد`,
+            body: inquiryHref
+                ? 'در بازوی خریدت، تب «تامین‌کنندگان» — بپذیر یا رد کن'
+                : 'این ثبت را تایید یا رد کن — تا قبل از تایید، تماس شما مسیریابی نمی‌شود',
             actorUserId: actorId,
-            href: '/my-catalogs?tab=team',
+            href: inquiryHref || '/my-catalogs?tab=team',
             catalogId: catalog.id,
             businessId: biz.id,
         });
         return {
             success: true,
             memberId,
-            message: 'درخواست ثبت خریدار ارسال شد — در انتظار پذیرش خریدار؛ تا پیش از پذیرش، تماسش مسیریابی نمی‌شود',
+            message: inquiryHref
+                ? 'پیشنهاد تامین ارسال شد — خریدار در بازوی خریدش (تب تامین‌کنندگان) می‌پذیرد یا رد می‌کند'
+                : 'پیشنهاد تامین ثبت شد — در انتظار پذیرش خریدار',
             quota: charge,
         };
     }
@@ -2559,6 +2633,9 @@ export class CatalogMemberService {
             where: { id: row.id },
             data: { customerStatus: 'active', customerJoinedAt: new Date(), customerLeftAt: null },
         });
+        // ✅ آینه: اگر خریدار از کارت سمت کاتالوگ تایید کرد، ردیفِ پیشنهاد تامین در
+        //    بازوهای خریدش هم فعال شود — دو سطحِ تایید هرگز از هم جدا نمانند
+        await this.mirrorInquirySide(catalog.id, (row.customerBusiness as any)?.id, actorId, 'active');
         await this.event(catalog.id, row.userId, 'customer_confirmed', actorId, null, {
             businessId: (row.customerBusiness as any)?.id,
             assignedSellerUserId: row.assignedSellerUserId,
@@ -2592,6 +2669,8 @@ export class CatalogMemberService {
             where: { id: row.id },
             data: { customerStatus: 'declined', customerLeftAt: new Date() },
         });
+        // ✅ آینه: رد در سمت کاتالوگ → پیشنهاد تامینِ در انتظار در بازوهای خریدِ خریدار هم رد شود
+        await this.mirrorInquirySide(catalog.id, (row.customerBusiness as any)?.id, actorId, 'declined');
         await this.syncOverallStatus(catalog.id, row.userId);
         await this.event(catalog.id, row.userId, 'customer_declined', actorId, reason || null);
         await this.bustUsersCache([row.userId, actorId, row.customerAddedByUserId]);
@@ -2636,6 +2715,8 @@ export class CatalogMemberService {
                 assignedAt: null,
             },
         });
+        // ✅ آینه: حذف/لغو خریدار → اتصال تامین‌کننده در بازوهای خریدش هم برداشته شود
+        await this.mirrorInquirySide(catalog.id, (row.customerBusiness as any)?.id, actorId, 'removed');
         await this.syncOverallStatus(catalog.id, row.userId);
         await this.event(catalog.id, row.userId, 'customer_removed', actorId, note || null, {
             businessId: (row.customerBusiness as any)?.id,
@@ -2662,6 +2743,8 @@ export class CatalogMemberService {
                 assignedAt: null,
             },
         });
+        // ✅ آینه: خروج خودِ خریدار → اتصال در بازوهای خریدش هم برداشته شود
+        await this.mirrorInquirySide(catalog.id, row.customerBusinessId, userId, 'removed');
         await this.syncOverallStatus(catalog.id, userId);
         await this.event(catalog.id, userId, 'customer_left', userId, null, { previousSellerUserId });
         await this.bustUsersCache([userId, row.customerAddedByUserId, row.assignedSellerUserId]);

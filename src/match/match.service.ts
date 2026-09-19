@@ -23,6 +23,7 @@ import { CatalogAccessService } from '../common/services/catalog-access.service'
 import { SettingsService } from '../settings/settings.service';
 import { CreditService } from '../credit/credit.service';
 import { RevealContactDto } from './match.dto';
+import { BUYER_SECTORS_BY_SELLER } from '../common/constants/market-roles';
 
 /** آستانه‌های سطح سفارش (تومان) — خریدارِ سوپرمارکتی ↔ بنکدار/کارخانه‌ای */
 export const TIER_WHOLESALE_MIN = 10_000_000;   // از این به بالا «عمده»
@@ -118,6 +119,15 @@ export class MatchService {
             message: 'شما اجازه مدیریت این بازوی فروش را ندارید',
         });
 
+        // ✅ ماتریس فروش عمده: فروشنده فقط خریدارانِ «پایین‌دستِ» واقعی‌اش را می‌بیند
+        //    (مثلاً پخش، پخشِ دیگر را در خریدارانِ کالایش نمی‌بیند — خواستهٔ مالک)
+        const sellerCatalog = await this.prisma.catalog.findUnique({
+            where: { id: ad.catalogId },
+            select: { business: { select: { businessSector: true } } },
+        });
+        const allowedBuyerSectors =
+            BUYER_SECTORS_BY_SELLER[sellerCatalog?.business?.businessSector ?? ''] ?? null;
+
         if (!ad.productReferenceId) {
             return { ad: { id: ad.id, title: ad.productType || ad.title }, buyers: [], buyersCount: 0 };
         }
@@ -139,7 +149,7 @@ export class MatchService {
                         province: true, provinceCode: true,
                         showContactPhone: true,
                         owner: { select: { fullName: true } },
-                        business: { select: { name: true } },
+                        business: { select: { name: true, businessSector: true } },
                     },
                 },
             },
@@ -157,6 +167,11 @@ export class MatchService {
         const memberByInquiry = new Map(memberships.map((m) => [m.inquiryId, m.status]));
 
         const buyers = items
+            .filter((it) => {
+                if (!allowedBuyerSectors) return true;
+                const buyerSector = it.inquiry.business?.businessSector;
+                return !buyerSector || allowedBuyerSectors.includes(buyerSector);
+            })
             .map((it) => {
                 const estimatedValue =
                     ad.unitPrice && it.quantity ? ad.unitPrice * it.quantity : null;
@@ -319,7 +334,10 @@ export class MatchService {
                 status: 'active',
                 business: { OR: [{ ownerUserId: userId }, { creatorUserId: userId }] },
             },
-            select: { id: true, name: true, logoUrl: true, cityCode: true, provinceCode: true },
+            select: {
+                id: true, name: true, logoUrl: true, cityCode: true, provinceCode: true,
+                business: { select: { businessSector: true } },
+            },
         });
         if (!myCatalogs.length) return { items: [], total: 0 };
 
@@ -378,7 +396,7 @@ export class MatchService {
                     select: {
                         id: true, title: true, slug: true,
                         city: true, province: true, cityCode: true, provinceCode: true,
-                        business: { select: { name: true, logoUrl: true, verificationStatus: true } },
+                        business: { select: { name: true, logoUrl: true, verificationStatus: true, businessSector: true } },
                     },
                 },
             },
@@ -387,6 +405,15 @@ export class MatchService {
 
         const catById = new Map(myCatalogs.map((c) => [c.id, c]));
         const rows = items
+            .filter((it) => {
+                // ✅ ماتریس فروش عمده: کالای فروشنده فقط به خریدارانِ پایین‌دستِ خودش پیشنهاد می‌شود
+                const ad = adByRef.get(it.referenceItemId!);
+                const sellerSector = ad ? catById.get(ad.catalogId)?.business?.businessSector : null;
+                const allowed = BUYER_SECTORS_BY_SELLER[sellerSector ?? ''] ?? null;
+                if (!allowed) return true;
+                const buyerSector = it.inquiry.business?.businessSector;
+                return !buyerSector || allowed.includes(buyerSector);
+            })
             .map((it) => {
                 const ad = adByRef.get(it.referenceItemId!);
                 const cat = ad ? catById.get(ad.catalogId) : null;

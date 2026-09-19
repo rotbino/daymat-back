@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
+import { WHOLESALE_SECTOR_IDS } from '../common/constants/market-roles';
 import { CreateInquiryDto, UpdateInquiryDto, CreateOfferDto, UpdateOfferDto, InquiryItemDto, UpdateInquiryItemDto, InquiryUnitDto, AddInquiryMemberDto, RequestInquiryAccessDto } from './inquiry.dto';
 import { RESERVED_SLUGS } from '../common/reserved-slugs';
 import { normalizeForCompare } from '../common/persian-text.util';
@@ -1209,6 +1210,9 @@ export class InquiryService implements OnModuleInit {
         const activeIds = members.filter((m) => m.status === 'active').map((m) => m.catalogId);
         const pendingIds = new Set(members.filter((m) => m.status === 'pending').map((m) => m.catalogId));
         const where: any = { status: 'active', id: { notIn: activeIds } };
+        // ✅ فقط بازوهای فروشِ واقعاً بَسته‌فروش در جست‌وجوی تامین‌کننده می‌آیند (فلسفهٔ نوی مالک):
+        //    خرده‌فروش/خدمات تامین‌کنندهٔ عمده نیستند — کاتالوگ‌های لگسی‌شان هم پنهان شود
+        where.business = { businessSector: { in: [...WHOLESALE_SECTOR_IDS] } };
         const q = opts.q?.trim();
         if (q) where.name = { contains: q };
         const provinceCode = opts.provinceCode?.trim();
@@ -1382,10 +1386,30 @@ export class InquiryService implements OnModuleInit {
 
         // رد / حذف — هر دو طرف مجاز
         if (status !== 'active') {
-            return this.prisma.inquiryMember.update({
+            const updated = await this.prisma.inquiryMember.update({
                 where: { id: member.id },
                 data: { status: status === 'removed' ? 'removed' : 'declined' },
             });
+            // ✅ همگام‌سازی سمت فروشنده (رفع باگ مالک): پیشنهاد تامینِ ردشدهٔ خریدار،
+            //    در تب «خریداران» بازوی فروشِ فرستنده هم «درخواست رد شده» شود —
+            //    وگرنه فروشنده برای همیشه «در انتظار پذیرش» می‌ماند. اگر رابطه از
+            //    مسیر دیگری فعال شده باشد، دست نمی‌خورد (فقط pending رد می‌شود).
+            if (status === 'declined' && member.via === 'supplier_request') {
+                try {
+                    const cm = await this.prisma.catalogMember.findUnique({
+                        where: { catalogId_userId: { catalogId: member.catalogId, userId: inquiry.ownerUserId } },
+                    });
+                    if (cm && cm.customerStatus === 'pending') {
+                        await this.prisma.catalogMember.update({
+                            where: { id: cm.id },
+                            data: { customerStatus: 'declined', customerLeftAt: new Date() },
+                        });
+                    }
+                } catch {
+                    // جانبی — ردِ اصلی هرگز شکست نخورد
+                }
+            }
+            return updated;
         }
 
         // تایید — فقط مسیر درستش
