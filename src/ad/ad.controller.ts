@@ -83,7 +83,8 @@ export class AdController {
         if (!fileBuffer || !fileBuffer.length) {
             throw new BadRequestException({ errorCode: 'FILE_MISSING', message: 'فایلی پیدا نشد — دوباره انتخاب کن' });
         }
-        return this.adImport.parseExcelFile(user.id, catalogId, fileBuffer, fileName, fields.priceCurrency === 'rial' ? 'rial' : 'toman');
+        const basis = fields.priceBasis === 'package' ? 'package' : 'single';
+        return this.adImport.parseExcelFile(user.id, catalogId, fileBuffer, fileName, fields.priceCurrency === 'rial' ? 'rial' : 'toman', basis);
     }
 
     @Post('import/commit')

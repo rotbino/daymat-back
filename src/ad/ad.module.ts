@@ -6,9 +6,10 @@ import { AdImportService } from './ad-import.service';
 import { ArmModule } from '../arm/arm.module';
 import { CreditModule } from '../credit/credit.module'; // ✅ اضافه شد
 import { CatalogModule } from '../catalog/catalog.module'; // ✅ مسیریابی تماس — تیم بازوی فروش
+import { FileModule } from '../file/file.module'; // ✅ عکس‌های اکسل — آپلود استیجینگ در ایمپورت
 
 @Module({
-    imports: [ArmModule, CreditModule, CatalogModule], // ✅ CatalogMemberService برای مسیریابی تماس
+    imports: [ArmModule, CreditModule, CatalogModule, FileModule], // ✅ CatalogMemberService برای مسیریابی تماس
     controllers: [AdController],
     providers: [AdService, AdImportService],
     exports: [AdService],

@@ -714,6 +714,15 @@ export class ImportParseDto {
     @IsOptional()
     @IsIn(['toman', 'rial'])
     priceCurrency?: 'toman' | 'rial';
+
+    @ApiProperty({
+        description: "مبنای قیمت‌های ورودی — single: قیمتِ «یک عدد» (پیش‌فرض) | package: قیمتِ «هر بسته/کارتن» — آن‌وقت تعداد در بسته اجباری است و قیمت تکی تقسیم می‌شود",
+        required: false,
+        enum: ['single', 'package'],
+    })
+    @IsOptional()
+    @IsIn(['single', 'package'])
+    priceBasis?: 'single' | 'package';
 }
 
 export class ImportCommitItemDto {
@@ -750,6 +759,15 @@ export class ImportCommitItemDto {
     @IsString()
     @MaxLength(60)
     brandTitle?: string;
+
+    @ApiProperty({
+        description: 'شناسهٔ فایل عکسِ پیش‌آپلودشده در پارس (مرحلهٔ استیجینگ) — موقع ثبت به آگهی وصل می‌شود',
+        required: false,
+    })
+    @IsOptional()
+    @IsString()
+    @MaxLength(40)
+    imageFileId?: string;
 }
 
 export class ImportCommitDto {
@@ -781,6 +799,7 @@ export class ImportCommitDto {
                 unitTitle: it?.unitTitle || undefined,
                 unitQty: num(it?.unitQty),
                 brandTitle: it?.brandTitle || undefined,
+                imageFileId: it?.imageFileId || undefined,
             };
         }))
         : value)

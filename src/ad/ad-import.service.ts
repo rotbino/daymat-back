@@ -9,10 +9,12 @@
 //    خروجی commit: گزارش کامل — چند موفق، چند رد و چرا، چه چیزهای جدیدی ساخته شد.
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import * as XLSX from 'xlsx';
+import * as ExcelJS from 'exceljs';
 import { PrismaService } from '../prisma/prisma.service';
 import { CatalogAccessService } from '../common/services/catalog-access.service';
 import { CatalogPublishService } from '../common/services/catalog-publish.service';
 import { CacheHelper, VITRINE_CACHE_PREFIX } from '../common/services/cache.helper';
+import { FileService } from '../file/file.service';
 import {
     normalizeForStore, normalizeForCompare, findDuplicateTitle,
 } from '../common/persian-text.util';
@@ -34,6 +36,39 @@ const normalizeItemName = (s: string): string =>
 /** حداکثر ردیف در هر ایمپورت — سقفِ موتور رشد */
 const MAX_IMPORT_ROWS = 1000;
 
+/** حداکثر عکسِ برداشته‌شده از یک فایل اکسل + سقف حجم هر عکس */
+const MAX_IMPORT_IMAGES = 200;
+const MAX_IMPORT_IMAGE_BYTES = 5 * 1024 * 1024;
+
+/** فرمت‌های عکسی که می‌شود از اکسل برداشت (EMF/WMF خیر — در راهنما گفته می‌شود) */
+const IMAGE_EXT_MIME: Record<string, string> = {
+    png: 'image/png', jpeg: 'image/jpeg', jpg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
+};
+
+/**
+ * ردیف خام پارسرها — مشترک بین متن/CSV/اکسل/JSON.
+ * inputPrice: قیمتِ اصلی ورودی قبل از تبدیل «بسته → تکی» (برای نمایش در پیش‌نمایش)
+ * fixable: خطای قابل‌اصلاح در پیش‌نمایش — qty یعنی فقط «تعداد در بسته» کم است
+ * _basis: مبنای هر-ردیفی از JSON (اولویت با سوییچ کلی)
+ * _srcRow: سطر مطلق اکسل (0-based) برای وصل‌کردن عکس‌ها
+ * image: عکسِ برداشته‌شده از اکسل (فایل استیجینگ آپلودشده)
+ */
+interface RawRow {
+    name: string;
+    price: number;
+    valid: boolean;
+    reason?: string;
+    warnings?: string[];
+    unitTitle?: string | null;
+    unitQty?: number | null;
+    brandTitle?: string | null;
+    inputPrice?: number | null;
+    fixable?: 'qty' | null;
+    _basis?: 'single' | 'package';
+    _srcRow?: number;
+    image?: { fileId: string; url: string; thumbnailUrl: string | null } | null;
+}
+
 /** کلیدهای متعارف ستون‌ها — اکسل و خروجی هوش مصنوعی (لاتین + فارسی، بدون نیم‌فاصله/زیرخط) */
 const normKey = (k: string): string =>
     normalizeForCompare(toLatinDigits(String(k ?? ''))).replace(/[\s_\-.]/g, '');
@@ -43,6 +78,10 @@ const PRICE_KEYS = ['price', 'unitprice', 'amount', 'cost', 'قیمت', 'قیم�
 const UNIT_KEYS = ['unit', 'unitname', 'unittitle', 'saleunit', 'واحد', 'واحدفروش'];
 const QTY_KEYS = ['unitqty', 'qty', 'qtyperunit', 'countperunit', 'count', 'perunit', 'unitsperpack', 'packqty', 'تعداد', 'تعداددر', 'تعداددرواحد', 'تعداددرهر', 'درواحد'];
 const BRAND_KEYS = ['brand', 'brandname', 'brandtitle', 'manufacturer', 'maker', 'برند', 'مارک', 'سازنده'];
+/** مبنای قیمت هر-ردیفی در JSON هوش مصنوعی — package/بسته/کارتن → قیمتِ بسته‌ای */
+const BASIS_KEYS = ['pricebasis', 'basis', 'pricebase', 'مبناقیمت', 'مبنایقیمت'];
+const BASIS_PACKAGE_RE = /^(package|pack|carton|box|بسته|کارتن|بسته‌بندی)$/i;
+const BASIS_SINGLE_RE = /^(single|unit|piece|عدد|تکی|یکعدد|یکه‌عدد)$/i;
 
 const pickKey = (obj: Record<string, unknown>, keys: string[]): unknown => {
     for (const k of keys) {
@@ -78,20 +117,12 @@ const looseNumber = (v: unknown): number | null => {
     return negative ? -n : n;
 };
 
-export interface ParsedImportRow {
-    name: string;
-    price: number;
-    valid: boolean;
-    reason?: string;
-    warnings?: string[];
+export interface ParsedImportRow extends RawRow {
     duplicateOfAdId?: string;
     referenceId?: string | null;
     referenceTitle?: string | null;
-    unitTitle?: string | null;
     unitResolved?: boolean | null; // واحد در دیکشنری موجود است؟ (false = موقع ثبت ساخته می‌شود)
     unitContainsQty?: number | null;
-    unitQty?: number | null;
-    brandTitle?: string | null;
     brandResolved?: boolean | null;
 }
 
@@ -121,6 +152,7 @@ export class AdImportService {
         private catalogAccess: CatalogAccessService,
         private catalogPublish: CatalogPublishService,
         private cache: CacheHelper,
+        private fileService: FileService,
     ) {}
 
     // ════════════════════════════════════════════════════════════
@@ -129,10 +161,11 @@ export class AdImportService {
     async parse(userId: string, dto: ImportParseDto) {
         await this.assertCatalogAccess(dto.catalogId, userId);
 
-        const rawRows = dto.source === 'json'
+        const rawRows: RawRow[] = dto.source === 'json'
             ? this.parseJsonItems(dto.text)
             : this.parsePriceListText(dto.text);
         this.applyPriceCurrency(rawRows, dto.priceCurrency);
+        this.applyPriceBasis(rawRows, dto.priceBasis);
 
         if (!rawRows.length) {
             throw new BadRequestException({ errorCode: 'IMPORT_EMPTY', message: 'چیزی برای خواندن پیدا نکردیم — شکل خط‌ها را با نمونه مقایسه کن' });
@@ -145,13 +178,14 @@ export class AdImportService {
         return { items, summary: this.buildSummary(items) };
     }
 
-    /** پارس فایل اکسل/CSV — کنترلر فایل را می‌آورد، اینجا جدول می‌شود */
-    async parseExcelFile(userId: string, catalogId: string, fileBuffer: Buffer, fileName: string, priceCurrency?: 'toman' | 'rial') {
+    /** پارس فایل اکسل/CSV — کنترلر فایل را می‌آورد، اینجا جدول می‌شود؛ عکس‌های داخل اکسل هم برداشته می‌شوند */
+    async parseExcelFile(userId: string, catalogId: string, fileBuffer: Buffer, fileName: string, priceCurrency?: 'toman' | 'rial', priceBasis?: 'single' | 'package') {
         await this.assertCatalogAccess(catalogId, userId);
         const lower = (fileName || '').toLowerCase();
         const isCsv = lower.endsWith('.csv') || lower.endsWith('.txt');
+        const isXlsx = lower.endsWith('.xlsx') || lower.endsWith('.xlsm');
 
-        let rawRows: { name: string; price: number; valid: boolean; reason?: string; unitTitle?: string | null; unitQty?: number | null; brandTitle?: string | null }[];
+        let rawRows: RawRow[] = [];
         try {
             if (isCsv) {
                 const text = this.stripBom(fileBuffer.toString('utf8'));
@@ -167,6 +201,7 @@ export class AdImportService {
         }
 
         this.applyPriceCurrency(rawRows, priceCurrency);
+        this.applyPriceBasis(rawRows, priceBasis);
 
         if (!rawRows.length) {
             throw new BadRequestException({ errorCode: 'IMPORT_EMPTY', message: 'در فایل هیچ ردیفی پیدا نکردیم — ستون «نام کالا» و «قیمت» را چک کن' });
@@ -175,8 +210,14 @@ export class AdImportService {
             throw new BadRequestException({ errorCode: 'IMPORT_TOO_MANY', message: `هر بار حداکثر ${MAX_IMPORT_ROWS.toLocaleString('fa-IR')} قلم — فایل را چند قسمتی بفرست` });
         }
 
+        // 🖼️ عکس‌های داخل فایل اکسل — فقط xlsx/xlsm (CSV و xls قدیمی عکس ندارند)
+        let images = { found: 0, attached: 0, skipped: 0 };
+        if (isXlsx) {
+            images = await this.attachExcelImages(userId, fileBuffer, rawRows);
+        }
+
         const items = await this.enrich(catalogId, rawRows);
-        return { items, summary: this.buildSummary(items) };
+        return { items, summary: this.buildSummary(items), images };
     }
 
     /**
@@ -191,6 +232,116 @@ export class AdImportService {
         for (const r of rows) {
             if (r.price && r.price > 0) r.price = Math.round(r.price / 10);
         }
+    }
+
+    /**
+     * 📦 مبنای قیمت — «یک عدد» یا «هر بسته/کارتن»؟
+     * مثل سوییچ ریال/تومان کاربر انتخاب می‌کند؛ اگر «هر بسته» بود:
+     *  - تعداد در بسته اجباری است — نداشته باشد ردیف رد می‌شود ولی همان‌جا در پیش‌نمایش قابل‌اصلاح است (fixable=qty)
+     *  - قیمتِ تکی = قیمتِ بسته ÷ تعداد در بسته؛ قیمتِ بسته در inputPrice می‌ماند تا پیش‌نمایش هر دو را نشان دهد
+     *  - تعدادِ ثبت‌شده با کالا و واحدهای بازوی فروش ذخیره می‌شود — یک بار می‌نویسد، همیشه کارش راحت است
+     * مبنای هر-ردیفی (_basis از JSON هوش مصنوعی) اولویت دارد.
+     */
+    private applyPriceBasis(rows: RawRow[], priceBasis?: 'single' | 'package') {
+        if (priceBasis !== 'package' && !rows.some((r) => r._basis === 'package')) return;
+        for (const r of rows) {
+            const basis = r._basis ?? priceBasis ?? 'single';
+            if (basis !== 'package' || !r.valid || !(r.price > 0)) continue;
+
+            const qty = r.unitQty != null && r.unitQty >= 1 ? Math.floor(r.unitQty) : null;
+            if (!qty) {
+                // ⛔ قیمت بسته‌ای است ولی تعداد بسته نگفته — رد می‌شود ولی در پیش‌نمایش فقط با نوشتنِ تعداد زنده می‌شود
+                r.valid = false;
+                r.fixable = 'qty';
+                r.inputPrice = r.price;
+                r.reason = 'قیمت را «هر بسته/کارتن» نوشتی — «تعداد در بسته» را هم بنویس (مثلاً ۲۴ برای کارتن ۲۴تایی)';
+                continue;
+            }
+
+            r.inputPrice = r.price;
+            const single = Math.round(r.price / qty);
+            r.price = single;
+            r.unitQty = qty;
+            const exact = r.inputPrice % qty === 0;
+            r.warnings = [
+                ...(r.warnings ?? []),
+                exact
+                    ? `قیمتِ واردشده «هر ${r.unitTitle || 'بسته'}» بود — تقسیم بر ${qty.toLocaleString('fa-IR')} شد تا قیمت یک عدد دربیاید`
+                    : `قیمتِ واردشده «هر ${r.unitTitle || 'بسته'}» بود — تقسیم بر ${qty.toLocaleString('fa-IR')} و گرد شد (قیمت دقیقِ بسته حفظ شده)`,
+            ];
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // 🖼️ عکس‌های داخل اکسل — برداشتن، آپلود استیجینگ و وصل‌کردن به ردیف‌ها
+    //    اکسل = زیپ؛ عکس‌ها در xl/media و لنگر هر عکس در xl/drawings —
+    //    ExcelJS همه را می‌خواند؛ ما فقط سطرِ لنگر (tl.row) را به ردیفِ همان سطر وصل می‌کنیم.
+    //    فرمت‌های png/jpeg/gif/webp — EMF/WMF (چسباندن مستقیم از کلیپ‌بورد ویندوز) پشتیبانی نمی‌شود.
+    // ════════════════════════════════════════════════════════════
+    private async attachExcelImages(
+        userId: string,
+        fileBuffer: Buffer,
+        rawRows: RawRow[],
+    ): Promise<{ found: number; attached: number; skipped: number }> {
+        const stats = { found: 0, attached: 0, skipped: 0 };
+        try {
+            const wb = new ExcelJS.Workbook();
+            await wb.xlsx.load(fileBuffer as unknown as ArrayBuffer);
+            const ws = wb.worksheets[0];
+            if (!ws) return stats;
+            const media: any[] = (wb.model as any)?.media ?? [];
+
+            // 🗺️ سطرِ مطلق اکسل → ردیفِ پارس‌شده (فقط ردیف‌های معتبر عکس می‌گیرند)
+            const rowByExcelRow = new Map<number, RawRow>();
+            for (const r of rawRows) {
+                if (r.valid && r._srcRow != null && !rowByExcelRow.has(r._srcRow)) {
+                    rowByExcelRow.set(r._srcRow, r);
+                }
+            }
+
+            const anchors = ws.getImages() as any[];
+            stats.found = anchors.length;
+            const jobs: Promise<void>[] = [];
+
+            for (const a of anchors) {
+                if (stats.attached >= MAX_IMPORT_IMAGES) { stats.skipped++; continue; }
+                const m = media[a?.imageId];
+                const buf: Buffer | undefined = m?.buffer ? Buffer.from(m.buffer) : undefined;
+                const ext = String(m?.extension || '').toLowerCase();
+                const mime = IMAGE_EXT_MIME[ext];
+                const excelRow = a?.range?.tl ? Math.floor(a.range.tl.row) : -1;
+
+                if (!buf || !buf.length || !mime) { stats.skipped++; continue; } // EMF/WMF و…
+                if (buf.length > MAX_IMPORT_IMAGE_BYTES) { stats.skipped++; continue; }
+                const target = rowByExcelRow.get(excelRow);
+                if (!target || target.image) { stats.skipped++; continue; } // سطری بدون ردیفِ معتبر یا عکسِ تکراری روی یک سطر
+
+                jobs.push(
+                    this.fileService.uploadFile(
+                        userId,
+                        { buffer: buf, originalname: `import-row-${excelRow + 1}.${ext === 'jpg' ? 'jpeg' : ext}`, mimetype: mime, size: buf.length },
+                        'Ad',
+                        'import-staging', // ⏳ استیجینگ — موقع ثبت به آگهی واقعی وصل می‌شود؛ دست‌نخورده‌ها هفتگی پاک می‌شوند
+                        'import-staging',
+                    ).then((f) => {
+                        target.image = { fileId: f.id, url: f.path, thumbnailUrl: f.thumbnailPath ?? f.path };
+                        stats.attached++;
+                    }).catch((err: any) => {
+                        this.logger.warn(`import image upload failed (row ${excelRow + 1}): ${err?.message}`);
+                        stats.skipped++;
+                    }),
+                );
+            }
+            // ⏱️ آپلود موازی با سقفِ هم‌زمانی — پارسِ فایل عکس‌دار سنگین نشود
+            const CONCURRENCY = 5;
+            for (let i = 0; i < jobs.length; i += CONCURRENCY) {
+                await Promise.all(jobs.slice(i, i + CONCURRENCY));
+            }
+        } catch (e: any) {
+            // عکس‌ها حیاتی نیستند — خرابی‌شان پارس را نمی‌شکند
+            this.logger.warn(`extractXlsxImages failed (non-blocking): ${e?.message}`);
+        }
+        return stats;
     }
 
     // ════════════════════════════════════════════════════════════
@@ -282,6 +433,7 @@ export class AdImportService {
         const createdReferences: string[] = [];
         const failed: { name: string; reason: string }[] = [];
         let needsCompletionCount = 0; // 🏷️ برچسب «نیاز به تکمیل» — تا ویرایش و تکمیل، از کاتالوگ عمومی پنهان‌اند
+        let imagesAttachedCount = 0; // 🖼️ عکس‌های گرفته‌شده از اکسل که به آگهی‌ها وصل شدند
         const now = new Date();
 
         for (const item of items) {
@@ -373,6 +525,26 @@ export class AdImportService {
             needsCompletionCount++;
             catalogAdByKey.set(nameKey, ad.id); // تکرار داخل همان لیست هم رد شود
 
+            // 🖼️ عکسِ گرفته‌شده از اکسل (فایل استیجینگ) → مالکیتش به آگهیِ تازه منتقل می‌شود —
+            //    ProductRow و صفحهٔ جزئیات خودکار از همین فایل‌ها نشان می‌دهند
+            if (item.imageFileId) {
+                try {
+                    const staged = await this.prisma.file.findFirst({
+                        where: { id: item.imageFileId, userId, relatedModel: 'Ad', fieldKey: 'import-staging' },
+                        select: { id: true },
+                    });
+                    if (staged) {
+                        await this.prisma.file.update({
+                            where: { id: staged.id },
+                            data: { relatedId: ad.id, fieldKey: 'ad-image-0' },
+                        });
+                        imagesAttachedCount++;
+                    }
+                } catch (err: any) {
+                    this.logger.warn(`import image attach failed: ${err?.message}`);
+                }
+            }
+
             if (item.unitTitle?.trim()) usedUnits.set(unit.id, { id: unit.id, containsQty: qty });
         }
 
@@ -434,6 +606,7 @@ export class AdImportService {
             createdBrands,
             createdReferences,
             needsCompletion: needsCompletionCount,
+            imagesAttached: imagesAttachedCount,
             ads: createdAds,
         };
     }
@@ -441,7 +614,7 @@ export class AdImportService {
     // ════════════════════════════════════════════════════════════
     // غنی‌سازی پیش‌نمایش — تکراری‌ها + مرجع + وضعیت واحد/برند
     // ════════════════════════════════════════════════════════════
-    private async enrich(catalogId: string, rawRows: { name: string; price: number; valid: boolean; reason?: string; unitTitle?: string | null; unitQty?: number | null; brandTitle?: string | null }[]): Promise<ParsedImportRow[]> {
+    private async enrich(catalogId: string, rawRows: RawRow[]): Promise<ParsedImportRow[]> {
         const validRows = rawRows.filter((r) => r.valid);
 
         // تکراری‌های خود کاتالوگ — یک کوئری ساده، تطبیق در حافظه (برای هر تعداد ردیف درست است)
@@ -497,12 +670,12 @@ export class AdImportService {
 
         return rawRows.map((row) => {
             if (!row.valid) {
-                return { ...row, referenceId: null, referenceTitle: null, unitTitle: row.unitTitle ?? null, unitResolved: null, unitContainsQty: null, unitQty: row.unitQty ?? null, brandTitle: row.brandTitle ?? null, brandResolved: null, warnings: [] };
+                return { ...row, referenceId: null, referenceTitle: null, unitTitle: row.unitTitle ?? null, unitResolved: null, unitContainsQty: null, unitQty: row.unitQty ?? null, brandTitle: row.brandTitle ?? null, brandResolved: null, warnings: row.warnings ?? [] };
             }
             const key = normalizeItemName(row.name);
             const unit = row.unitTitle?.trim() ? unitStatus.get(row.unitTitle.trim()) : undefined;
             const brand = row.brandTitle?.trim() ? brandStatus.get(row.brandTitle.trim()) : undefined;
-            const warnings: string[] = [];
+            const warnings: string[] = [...(row.warnings ?? [])]; // ⚠️ هشدارهای پارس (مثل تبدیل بسته→تکی) حفظ می‌شود
             if (row.price > 100 * 1000 * 1000 * 1000) warnings.push('قیمت خیلی بزرگ به نظر می‌رسد — مطمئنی تومان است؟');
             if (row.unitQty != null && row.unitQty > 10000) warnings.push('تعداد در واحد خیلی بزرگ است');
             const ref = refByNormalized.get(key) ?? null;
@@ -729,9 +902,9 @@ export class AdImportService {
      * ۲) ساده: هر خط یک قلم؛ آخرین عددِ خط = قیمت؛ متن قبلش = نام کالا.
      * سرستون‌های معمول لیست‌ها خودکار حذف می‌شوند.
      */
-    private parsePriceListText(rawText: string): { name: string; price: number; valid: boolean; reason?: string; unitTitle?: string | null; unitQty?: number | null; brandTitle?: string | null }[] {
+    private parsePriceListText(rawText: string): RawRow[] {
         const lines = (rawText || '').split(/\r?\n/);
-        const rows: { name: string; price: number; valid: boolean; reason?: string; unitTitle?: string | null; unitQty?: number | null; brandTitle?: string | null }[] = [];
+        const rows: RawRow[] = [];
         const seenNames = new Set<string>();
         const NOT_HAVE = /^(ندارد|نیست|-|–|—|x|✗)$/i; // «ندارد» برای برند/واحد
 
@@ -822,7 +995,7 @@ export class AdImportService {
     }
 
     /** CSV/TSV — جداکننده‌ها به فاصله → همان پارس لیست متنی */
-    private parseDelimitedText(rawText: string): { name: string; price: number; valid: boolean; reason?: string }[] {
+    private parseDelimitedText(rawText: string): RawRow[] {
         const text = this.stripBom(rawText || '')
             // جداکنندهٔ بین دو غیر-رقم → فاصله (عددها با , هزارگان نمی‌شکنند)
             .replace(/(?<=\D)[,;\t](?=\D)/g, ' ')
@@ -857,10 +1030,14 @@ export class AdImportService {
         return result;
     }
 
-    /** اکسل — سرستونِ هوشمند + ستون‌های کامل: نام/قیمت/واحد/تعداد/برند */
+    /** اکسل — سرستونِ هوشمند + ستون‌های کامل: نام/قیمت/واحد/تعداد/برند؛ سطر مطلق هر ردیف هم ثبت می‌شود (برای عکس‌ها) */
     private parseSheetToRows(sheet: XLSX.WorkSheet) {
         const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: true, defval: '' });
         if (!matrix.length) return [];
+
+        // ⚓ سطرِ مطلق شروع محدودهٔ شیت — اندیس ماتریس + این = سطرِ اکسل (0-based) برای وصل‌کردن عکس‌ها
+        let startRow = 0;
+        try { startRow = XLSX.utils.decode_range(sheet['!ref'] || 'A1').s.r; } catch { startRow = 0; }
 
         // یافتن سطر سرستون در ۵ سطر اول — باید «نام» و «قیمت» را بشناسد
         let headerRowIdx = -1;
@@ -875,13 +1052,16 @@ export class AdImportService {
             }
         }
 
-        const rows: { name: string; price: number; valid: boolean; reason?: string; unitTitle?: string | null; unitQty?: number | null; brandTitle?: string | null }[] = [];
+        const rows: RawRow[] = [];
         const seenNames = new Set<string>();
         const dataRows = headerRowIdx >= 0 ? matrix.slice(headerRowIdx + 1) : matrix;
 
-        for (const cells of dataRows) {
+        for (let rowIdx = 0; rowIdx < dataRows.length; rowIdx++) {
+            const cells = dataRows[rowIdx];
             if (!cells || !cells.length) continue;
             const arr = cells as unknown[];
+            // ⚓ سطر مطلق — توجه: ماتریس با defval:'' سطرهای خالی را هم دارد پس اندیس مطلق دقیق می‌ماند
+            const srcRow = startRow + rowIdx + (headerRowIdx >= 0 ? headerRowIdx + 1 : 0);
 
             let name: string;
             let priceRaw: unknown;
@@ -918,12 +1098,12 @@ export class AdImportService {
             if (/^(ردیف|کالا|محصول|شرح کالا|نام کالا|قیمت|list|price|item|#)$/i.test(normKey(cleanName)) || normKey(cleanName) === 'نامکالا') continue;
 
             if (!price || price <= 0) {
-                rows.push({ name: cleanName, price: 0, valid: false, reason: 'قیمت معتبر نیست', unitTitle, unitQty: null, brandTitle });
+                rows.push({ name: cleanName, price: 0, valid: false, reason: 'قیمت معتبر نیست', unitTitle, unitQty: null, brandTitle, _srcRow: srcRow });
                 continue;
             }
             const key = normalizeItemName(cleanName);
             if (seenNames.has(key)) {
-                rows.push({ name: cleanName, price, valid: false, reason: 'در همین فایل تکرار شده', unitTitle, unitQty: null, brandTitle });
+                rows.push({ name: cleanName, price, valid: false, reason: 'در همین فایل تکرار شده', unitTitle, unitQty: null, brandTitle, _srcRow: srcRow });
                 continue;
             }
             seenNames.add(key);
@@ -934,13 +1114,14 @@ export class AdImportService {
                 unitTitle,
                 unitQty: unitQty != null && unitQty >= 2 ? Math.floor(unitQty) : (unitQty != null && unitQty > 0 ? Math.floor(unitQty) : null),
                 brandTitle,
+                _srcRow: srcRow,
             });
         }
         return rows;
     }
 
-    /** JSON خروجی هوش مصنوعی — تحمل فنس ```json، کلیدهای مترادف، اعداد فارسی */
-    private parseJsonItems(rawText: string): { name: string; price: number; valid: boolean; reason?: string; unitTitle?: string | null; unitQty?: number | null; brandTitle?: string | null }[] {
+    /** JSON خروجی هوش مصنوعی — تحمل فنس ```json، کلیدهای مترادف، اعداد فارسی؛ هر آیتم می‌تواند priceBasis هم بدهد */
+    private parseJsonItems(rawText: string): RawRow[] {
         let text = (rawText || '').trim();
         if (!text) return [];
 
@@ -975,7 +1156,7 @@ export class AdImportService {
             throw new BadRequestException({ errorCode: 'IMPORT_BAD_JSON', message: 'خروجی هوش مصنوعی یک لیست نبود' });
         }
 
-        const rows: { name: string; price: number; valid: boolean; reason?: string; unitTitle?: string | null; unitQty?: number | null; brandTitle?: string | null }[] = [];
+        const rows: RawRow[] = [];
         const seenNames = new Set<string>();
 
         for (const el of arr) {
@@ -991,22 +1172,28 @@ export class AdImportService {
             const qtyRaw = pickKey(normObj, QTY_KEYS);
             const unitQty = qtyRaw != null ? looseNumber(qtyRaw) : null;
             const brandTitle = String(pickKey(normObj, BRAND_KEYS) ?? '').trim() || null;
+            // 📦 مبنای قیمت این آیتم — «بسته/کارتن» یا «عدد/تکی» (اگر هوش مصنوعی گفته باشد)
+            const basisRaw = String(pickKey(normObj, BASIS_KEYS) ?? '').trim();
+            const itemBasis: 'single' | 'package' | undefined = BASIS_PACKAGE_RE.test(basisRaw)
+                ? 'package'
+                : BASIS_SINGLE_RE.test(basisRaw) ? 'single' : undefined;
 
             if (!name) continue;
             if (!price || price <= 0) {
-                rows.push({ name, price: 0, valid: false, reason: 'قیمت معتبر نیست', unitTitle, unitQty: null, brandTitle });
+                rows.push({ name, price: 0, valid: false, reason: 'قیمت معتبر نیست', unitTitle, unitQty: null, brandTitle, _basis: itemBasis });
                 continue;
             }
             const key = normalizeItemName(name);
             if (seenNames.has(key)) {
-                rows.push({ name, price, valid: false, reason: 'در همین لیست تکرار شده', unitTitle, unitQty: null, brandTitle });
+                rows.push({ name, price, valid: false, reason: 'در همین لیست تکرار شده', unitTitle, unitQty: null, brandTitle, _basis: itemBasis });
                 continue;
             }
             seenNames.add(key);
             rows.push({
                 name, price, valid: true, unitTitle,
-                unitQty: unitQty != null && unitQty >= 2 ? Math.floor(unitQty) : null,
+                unitQty: unitQty != null && unitQty >= 2 ? Math.floor(unitQty) : (unitQty != null && unitQty > 0 ? Math.floor(unitQty) : null),
                 brandTitle,
+                _basis: itemBasis,
             });
         }
         return rows;
