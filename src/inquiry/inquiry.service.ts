@@ -1311,7 +1311,10 @@ export class InquiryService implements OnModuleInit {
     }
 
     /** اتصال تامین‌کننده با بازوی فروشش (مدال دکمهٔ پیشنهاد/درخواست تامین) —
-     *  عمومی: اتصال فوری و فعال (خریدار برای همه قیمت می‌گیرد)؛ خصوصی: درخواست pending با تایید خریدار */
+     *  ✅ همیشه pending با تایید خریدار (خواستهٔ مالک، بازگشت از «اتصال فوری»):
+     *  هیچ تامین‌کننده‌ای بدون تایید صاحب بازوی خرید متصل نمی‌شود — رکورد پیشنهاد
+     *  در تب «تامین‌کنندگان» خریدار می‌آید و او قبول/رد می‌کند.
+     *  اگر از قبل active است، همان برگردانده می‌شود (بدون دوباره‌کاری). */
     async requestAccess(inquiryId: string, userId: string, dto: RequestInquiryAccessDto) {
         const inquiry = await this.prisma.inquiry.findUnique({ where: { id: inquiryId } });
         if (!inquiry || inquiry.status === 'archived') {
@@ -1339,31 +1342,21 @@ export class InquiryService implements OnModuleInit {
         if (existing && existing.status === 'active') {
             return existing; // از قبل متصل — همان را برگردان
         }
-        // ✅ سناریوی مالک: بازوی «عمومی» یعنی خریدار برای همه قیمت می‌گیرد →
-        //    انتخاب بازوی فروش، تامین‌کننده را همان لحظه متصل می‌کند (بدون انتظار تایید)؛
-        //    فقط بازوی «خصوصی» تایید خریدار می‌خواهد (pending).
-        const autoActivate = inquiry.visibility !== 'private';
+        // ✅ همیشه منتظر تایید خریدار — پیشنهاد تامین یعنی پیشنهاد؛ خریدار تصمیم می‌گیرد
         const member = existing
             ? await this.prisma.inquiryMember.update({
                   where: { id: existing.id },
-                  data: { status: autoActivate ? 'active' : 'pending', via: 'supplier_request', userId, note: dto.note ?? null },
+                  data: { status: 'pending', via: 'supplier_request', userId, note: dto.note ?? null },
               })
             : await this.prisma.inquiryMember.create({
-                  data: { inquiryId, catalogId: catalog.id, userId, status: autoActivate ? 'active' : 'pending', via: 'supplier_request', note: dto.note ?? null },
+                  data: { inquiryId, catalogId: catalog.id, userId, status: 'pending', via: 'supplier_request', note: dto.note ?? null },
               });
-        // ✅ عضویت متقابل بازوی فروش — اتصال فوری بازوی عمومی هم خریدار را در «اعضای بازوی فروش»
-        //    تامین‌کننده می‌گذارد (لِین خریدار — هم‌مسیر با تایید همکاری در decideMember)
-        if (autoActivate) {
-            await this.syncCatalogCustomerSide(catalog.id, inquiry);
-        }
-        // 🔔 به خریدار — اتصال/پیشنهاد تامین
+        // 🔔 به خریدار — پیشنهاد تامین در انتظار تایید
         void this.notification.notify({
             userIds: [inquiry.ownerUserId],
             type: 'inquiry_member_request',
-            title: autoActivate ? 'تامین‌کنندهٔ جدید' : 'پیشنهاد تامین',
-            body: autoActivate
-                ? `«${catalog.name}» با بازوی فروشش به بازوی خرید «${inquiry.title}» متصل شد`
-                : `«${catalog.name}» پیشنهاد تامین در بازوی خرید «${inquiry.title}» را دارد`,
+            title: 'پیشنهاد تامین',
+            body: `«${catalog.name}» پیشنهاد تامین در بازوی خرید «${inquiry.title}» را دارد — در تب تامین‌کنندگان قبول یا رد کن`,
             actorUserId: userId,
             href: '/my-inquiries?tab=members',
             businessId: inquiry.businessId ?? null,

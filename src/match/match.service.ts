@@ -107,7 +107,7 @@ export class MatchService {
             where: { id: adId },
             select: {
                 id: true, catalogId: true, productReferenceId: true, unitPrice: true,
-                title: true, productType: true, cityCode: true, city: true,
+                title: true, productType: true, cityCode: true, city: true, provinceCode: true,
                 unit: { select: { title: true, shortCode: true } },
             },
         });
@@ -136,6 +136,7 @@ export class MatchService {
                 inquiry: {
                     select: {
                         id: true, title: true, city: true, cityCode: true,
+                        province: true, provinceCode: true,
                         showContactPhone: true,
                         owner: { select: { fullName: true } },
                         business: { select: { name: true } },
@@ -167,7 +168,11 @@ export class MatchService {
                     buyerName: inquiry.owner?.fullName ?? null,
                     businessName: inquiry.business?.name ?? null,
                     city: inquiry.city ?? null,
+                    province: inquiry.province ?? null,
                     sameCity: !!(ad.cityCode && inquiry.cityCode && ad.cityCode === inquiry.cityCode),
+                    // ✅ هم‌استانی — فروشندهٔ عمده معمولاً کل استان را پوشش می‌دهد؛ بعد از هم‌شهری می‌آید
+                    sameProvince: !(ad.cityCode && inquiry.cityCode && ad.cityCode === inquiry.cityCode)
+                        && !!(ad.provinceCode && inquiry.provinceCode && ad.provinceCode === inquiry.provinceCode),
                     quantity: it.quantity ?? null,
                     unitTitle: it.unit ?? ad.unit?.title ?? null,
                     estimatedValue,
@@ -180,6 +185,7 @@ export class MatchService {
             })
             .sort((a, b) =>
                 (b.sameCity ? 1 : 0) - (a.sameCity ? 1 : 0) ||
+                (b.sameProvince ? 1 : 0) - (a.sameProvince ? 1 : 0) ||
                 (b.estimatedValue ?? 0) - (a.estimatedValue ?? 0),
             )
             .slice(0, 20);
@@ -297,5 +303,136 @@ export class MatchService {
             freeDaily,
             maxDaily,
         };
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // ۴) اعلان‌های خرید مرتبط با کالاهای من — سمت فروشنده (تب «اعلان خرید»)
+    //    بازوهای خریدِ بازِ بازار که همین حالا کالایِ مرجعِ کالاهای من را فعالانه
+    //    قیمت‌گیری می‌کنند و هنوز به هیچ‌کدام از بازوهای من متصل نیستند —
+    //    فرصتِ فروشِ جدید بدون جست‌وجو. رتبه‌بندی: هم‌شهری → هم‌استانی →
+    //    ارزشِ برآوردی (قیمتِ خودم × حجمِ خریدار) → تازگیِ اعلام.
+    //    هر بازوی خرید فقط با بهترین قلمش می‌آید؛ متصل‌ها و ردشده‌ها حذف‌اند.
+    // ────────────────────────────────────────────────────────────
+    async sellerDiscoveries(userId: string) {
+        const myCatalogs = await this.prisma.catalog.findMany({
+            where: {
+                status: 'active',
+                business: { OR: [{ ownerUserId: userId }, { creatorUserId: userId }] },
+            },
+            select: { id: true, name: true, logoUrl: true, cityCode: true, provinceCode: true },
+        });
+        if (!myCatalogs.length) return { items: [], total: 0 };
+
+        const catalogIds = myCatalogs.map((c) => c.id);
+        const ads = await this.prisma.ad.findMany({
+            where: {
+                catalogId: { in: catalogIds },
+                status: { not: 'deleted' },
+                productReferenceId: { not: null },
+            },
+            select: {
+                id: true, catalogId: true, productReferenceId: true, unitPrice: true,
+                unit: { select: { title: true, shortCode: true } },
+            },
+        });
+        if (!ads.length) return { items: [], total: 0 };
+
+        // برای هر کالای مرجع، کالای قیمت‌داری را مبنای برآورد بگذار که قیمتش پر است
+        const adByRef = new Map<string, (typeof ads)[number]>();
+        for (const ad of ads) {
+            const prev = adByRef.get(ad.productReferenceId!);
+            if (!prev || (!prev.unitPrice && ad.unitPrice)) adByRef.set(ad.productReferenceId!, ad);
+        }
+        const refIds = Array.from(adByRef.keys());
+
+        // عنوان کالای مرجع — چیپ «کالای مرتبط» در کارت
+        const refs = await this.prisma.productReference.findMany({
+            where: { id: { in: refIds } },
+            select: { id: true, title: true },
+        });
+        const refTitle = new Map(refs.map((r) => [r.id, r.title]));
+
+        // بازوهای خریدی که قبلاً با هرکدام از بازوهای من ردیف عضویت دارند
+        // (فعال/در انتظار/ردشده/حذف‌شده) — دیگر در کشف تکرار نمی‌شوند
+        const existingMembers = await this.prisma.inquiryMember.findMany({
+            where: { catalogId: { in: catalogIds } },
+            select: { inquiryId: true },
+        });
+        const excludeIds = Array.from(new Set(existingMembers.map((m) => m.inquiryId)));
+
+        const items = await this.prisma.inquiryItem.findMany({
+            where: {
+                urgent: true,
+                referenceItemId: { in: refIds },
+                inquiry: {
+                    status: 'open',
+                    ownerUserId: { not: userId },
+                    ...(excludeIds.length ? { id: { notIn: excludeIds } } : {}),
+                },
+            },
+            orderBy: { urgentAt: 'desc' },
+            take: 150,
+            select: {
+                id: true, quantity: true, unit: true, urgentAt: true, referenceItemId: true,
+                inquiry: {
+                    select: {
+                        id: true, title: true, slug: true,
+                        city: true, province: true, cityCode: true, provinceCode: true,
+                        business: { select: { name: true, logoUrl: true, verificationStatus: true } },
+                    },
+                },
+            },
+        });
+        if (!items.length) return { items: [], total: 0 };
+
+        const catById = new Map(myCatalogs.map((c) => [c.id, c]));
+        const rows = items
+            .map((it) => {
+                const ad = adByRef.get(it.referenceItemId!);
+                const cat = ad ? catById.get(ad.catalogId) : null;
+                const estimatedValue = ad?.unitPrice && it.quantity ? ad.unitPrice * it.quantity : null;
+                const inquiry = it.inquiry;
+                const sameCity = !!(cat?.cityCode && inquiry.cityCode && cat.cityCode === inquiry.cityCode);
+                const sameProvince = !sameCity
+                    && !!(cat?.provinceCode && inquiry.provinceCode && cat.provinceCode === inquiry.provinceCode);
+                return {
+                    inquiryId: inquiry.id,
+                    inquiryTitle: inquiry.title,
+                    slug: inquiry.slug ?? null,
+                    city: inquiry.city ?? null,
+                    province: inquiry.province ?? null,
+                    sameCity,
+                    sameProvince,
+                    buyer: inquiry.business
+                        ? {
+                              name: inquiry.business.name,
+                              logoUrl: inquiry.business.logoUrl,
+                              verified: inquiry.business.verificationStatus === 'approved',
+                          }
+                        : null,
+                    itemId: it.id,
+                    quantity: it.quantity ?? null,
+                    unitTitle: it.unit ?? ad?.unit?.title ?? null,
+                    matchedProductTitle: refTitle.get(it.referenceItemId!) ?? null,
+                    myCatalog: ad && cat ? { id: ad.catalogId, name: cat.name } : null,
+                    myAdId: ad?.id ?? null,
+                    estimatedValue,
+                    tier: dealTier(estimatedValue),
+                    urgentAt: it.urgentAt ?? null,
+                };
+            })
+            .sort((a, b) =>
+                (b.sameCity ? 1 : 0) - (a.sameCity ? 1 : 0) ||
+                (b.sameProvince ? 1 : 0) - (a.sameProvince ? 1 : 0) ||
+                (b.estimatedValue ?? 0) - (a.estimatedValue ?? 0) ||
+                new Date(b.urgentAt ?? 0).getTime() - new Date(a.urgentAt ?? 0).getTime(),
+            );
+
+        // هر بازوی خرید فقط یک‌بار — با بهترین قلمش
+        const seen = new Set<string>();
+        const best = rows
+            .filter((r) => (seen.has(r.inquiryId) ? false : (seen.add(r.inquiryId), true)))
+            .slice(0, 15);
+        return { items: best, total: rows.length };
     }
 }

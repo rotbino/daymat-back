@@ -28,6 +28,14 @@ export class MatchController {
         return this.matchService.buyersForAd(adId, user.id);
     }
 
+    @Get('discoveries')
+    @UseGuards(JwtAuthGuard)
+    @ApiBearerAuth('access-token')
+    @ApiOperation({ summary: 'اعلان‌های خرید مرتبط با کالاهای من — تب «اعلان خرید» پنل بازوی فروش' })
+    async discoveries(@CurrentUser() user: any) {
+        return this.matchService.sellerDiscoveries(user.id);
+    }
+
     @Post('reveal')
     @UseGuards(JwtAuthGuard)
     @ApiBearerAuth('access-token')
